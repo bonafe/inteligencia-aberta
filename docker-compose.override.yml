@@ -1,0 +1,16 @@
+# Overrides de desenvolvimento: volumes para hot-reload, sem restart policy
+services:
+  portal:
+    volumes:
+      - ./services/portal:/app
+    command: python manage.py runserver 0.0.0.0:8000
+
+  orchestrator:
+    volumes:
+      - ./services/orchestrator:/app
+    command: uvicorn main:app --host 0.0.0.0 --port 8001 --reload
+
+  mcp:
+    volumes:
+      - ./services/mcp:/app
+    command: uvicorn main:app --host 0.0.0.0 --port 8002 --reload

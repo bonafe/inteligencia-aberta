@@ -1,0 +1,60 @@
+services:
+  portal:
+    build: ./services/portal
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      minio:
+        condition: service_started
+    env_file: .env
+
+  orchestrator:
+    build: ./services/orchestrator
+    ports:
+      - "8001:8001"
+    depends_on:
+      db:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+      mcp:
+        condition: service_started
+    env_file: .env
+
+  mcp:
+    build: ./services/mcp
+    env_file: .env
+
+  db:
+    image: postgres:16-alpine
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infra/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
+    env_file: .env
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  qdrant:
+    image: qdrant/qdrant:v1.9.0
+    volumes:
+      - qdrant_data:/qdrant/storage
+      - ./infra/qdrant/config.yaml:/qdrant/config/production.yaml
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    ports:
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    env_file: .env
+
+volumes:
+  postgres_data:
+  qdrant_data:
+  minio_data:
