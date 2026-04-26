@@ -147,12 +147,12 @@ Formato: contexto → ação do usuário → o que o sistema faz → resultado e
 
 ## UC-07 — Investigação institucional com dados sigilosos (multi-tenant)
 
-**Persona:** P6 — Analista RFB ![](../../assets/img/personas/analista.png)  
+**Persona:** P6 — Auditor da Receita Federal ![](../../assets/img/personas/analista.png)  
 **Canal:** Web / API  
 **Classificação dos dados:** Confidencial (dados internos) + Público (fontes abertas)
 
 **Jornada:**
-1. Analista carrega dados internos da RFB (marcados automaticamente como confidenciais, tenant RFB).
+1. Auditor carrega dados internos da RFB (marcados automaticamente como confidenciais, tenant RFB).
 2. Define escopo da investigação: cruzar dados internos com CNPJ público, processos, imprensa.
 3. Sistema executa: dados internos → LLM local. Dados públicos → pode usar LLM externo.
 4. Agente correlacionador cruza os dois mundos sem expor dados internos para fora.

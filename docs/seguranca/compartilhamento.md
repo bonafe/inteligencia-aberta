@@ -65,9 +65,9 @@ A revogação não garante que o destinatário não tem cópias locais (limitaç
 - Advogado pode ler, mas não recompartilhar.
 - Compartilhamento expira ao fim do mandato.
 
-### Analista → Equipe (contexto institucional)
+### Auditor → Equipe (contexto institucional)
 
-- Dentro de uma organização institucional, analista compartilha relatório com sua equipe.
+- Dentro de uma organização institucional, o auditor compartilha relatório com sua equipe.
 - Equipe pode ler, líder pode aprovar ou rejeitar.
 - Dados não saem da organização — é compartilhamento interno.
 

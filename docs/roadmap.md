@@ -93,7 +93,7 @@ Cada fase deve entregar valor real a pelo menos uma persona. Nenhuma fase é "s�
 
 **Caso de uso habilitado:** UC-04 (paciente → médico), UC-07 (institucional).
 
-**Persona atendida:** P5 (Dra. Fernanda), P6 (Analista RFB).
+**Persona atendida:** P5 (Dra. Fernanda), P6 (Auditor da Receita Federal).
 
 ---
 

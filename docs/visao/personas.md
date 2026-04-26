@@ -94,9 +94,9 @@ Estas personas guiam todas as decisões de produto e especificação técnica. C
 
 ---
 
-## P6 — Analista, 29 anos, servidor da Receita Federal
+## P6 — Auditor da Receita Federal, 29 anos
 
-![Analista RFB](../../assets/img/personas/analista.png)
+![Auditor da Receita Federal](../../assets/img/personas/analista.png)
 
 **Contexto:** Faz análise de risco fiscal. Trabalha com dados internos da RFB e dados públicos. Precisa cruzar informações de múltiplas fontes.
 

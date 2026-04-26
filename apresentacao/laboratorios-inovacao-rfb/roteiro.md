@@ -105,7 +105,7 @@ Fontes: APIs públicas · Documentos · Dados privados do usuário
 | Persona | Caso |
 |---|---|
 | ![Dona Maria](../../assets/img/personas/maria.png) Dona Maria | Entende sua declaração de IR por voz |
-| ![Analista RFB](../../assets/img/personas/analista.png) Analista RFB | Cruza dados internos com fontes abertas com isolamento total |
+| ![Auditor da Receita Federal](../../assets/img/personas/analista.png) Auditor da Receita Federal | Cruza dados internos com fontes abertas com isolamento total |
 | ![João](../../assets/img/personas/joao.png) João | Acompanha processos e prazos em linguagem simples |
 | ![Carlos](../../assets/img/personas/carlos.png) Carlos | Analisa obrigações do seu CNPJ sem contador |
 
