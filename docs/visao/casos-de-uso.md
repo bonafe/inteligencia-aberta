@@ -8,7 +8,7 @@ Formato: contexto → ação do usuário → o que o sistema faz → resultado e
 
 ## UC-01 — Consulta de direitos previdenciários por voz
 
-**Persona:** P1 (Dona Maria)  
+**Persona:** P1 — Dona Maria ![](../../assets/img/personas/maria.png)  
 **Canal:** Voz  
 **Classificação dos dados:** Restrito (CPF, número do benefício)
 
@@ -32,7 +32,7 @@ Formato: contexto → ação do usuário → o que o sistema faz → resultado e
 
 ## UC-02 — Análise financeira do MEI
 
-**Persona:** P2 (Carlos)  
+**Persona:** P2 — Carlos ![](../../assets/img/personas/carlos.png)  
 **Canal:** Chat (texto/áudio)  
 **Classificação dos dados:** Confidencial (dados financeiros privados)
 
@@ -55,7 +55,7 @@ Formato: contexto → ação do usuário → o que o sistema faz → resultado e
 
 ## UC-03 — Acompanhamento de processo judicial
 
-**Persona:** P4 (João)  
+**Persona:** P4 — João ![](../../assets/img/personas/joao.png)  
 **Canal:** Chat / Voz  
 **Classificação dos dados:** Público (dados do processo) + Restrito (dados do usuário)
 
@@ -77,7 +77,7 @@ Formato: contexto → ação do usuário → o que o sistema faz → resultado e
 
 ## UC-04 — Compartilhamento de histórico médico com médico
 
-**Persona:** P1 ou P4 (paciente) → P5 (Dra. Fernanda)  
+**Persona:** P1/P4 (paciente) ![](../../assets/img/personas/maria.png) ![](../../assets/img/personas/joao.png) → P5 Dra. Fernanda ![](../../assets/img/personas/fernanda.png)  
 **Canal:** Chat (paciente) / Web (médica)  
 **Classificação dos dados:** Confidencial
 
@@ -100,7 +100,7 @@ Formato: contexto → ação do usuário → o que o sistema faz → resultado e
 
 ## UC-05 — Investigação de vínculos societários (OSINT)
 
-**Persona:** P3 (Priya) ou P7 (Rafael)  
+**Persona:** P3 — Priya ![](../../assets/img/personas/priya.png) ou P7 — Rafael ![](../../assets/img/personas/rafael.png)  
 **Canal:** Web / Chat  
 **Classificação dos dados:** Público
 
@@ -124,7 +124,7 @@ Formato: contexto → ação do usuário → o que o sistema faz → resultado e
 
 ## UC-06 — Declaração de IR assistida
 
-**Persona:** P2 (Carlos) ou P4 (João)  
+**Persona:** P2 — Carlos ![](../../assets/img/personas/carlos.png) ou P4 — João ![](../../assets/img/personas/joao.png)  
 **Canal:** Chat / Voz  
 **Classificação dos dados:** Confidencial
 
@@ -147,7 +147,7 @@ Formato: contexto → ação do usuário → o que o sistema faz → resultado e
 
 ## UC-07 — Investigação institucional com dados sigilosos (multi-tenant)
 
-**Persona:** P6 (Analista RFB)  
+**Persona:** P6 — Analista RFB ![](../../assets/img/personas/analista.png)  
 **Canal:** Web / API  
 **Classificação dos dados:** Confidencial (dados internos) + Público (fontes abertas)
 

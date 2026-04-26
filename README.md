@@ -18,6 +18,20 @@ A IA muda isso — ou deveria mudar.
 
 Acreditamos que cada cidadão tem o direito a um agente inteligente trabalhando para ele. Um agente que entenda sua linguagem, conheça seu contexto, guarde sua história com segurança e o ajude a tomar decisões melhores sobre saúde, finanças, impostos, direitos e tudo mais que compõe uma vida em sociedade. Não uma ferramenta para especialistas. Uma extensão da capacidade humana, acessível a qualquer pessoa.
 
+---
+
+Agir com inteligência é diferente de ser inteligente.
+
+Inteligência não é um traço fixo — é uma capacidade que depende de acesso. Acesso a informação confiável, a contexto relevante, a tempo para analisar, a alguém que explique o que está em jogo. Quando esses recursos existem, qualquer pessoa toma decisões melhores. Quando não existem, até os mais capazes ficam às escuras.
+
+É por isso que a desigualdade de informação é tão grave quanto a desigualdade de renda. Saber o que assinar antes de assinar. Entender o que o médico disse antes de decidir. Compreender o que um contrato implica antes de fechar negócio. Essas capacidades definem o que uma pessoa consegue proteger — seus direitos, sua saúde, seu dinheiro, seu tempo.
+
+Agentes de IA e modelos de linguagem mudam essa equação. Pela primeira vez, é possível ter acesso a um sistema que lê um documento complexo e o explica em linguagem simples, que encontra conexões entre informações dispersas, que responde perguntas específicas sobre situações reais — sem custo de consultoria, sem fila de espera, sem precisar saber de antemão qual especialista consultar.
+
+Não é magia. É processamento de linguagem aplicado ao que sempre fez diferença: transformar dados brutos em compreensão, e compreensão em ação.
+
+---
+
 Governos têm o dever de garantir esse acesso. Assim como o Estado provê educação, saúde e infraestrutura, deve prover acesso a modelos de linguagem e agentes inteligentes como serviço público. Excluir alguém dessa tecnologia é aprofundar a desigualdade em sua forma mais perversa — a desigualdade de capacidade de entender e agir sobre o próprio mundo.
 
 Este projeto nasce dessa convicção.

@@ -6,6 +6,8 @@ Estas personas guiam todas as decisões de produto e especificação técnica. C
 
 ## P1 — Dona Maria, 68 anos, aposentada
 
+![Dona Maria](../../assets/img/personas/maria.png)
+
 **Contexto:** Vive sozinha no interior, recebe INSS, tem celular Android básico. Nunca usou computador. Lê com dificuldade.
 
 **Necessidade:** Entender se tem direito a algum benefício adicional, conferir seus extratos, saber como funciona o imposto de renda de aposentada.
@@ -21,6 +23,8 @@ Estas personas guiam todas as decisões de produto e especificação técnica. C
 ---
 
 ## P2 — Carlos, 34 anos, MEI (microempreendedor individual)
+
+![Carlos](../../assets/img/personas/carlos.png)
 
 **Contexto:** Tem uma loja de bairro, faz DAS todo mês mas não entende bem o que está pagando. Usa smartphone com fluência, mas não tem contador.
 
@@ -38,6 +42,8 @@ Estas personas guiam todas as decisões de produto e especificação técnica. C
 
 ## P3 — Advogada Priya, 41 anos, defensoria pública
 
+![Advogada Priya](../../assets/img/personas/priya.png)
+
 **Contexto:** Atende dezenas de casos simultâneos, muitos envolvendo comunidades vulneráveis. Precisa de OSINT rápido e confiável para construir argumentações.
 
 **Necessidade:** Consultar rapidamente dados públicos sobre empresas, processos, vínculos societários, imóveis. Cruzar informações de múltiplas fontes com rastreabilidade.
@@ -53,6 +59,8 @@ Estas personas guiam todas as decisões de produto e especificação técnica. C
 ---
 
 ## P4 — João, 52 anos, morador de comunidade urbana
+
+![João](../../assets/img/personas/joao.png)
 
 **Contexto:** Sua rua tem um processo de reintegração de posse há anos. Ele quer entender o que está acontecendo mas nunca conseguiu falar com um advogado.
 
@@ -70,6 +78,8 @@ Estas personas guiam todas as decisões de produto e especificação técnica. C
 
 ## P5 — Dra. Fernanda, 45 anos, médica de família
 
+![Dra. Fernanda](../../assets/img/personas/fernanda.png)
+
 **Contexto:** Atende pacientes em UBS. Quer acesso ao histórico de saúde do paciente de forma rápida, com dados que o próprio paciente autoriza compartilhar.
 
 **Necessidade:** Consultar histórico de atendimentos anteriores, medicamentos em uso, alergias declaradas — todos fornecidos pelo paciente, não por sistemas hospitalares que ela não tem acesso.
@@ -86,6 +96,8 @@ Estas personas guiam todas as decisões de produto e especificação técnica. C
 
 ## P6 — Analista, 29 anos, servidor da Receita Federal
 
+![Analista RFB](../../assets/img/personas/analista.png)
+
 **Contexto:** Faz análise de risco fiscal. Trabalha com dados internos da RFB e dados públicos. Precisa cruzar informações de múltiplas fontes.
 
 **Necessidade:** Usar o sistema em contexto institucional, com segregação total dos dados da RFB dos dados pessoais de outros tenants.
@@ -101,6 +113,8 @@ Estas personas guiam todas as decisões de produto e especificação técnica. C
 ---
 
 ## P7 — Rafael, 23 anos, estudante universitário, ativista
+
+![Rafael](../../assets/img/personas/rafael.png)
 
 **Contexto:** Pesquisa financiamento de campanhas políticas e vínculos empresariais como hobby/ativismo. Tem letramento técnico médio.
 
