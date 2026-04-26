@@ -24,6 +24,22 @@ Este projeto nasce dessa convicção.
 
 ---
 
+## O que significa "Aberta"
+
+O nome carrega mais de uma camada — e todas são intencionais.
+
+**Fontes abertas** é a origem técnica: dados públicos, APIs governamentais, notícias, documentos de acesso livre. É o significado mais imediato, herdado do OSINT.
+
+**Software aberto** é o modelo de distribuição: licença MIT, repositório público, sem caixa preta. Qualquer cidadão, prefeitura ou governo pode auditar, adaptar e redistribuir.
+
+**Acesso aberto** é o compromisso de interface: voz, linguagem natural, sem exigência de letramento digital. Aberto para o idoso, para quem tem deficiência visual, para o empreendedor que nunca usou uma API.
+
+**Inteligência livre** é a dimensão mais política — e a mais honesta. No espírito do software livre (*free as in freedom*, não apenas *free as in free beer*), a proposta é que a capacidade de análise e de decisão informada não seja reservada a quem pode pagar por advogado, contador ou consultor. Inteligência como liberdade. Inteligência como direito.
+
+As quatro dimensões coexistem e se reforçam. Cada audiência — técnica, política, cidadã — encontra um significado legítimo no mesmo nome.
+
+---
+
 ## Visão
 
 O **Inteligência Aberta** é uma plataforma de agentes de IA construída para devolver poder de análise e ação ao cidadão. Começa com fontes abertas — OSINT — mas vai além: o usuário pode trazer seus próprios dados sigilosos, e o sistema os guarda com segurança, nunca os expondo sem autorização explícita.
