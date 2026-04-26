@@ -449,6 +449,15 @@
         .footer-links a:hover { color: rgba(255,255,255,0.8); }
 
         /* ── RESPONSIVE ──────────────────────────── */
+        @media (max-width: 768px) {
+            .nav-links {
+                gap: 0.85rem;
+                overflow-x: auto;
+                -webkit-overflow-scrolling: touch;
+                scrollbar-width: none;
+            }
+            .nav-links::-webkit-scrollbar { display: none; }
+        }
         @media (max-width: 640px) {
             nav { padding: 0 1.25rem; }
             section { padding: 4rem 1.25rem; }
@@ -470,8 +479,11 @@
         Inteligência Aberta
     </a>
     <ul class="nav-links">
+        <li><a href="sobre.html">Sobre</a></li>
+        <li><a href="jornada.html">Jornada</a></li>
+        <li><a href="diario.html">Diário</a></li>
         <li><a href="manifesto.html">Manifesto</a></li>
-        <li><a href="apresentacao/laboratorios-inovacao-rfb/">Apresentação</a></li>
+        <li><a href="contribua.html">Contribua</a></li>
         <li><a href="https://github.com/bonafe/inteligencia-aberta" class="btn-nav" target="_blank" rel="noopener">GitHub →</a></li>
     </ul>
 </nav>
@@ -729,9 +741,13 @@
     <div class="footer-inner">
         <span class="footer-logo">Inteligência Aberta</span>
         <ul class="footer-links">
+            <li><a href="sobre.html">Sobre</a></li>
+            <li><a href="jornada.html">Jornada</a></li>
+            <li><a href="diario.html">Diário</a></li>
             <li><a href="manifesto.html">Manifesto</a></li>
+            <li><a href="contribua.html">Contribua</a></li>
             <li><a href="https://github.com/bonafe/inteligencia-aberta" target="_blank" rel="noopener">GitHub</a></li>
-            <li><a href="https://github.com/bonafe/inteligencia-aberta/blob/main/LICENSE" target="_blank" rel="noopener">Licença MIT</a></li>
+            <li><a href="https://github.com/bonafe/inteligencia-aberta/blob/main/LICENSE" target="_blank" rel="noopener">MIT</a></li>
         </ul>
         <span>© 2026 Fernando Bonafé · Software livre</span>
     </div>

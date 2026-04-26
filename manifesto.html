@@ -43,25 +43,40 @@
             padding: 0 2rem;
             height: 60px;
             display: flex; align-items: center; justify-content: space-between;
+            gap: 1rem;
             font-family: 'Inter', sans-serif;
         }
-        .nav-back {
-            color: rgba(255,255,255,0.65);
-            text-decoration: none;
-            font-size: 0.875rem; font-weight: 500;
-            display: flex; align-items: center; gap: 0.4rem;
-            transition: color 0.2s;
-        }
-        .nav-back:hover { color: white; }
         .nav-logo {
-            font-size: 0.9rem; font-weight: 700;
-            color: rgba(255,255,255,0.5);
+            font-size: 1rem; font-weight: 700;
+            color: white; text-decoration: none;
             display: flex; align-items: center; gap: 0.5rem;
+            flex-shrink: 0;
         }
         .nav-logo-dot {
-            width: 7px; height: 7px; border-radius: 50%;
-            background: var(--green);
+            width: 8px; height: 8px; border-radius: 50%;
+            background: var(--green); flex-shrink: 0;
         }
+        .nav-links {
+            display: flex; align-items: center; gap: 1.5rem;
+            list-style: none;
+        }
+        .nav-links a {
+            color: rgba(255,255,255,0.7);
+            text-decoration: none;
+            font-size: 0.875rem; font-weight: 500;
+            transition: color 0.2s;
+            white-space: nowrap;
+        }
+        .nav-links a:hover { color: white; }
+        .nav-links a.active { color: white; }
+        .btn-nav {
+            background: var(--green) !important;
+            color: white !important;
+            padding: 0.4rem 1rem;
+            border-radius: 6px;
+            font-weight: 600 !important;
+        }
+        .btn-nav:hover { background: var(--green-light) !important; }
 
         /* ── HERO ────────────────────────────────── */
         .hero {
@@ -268,6 +283,15 @@
         .footer-links a:hover { color: rgba(255,255,255,0.8); }
 
         /* ── RESPONSIVE ──────────────────────────── */
+        @media (max-width: 768px) {
+            .nav-links {
+                gap: 0.85rem;
+                overflow-x: auto;
+                -webkit-overflow-scrolling: touch;
+                scrollbar-width: none;
+            }
+            .nav-links::-webkit-scrollbar { display: none; }
+        }
         @media (max-width: 640px) {
             nav { padding: 0 1.25rem; }
             .hero { padding: 7rem 1.25rem 4rem; }
@@ -281,11 +305,18 @@
 
 <!-- ── NAV ───────────────────────────────────── -->
 <nav>
-    <a href="index.html" class="nav-back">← Início</a>
-    <span class="nav-logo">
+    <a href="index.html" class="nav-logo">
         <span class="nav-logo-dot"></span>
         Inteligência Aberta
-    </span>
+    </a>
+    <ul class="nav-links">
+        <li><a href="sobre.html">Sobre</a></li>
+        <li><a href="jornada.html">Jornada</a></li>
+        <li><a href="diario.html">Diário</a></li>
+        <li><a href="manifesto.html" class="active">Manifesto</a></li>
+        <li><a href="contribua.html">Contribua</a></li>
+        <li><a href="https://github.com/bonafe/inteligencia-aberta" class="btn-nav" target="_blank" rel="noopener">GitHub →</a></li>
+    </ul>
 </nav>
 
 <!-- ── HERO ──────────────────────────────────── -->
@@ -381,9 +412,13 @@
     <div class="footer-inner">
         <span class="footer-logo">Inteligência Aberta</span>
         <ul class="footer-links">
-            <li><a href="index.html">Início</a></li>
+            <li><a href="sobre.html">Sobre</a></li>
+            <li><a href="jornada.html">Jornada</a></li>
+            <li><a href="diario.html">Diário</a></li>
+            <li><a href="manifesto.html">Manifesto</a></li>
+            <li><a href="contribua.html">Contribua</a></li>
             <li><a href="https://github.com/bonafe/inteligencia-aberta" target="_blank" rel="noopener">GitHub</a></li>
-            <li><a href="https://github.com/bonafe/inteligencia-aberta/blob/main/LICENSE" target="_blank" rel="noopener">Licença MIT</a></li>
+            <li><a href="https://github.com/bonafe/inteligencia-aberta/blob/main/LICENSE" target="_blank" rel="noopener">MIT</a></li>
         </ul>
         <span>© 2026 Fernando Bonafé · Software livre</span>
     </div>

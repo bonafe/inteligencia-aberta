@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Diário de Bordo — Inteligência Aberta</title>
+    <meta name="description" content="O que está acontecendo no projeto Inteligência Aberta — registro direto dos integrantes.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Lora:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --navy:        #080f1e;
+            --navy-2:      #0d1b35;
+            --green:       #10b981;
+            --green-light: #34d399;
+            --green-dim:   rgba(16,185,129,0.12);
+            --text:        #1e293b;
+            --text-muted:  #64748b;
+            --bg-alt:      #f8fafc;
+            --border:      #e2e8f0;
+            --radius:      12px;
+            --max-w:       1120px;
+            --max-w-text:  700px;
+            --shadow:      0 2px 12px rgba(0,0,0,0.08);
+        }
+
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        html { scroll-behavior: smooth; }
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            color: var(--text);
+            line-height: 1.6;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        /* ── NAV ─────────────────────────────────── */
+        nav {
+            position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+            background: rgba(8,15,30,0.93);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border-bottom: 1px solid rgba(255,255,255,0.06);
+            padding: 0 2rem;
+            height: 60px;
+            display: flex; align-items: center; justify-content: space-between;
+            gap: 1rem;
+        }
+        .nav-logo {
+            font-size: 1rem; font-weight: 700;
+            color: white; text-decoration: none;
+            display: flex; align-items: center; gap: 0.5rem;
+            flex-shrink: 0;
+        }
+        .nav-logo-dot {
+            width: 8px; height: 8px; border-radius: 50%;
+            background: var(--green); flex-shrink: 0;
+        }
+        .nav-links {
+            display: flex; align-items: center; gap: 1.5rem;
+            list-style: none;
+        }
+        .nav-links a {
+            color: rgba(255,255,255,0.7);
+            text-decoration: none;
+            font-size: 0.875rem; font-weight: 500;
+            transition: color 0.2s;
+            white-space: nowrap;
+        }
+        .nav-links a:hover { color: white; }
+        .nav-links a.active { color: white; }
+        .btn-nav {
+            background: var(--green) !important;
+            color: white !important;
+            padding: 0.4rem 1rem;
+            border-radius: 6px;
+            font-weight: 600 !important;
+        }
+        .btn-nav:hover { background: var(--green-light) !important; }
+
+        /* ── HERO ────────────────────────────────── */
+        .hero {
+            background: var(--navy);
+            padding: 9rem 2rem 6rem;
+            text-align: center;
+            position: relative; overflow: hidden;
+        }
+        .hero::before {
+            content: '';
+            position: absolute; inset: 0;
+            background-image:
+                linear-gradient(rgba(16,185,129,0.03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(16,185,129,0.03) 1px, transparent 1px);
+            background-size: 60px 60px;
+            pointer-events: none;
+        }
+        .hero-inner { position: relative; z-index: 1; }
+        .hero-eyebrow {
+            display: inline-block;
+            font-size: 0.72rem; font-weight: 700;
+            letter-spacing: 0.14em; text-transform: uppercase;
+            color: var(--green-light);
+            margin-bottom: 1.5rem;
+        }
+        .hero h1 {
+            font-size: clamp(2.5rem, 5vw, 3.75rem);
+            font-weight: 900;
+            color: white;
+            line-height: 1.05;
+            letter-spacing: -0.03em;
+            margin-bottom: 1.25rem;
+        }
+        .hero-sub {
+            font-size: clamp(1rem, 2vw, 1.2rem);
+            color: rgba(255,255,255,0.5);
+            max-width: 540px;
+            margin: 0 auto;
+            line-height: 1.75;
+        }
+
+        /* ── ENTRIES SECTION ─────────────────────── */
+        .s-entries {
+            background: var(--bg-alt);
+            padding: 5.5rem 2rem;
+        }
+        .container { max-width: var(--max-w); margin: 0 auto; }
+
+        /* ── ENTRY CARD ──────────────────────────── */
+        .entries-list {
+            display: flex; flex-direction: column; gap: 2rem;
+            max-width: var(--max-w-text);
+        }
+        .entry-card {
+            background: white;
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            overflow: hidden;
+            transition: box-shadow 0.2s;
+        }
+        .entry-card:hover {
+            box-shadow: var(--shadow);
+        }
+        .entry-header {
+            padding: 1.75rem 2rem 0;
+        }
+        .entry-meta {
+            display: flex; align-items: center; gap: 0.75rem;
+            flex-wrap: wrap;
+            margin-bottom: 1rem;
+        }
+        .entry-date {
+            font-size: 0.8rem; font-weight: 600;
+            color: var(--text-muted);
+        }
+        .entry-sep {
+            width: 3px; height: 3px; border-radius: 50%;
+            background: var(--border);
+            flex-shrink: 0;
+        }
+        .entry-author {
+            font-size: 0.8rem; font-weight: 600;
+            color: var(--green);
+        }
+        .entry-title {
+            font-family: 'Lora', Georgia, serif;
+            font-size: 1.4rem; font-weight: 600;
+            color: var(--text);
+            line-height: 1.35;
+            margin-bottom: 0;
+        }
+        .entry-body {
+            padding: 1.25rem 2rem 1.75rem;
+        }
+        .entry-body p {
+            font-family: 'Lora', Georgia, serif;
+            font-size: 1rem;
+            color: var(--text);
+            line-height: 1.85;
+            margin-bottom: 1.1rem;
+        }
+        .entry-body p:last-child { margin-bottom: 0; }
+        .entry-body em { color: var(--text-muted); }
+
+        /* ── CALL TO WRITE ───────────────────────── */
+        .write-cta {
+            max-width: var(--max-w-text);
+            margin-top: 2.5rem;
+            background: white;
+            border: 1px dashed var(--border);
+            border-radius: var(--radius);
+            padding: 1.75rem 2rem;
+            display: flex; align-items: center; gap: 1.25rem;
+        }
+        .write-cta-icon {
+            font-size: 1.75rem; flex-shrink: 0;
+        }
+        .write-cta-text h3 {
+            font-size: 0.93rem; font-weight: 700;
+            color: var(--text);
+            margin-bottom: 0.3rem;
+        }
+        .write-cta-text p {
+            font-size: 0.845rem;
+            color: var(--text-muted);
+            line-height: 1.6;
+        }
+        .write-cta-text a {
+            color: var(--green);
+            text-decoration: none;
+        }
+        .write-cta-text a:hover { text-decoration: underline; }
+
+        /* ── FOOTER ──────────────────────────────── */
+        footer {
+            background: #050b15;
+            color: rgba(255,255,255,0.4);
+            padding: 3rem 2rem;
+            font-size: 0.875rem;
+        }
+        .footer-inner {
+            max-width: var(--max-w); margin: 0 auto;
+            display: flex; align-items: center; justify-content: space-between;
+            flex-wrap: wrap; gap: 1.5rem;
+        }
+        .footer-logo { font-size: 0.95rem; font-weight: 700; color: rgba(255,255,255,0.65); }
+        .footer-links { display: flex; gap: 1.75rem; list-style: none; flex-wrap: wrap; }
+        .footer-links a { color: rgba(255,255,255,0.4); text-decoration: none; transition: color 0.2s; }
+        .footer-links a:hover { color: rgba(255,255,255,0.8); }
+
+        /* ── RESPONSIVE ──────────────────────────── */
+        @media (max-width: 768px) {
+            .nav-links {
+                gap: 0.85rem;
+                overflow-x: auto;
+                -webkit-overflow-scrolling: touch;
+                scrollbar-width: none;
+            }
+            .nav-links::-webkit-scrollbar { display: none; }
+        }
+        @media (max-width: 640px) {
+            nav { padding: 0 1.25rem; }
+            .s-entries { padding: 4rem 1.25rem; }
+            .hero { padding: 8rem 1.25rem 5rem; }
+            .entry-header { padding: 1.5rem 1.5rem 0; }
+            .entry-body { padding: 1rem 1.5rem 1.5rem; }
+            .footer-inner { flex-direction: column; align-items: flex-start; }
+        }
+    </style>
+</head>
+<body>
+
+<!-- ── NAV ───────────────────────────────────── -->
+<nav>
+    <a href="index.html" class="nav-logo">
+        <span class="nav-logo-dot"></span>
+        Inteligência Aberta
+    </a>
+    <ul class="nav-links">
+        <li><a href="sobre.html">Sobre</a></li>
+        <li><a href="jornada.html">Jornada</a></li>
+        <li><a href="diario.html" class="active">Diário</a></li>
+        <li><a href="manifesto.html">Manifesto</a></li>
+        <li><a href="contribua.html">Contribua</a></li>
+        <li><a href="https://github.com/bonafe/inteligencia-aberta" class="btn-nav" target="_blank" rel="noopener">GitHub →</a></li>
+    </ul>
+</nav>
+
+<!-- ── HERO ──────────────────────────────────── -->
+<section class="hero">
+    <div class="hero-inner">
+        <span class="hero-eyebrow">Diário de bordo</span>
+        <h1>O que está acontecendo</h1>
+        <p class="hero-sub">
+            Registro direto dos integrantes — progressos, dúvidas,
+            mudanças de rota e aprendizados. Sem filtro corporativo.
+        </p>
+    </div>
+</section>
+
+<!-- ── ENTRIES ───────────────────────────────── -->
+<section class="s-entries">
+    <div class="container">
+        <div class="entries-list">
+
+            <!-- Entrada 2 -->
+            <article class="entry-card">
+                <div class="entry-header">
+                    <div class="entry-meta">
+                        <span class="entry-date">26 de abril de 2026</span>
+                        <span class="entry-sep"></span>
+                        <span class="entry-author">Fernando Bonafé</span>
+                    </div>
+                    <h2 class="entry-title">Novas páginas, nova estrutura</h2>
+                </div>
+                <div class="entry-body">
+                    <p>Depois de publicar o site, ficou evidente que faltavam algumas peças. A landing page explica o que o sistema faz. O manifesto explica por quê. Mas não havia lugar para contar a história do projeto, apresentar as pessoas por trás, ou mostrar como o desenvolvimento está evoluindo.</p>
+                    <p>Então adicionamos quatro páginas novas: esta que você está lendo agora, uma <a href="sobre.html" style="color:var(--green);text-decoration:none">página sobre o projeto e a equipe</a>, uma <a href="jornada.html" style="color:var(--green);text-decoration:none">linha do tempo</a> que vai crescer com o projeto, e uma <a href="contribua.html" style="color:var(--green);text-decoration:none">página explicando como contribuir</a>.</p>
+                    <p><em>Pequenos projetos morrem quando ficam opacos. Este diário existe exatamente para evitar isso — para que haja um registro vivo de que há pessoas aqui, construindo, errando, aprendendo e avançando.</em></p>
+                </div>
+            </article>
+
+            <!-- Entrada 1 -->
+            <article class="entry-card">
+                <div class="entry-header">
+                    <div class="entry-meta">
+                        <span class="entry-date">26 de abril de 2026</span>
+                        <span class="entry-sep"></span>
+                        <span class="entry-author">Fernando Bonafé</span>
+                    </div>
+                    <h2 class="entry-title">O site existe</h2>
+                </div>
+                <div class="entry-body">
+                    <p>Publicamos o site hoje. Soa simples mas foi uma decisão importante — era hora de parar de construir em segredo e começar a construir em público.</p>
+                    <p>Havia uma resistência natural: a sensação de que "ainda não está pronto", de que falta mais código, mais features, mais certeza sobre a direção. Mas um manifesto publicado importa mais do que um manifesto escrito na gaveta. E um repositório público força uma disciplina que o desenvolvimento privado não tem: você precisa ser claro sobre o que está fazendo e por quê.</p>
+                    <p>Então: o Inteligência Aberta existe agora. O MVP ainda está em construção. O código é público. A documentação está no GitHub. O manifesto está aqui. <em>Isso é suficiente para começar.</em></p>
+                </div>
+            </article>
+
+            <!-- Call to write -->
+            <div class="write-cta">
+                <div class="write-cta-icon">✍️</div>
+                <div class="write-cta-text">
+                    <h3>Quer escrever uma entrada?</h3>
+                    <p>O diário é aberto aos integrantes do projeto. Se você está contribuindo e quer registrar o que está fazendo, veja como em <a href="contribua.html">como contribuir</a> ou abra uma issue no <a href="https://github.com/bonafe/inteligencia-aberta" target="_blank" rel="noopener">GitHub</a>.</p>
+                </div>
+            </div>
+
+        </div>
+    </div>
+</section>
+
+<!-- ── FOOTER ─────────────────────────────────── -->
+<footer>
+    <div class="footer-inner">
+        <span class="footer-logo">Inteligência Aberta</span>
+        <ul class="footer-links">
+            <li><a href="sobre.html">Sobre</a></li>
+            <li><a href="jornada.html">Jornada</a></li>
+            <li><a href="diario.html">Diário</a></li>
+            <li><a href="manifesto.html">Manifesto</a></li>
+            <li><a href="contribua.html">Contribua</a></li>
+            <li><a href="https://github.com/bonafe/inteligencia-aberta" target="_blank" rel="noopener">GitHub</a></li>
+            <li><a href="https://github.com/bonafe/inteligencia-aberta/blob/main/LICENSE" target="_blank" rel="noopener">MIT</a></li>
+        </ul>
+        <span>© 2026 Fernando Bonafé · Software livre</span>
+    </div>
+</footer>
+
+</body>
+</html>
