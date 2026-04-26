@@ -1,0 +1,741 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Inteligência Aberta — Agentes de IA a serviço de cada cidadão</title>
+    <meta name="description" content="Plataforma de agentes de IA para transformar dados públicos e privados em inteligência acionável, rastreável e ética. Software livre, acesso aberto.">
+    <meta property="og:title" content="Inteligência Aberta">
+    <meta property="og:description" content="Agentes de IA a serviço de cada cidadão — inteligência como direito, não privilégio.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --navy:        #080f1e;
+            --navy-2:      #0d1b35;
+            --green:       #10b981;
+            --green-light: #34d399;
+            --green-dim:   rgba(16,185,129,0.12);
+            --text:        #1e293b;
+            --text-muted:  #64748b;
+            --white:       #ffffff;
+            --bg-alt:      #f8fafc;
+            --border:      #e2e8f0;
+            --radius:      12px;
+            --max-w:       1120px;
+            --shadow:      0 2px 12px rgba(0,0,0,0.08);
+        }
+
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        html { scroll-behavior: smooth; }
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            color: var(--text);
+            line-height: 1.6;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        /* ── NAV ─────────────────────────────────── */
+        nav {
+            position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+            background: rgba(8,15,30,0.93);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border-bottom: 1px solid rgba(255,255,255,0.06);
+            padding: 0 2rem;
+            height: 60px;
+            display: flex; align-items: center; justify-content: space-between;
+        }
+        .nav-logo {
+            font-size: 1rem; font-weight: 700;
+            color: white; text-decoration: none;
+            display: flex; align-items: center; gap: 0.5rem;
+        }
+        .nav-logo-dot {
+            width: 8px; height: 8px; border-radius: 50%;
+            background: var(--green);
+            flex-shrink: 0;
+        }
+        .nav-links {
+            display: flex; align-items: center; gap: 1.5rem;
+            list-style: none;
+        }
+        .nav-links a {
+            color: rgba(255,255,255,0.7);
+            text-decoration: none;
+            font-size: 0.875rem; font-weight: 500;
+            transition: color 0.2s;
+        }
+        .nav-links a:hover { color: white; }
+        .btn-nav {
+            background: var(--green) !important;
+            color: white !important;
+            padding: 0.4rem 1rem;
+            border-radius: 6px;
+            font-weight: 600 !important;
+        }
+        .btn-nav:hover { background: var(--green-light) !important; }
+
+        /* ── HERO ────────────────────────────────── */
+        .hero {
+            background: var(--navy);
+            padding: 10rem 2rem 7rem;
+            min-height: 92vh;
+            display: flex; align-items: center;
+            position: relative; overflow: hidden;
+        }
+        .hero::before {
+            content: '';
+            position: absolute; inset: 0;
+            background-image:
+                linear-gradient(rgba(16,185,129,0.035) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(16,185,129,0.035) 1px, transparent 1px);
+            background-size: 60px 60px;
+            pointer-events: none;
+        }
+        .hero-inner {
+            max-width: var(--max-w); margin: 0 auto;
+            position: relative; z-index: 1;
+        }
+        .hero-tag {
+            display: inline-flex; align-items: center; gap: 0.5rem;
+            background: var(--green-dim);
+            border: 1px solid rgba(16,185,129,0.25);
+            color: var(--green-light);
+            font-size: 0.72rem; font-weight: 700;
+            letter-spacing: 0.1em; text-transform: uppercase;
+            padding: 0.35rem 0.85rem; border-radius: 100px;
+            margin-bottom: 2.5rem;
+        }
+        .hero h1 {
+            font-size: clamp(3.5rem, 8vw, 6rem);
+            font-weight: 900;
+            color: white;
+            line-height: 1.0;
+            letter-spacing: -0.035em;
+            margin-bottom: 1.5rem;
+        }
+        .hero h1 em {
+            font-style: normal;
+            color: var(--green-light);
+        }
+        .hero-sub {
+            font-size: clamp(1rem, 2.5vw, 1.25rem);
+            color: rgba(255,255,255,0.6);
+            max-width: 580px;
+            margin-bottom: 2rem;
+            font-weight: 300;
+            line-height: 1.75;
+        }
+        .hero-quote {
+            font-size: clamp(0.95rem, 2vw, 1.1rem);
+            color: rgba(255,255,255,0.4);
+            font-style: italic;
+            border-left: 2px solid var(--green);
+            padding-left: 1.1rem;
+            margin-bottom: 3rem;
+            max-width: 460px;
+        }
+        .hero-ctas {
+            display: flex; gap: 1rem; flex-wrap: wrap;
+        }
+        .btn {
+            display: inline-flex; align-items: center; gap: 0.5rem;
+            padding: 0.75rem 1.75rem;
+            border-radius: 8px;
+            font-size: 0.95rem; font-weight: 600;
+            text-decoration: none;
+            transition: all 0.2s;
+        }
+        .btn-primary {
+            background: var(--green);
+            color: white;
+        }
+        .btn-primary:hover {
+            background: var(--green-light);
+            transform: translateY(-1px);
+            box-shadow: 0 4px 20px rgba(16,185,129,0.4);
+        }
+        .btn-ghost {
+            background: transparent;
+            color: rgba(255,255,255,0.75);
+            border: 1px solid rgba(255,255,255,0.18);
+        }
+        .btn-ghost:hover {
+            background: rgba(255,255,255,0.06);
+            border-color: rgba(255,255,255,0.35);
+            color: white;
+        }
+
+        /* ── SECTION BASE ────────────────────────── */
+        section { padding: 5.5rem 2rem; }
+        .container { max-width: var(--max-w); margin: 0 auto; }
+        .section-tag {
+            font-size: 0.72rem; font-weight: 700;
+            letter-spacing: 0.12em; text-transform: uppercase;
+            color: var(--green);
+            margin-bottom: 0.6rem;
+        }
+        .section-title {
+            font-size: clamp(1.8rem, 4vw, 2.6rem);
+            font-weight: 800;
+            letter-spacing: -0.025em;
+            line-height: 1.15;
+            margin-bottom: 0.85rem;
+        }
+        .section-sub {
+            color: var(--text-muted);
+            font-size: 1.05rem;
+            max-width: 560px;
+            line-height: 1.75;
+            margin-bottom: 3rem;
+        }
+
+        /* ── ABERTA ──────────────────────────────── */
+        .s-aberta { background: var(--navy-2); }
+        .s-aberta .section-title { color: white; }
+        .s-aberta .section-sub    { color: rgba(255,255,255,0.5); }
+        .aberta-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            gap: 1.25rem;
+        }
+        .aberta-card {
+            background: rgba(255,255,255,0.04);
+            border: 1px solid rgba(255,255,255,0.07);
+            border-radius: var(--radius);
+            padding: 2rem 1.75rem;
+            transition: all 0.25s;
+        }
+        .aberta-card:hover {
+            background: rgba(255,255,255,0.07);
+            border-color: rgba(16,185,129,0.35);
+            transform: translateY(-3px);
+        }
+        .aberta-icon { font-size: 1.8rem; margin-bottom: 1rem; }
+        .aberta-badge {
+            display: inline-block;
+            font-size: 0.68rem; font-weight: 700;
+            letter-spacing: 0.08em; text-transform: uppercase;
+            color: var(--green-light);
+            background: var(--green-dim);
+            padding: 0.18rem 0.6rem;
+            border-radius: 4px;
+            margin-bottom: 0.65rem;
+        }
+        .aberta-card h3 {
+            font-size: 1rem; font-weight: 700;
+            color: white; margin-bottom: 0.5rem;
+        }
+        .aberta-card p {
+            font-size: 0.875rem;
+            color: rgba(255,255,255,0.5);
+            line-height: 1.7;
+        }
+
+        /* ── PERSONAS ────────────────────────────── */
+        .s-personas { background: white; }
+        .personas-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(138px, 1fr));
+            gap: 1.25rem;
+        }
+        .persona-card {
+            text-align: center;
+            padding: 1.75rem 1rem 1.5rem;
+            border-radius: var(--radius);
+            border: 1px solid var(--border);
+            background: white;
+            transition: all 0.2s;
+        }
+        .persona-card:hover {
+            border-color: var(--green);
+            box-shadow: var(--shadow);
+            transform: translateY(-3px);
+        }
+        .persona-photo {
+            width: 76px; height: 76px;
+            border-radius: 50%;
+            object-fit: cover;
+            margin: 0 auto 0.85rem;
+            display: block;
+            border: 3px solid var(--border);
+            transition: border-color 0.2s;
+        }
+        .persona-card:hover .persona-photo { border-color: var(--green); }
+        .persona-name {
+            font-size: 0.875rem; font-weight: 700;
+            color: var(--text);
+            margin-bottom: 0.25rem;
+        }
+        .persona-role {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            line-height: 1.45;
+        }
+
+        /* ── COMO FUNCIONA ───────────────────────── */
+        .s-como { background: var(--bg-alt); }
+        .cycle-flow {
+            display: flex; align-items: center; justify-content: center;
+            gap: 1rem; flex-wrap: wrap;
+            margin-bottom: 3.5rem;
+        }
+        .cycle-node {
+            text-align: center;
+        }
+        .cycle-box {
+            background: white;
+            border: 2px solid var(--border);
+            border-radius: var(--radius);
+            padding: 0.9rem 1.75rem;
+            font-size: 1rem; font-weight: 700;
+            color: var(--text);
+        }
+        .cycle-box.navy {
+            background: var(--navy);
+            border-color: var(--navy);
+            color: white;
+        }
+        .cycle-box.green {
+            background: var(--green);
+            border-color: var(--green);
+            color: white;
+        }
+        .cycle-label {
+            font-size: 0.68rem; font-weight: 600;
+            text-transform: uppercase; letter-spacing: 0.08em;
+            color: var(--text-muted);
+            margin-top: 0.4rem;
+        }
+        .cycle-arrow {
+            color: var(--text-muted);
+            font-size: 1.4rem; line-height: 1;
+            margin-top: -1rem;
+        }
+        .agents-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(145px, 1fr));
+            gap: 1rem;
+        }
+        .agent-card {
+            background: white;
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 1.25rem;
+            transition: all 0.2s;
+        }
+        .agent-card:hover {
+            border-color: var(--green);
+            box-shadow: var(--shadow);
+        }
+        .agent-num {
+            font-size: 0.68rem; font-weight: 800;
+            letter-spacing: 0.1em; text-transform: uppercase;
+            color: var(--green);
+            margin-bottom: 0.5rem;
+        }
+        .agent-name {
+            font-size: 0.95rem; font-weight: 700;
+            color: var(--text);
+            margin-bottom: 0.35rem;
+        }
+        .agent-desc {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            line-height: 1.55;
+        }
+
+        /* ── PRINCÍPIOS ──────────────────────────── */
+        .s-principios { background: white; }
+        .principios-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+            gap: 1.1rem;
+        }
+        .principio {
+            background: var(--bg-alt);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 1.5rem;
+            transition: all 0.2s;
+        }
+        .principio:hover {
+            border-color: var(--green);
+            background: white;
+            box-shadow: var(--shadow);
+        }
+        .principio-icon { font-size: 1.4rem; margin-bottom: 0.7rem; }
+        .principio-name {
+            font-size: 0.93rem; font-weight: 700;
+            color: var(--text);
+            margin-bottom: 0.35rem;
+        }
+        .principio-desc {
+            font-size: 0.83rem;
+            color: var(--text-muted);
+            line-height: 1.65;
+        }
+
+        /* ── STATUS ──────────────────────────────── */
+        .s-status { background: var(--navy); }
+        .s-status .section-title { color: white; }
+        .s-status .section-sub    { color: rgba(255,255,255,0.5); }
+        .status-badge {
+            display: inline-flex; align-items: center; gap: 0.5rem;
+            background: rgba(251,191,36,0.12);
+            border: 1px solid rgba(251,191,36,0.28);
+            color: #fbbf24;
+            font-size: 0.8rem; font-weight: 600;
+            padding: 0.4rem 1rem; border-radius: 100px;
+            margin-bottom: 2.5rem;
+        }
+        .pulse {
+            width: 7px; height: 7px; border-radius: 50%;
+            background: #fbbf24;
+            animation: pulse 2s ease-in-out infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50%       { opacity: 0.35; }
+        }
+        .roadmap-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(270px, 1fr));
+            gap: 0.75rem;
+            margin-bottom: 3rem;
+        }
+        .roadmap-item {
+            display: flex; align-items: flex-start; gap: 0.75rem;
+            padding: 1rem 1.25rem;
+            background: rgba(255,255,255,0.04);
+            border: 1px solid rgba(255,255,255,0.07);
+            border-radius: 8px;
+            font-size: 0.875rem;
+            color: rgba(255,255,255,0.65);
+        }
+        .ri-check {
+            width: 18px; height: 18px; flex-shrink: 0; margin-top: 1px;
+            border-radius: 50%;
+            border: 2px solid rgba(255,255,255,0.15);
+            display: inline-block;
+        }
+
+        /* ── FOOTER ──────────────────────────────── */
+        footer {
+            background: #050b15;
+            color: rgba(255,255,255,0.4);
+            padding: 3rem 2rem;
+            font-size: 0.875rem;
+        }
+        .footer-inner {
+            max-width: var(--max-w); margin: 0 auto;
+            display: flex; align-items: center; justify-content: space-between;
+            flex-wrap: wrap; gap: 1.5rem;
+        }
+        .footer-logo {
+            font-size: 0.95rem; font-weight: 700;
+            color: rgba(255,255,255,0.65);
+        }
+        .footer-links {
+            display: flex; gap: 1.75rem; list-style: none;
+        }
+        .footer-links a {
+            color: rgba(255,255,255,0.4);
+            text-decoration: none;
+            transition: color 0.2s;
+        }
+        .footer-links a:hover { color: rgba(255,255,255,0.8); }
+
+        /* ── RESPONSIVE ──────────────────────────── */
+        @media (max-width: 640px) {
+            nav { padding: 0 1.25rem; }
+            section { padding: 4rem 1.25rem; }
+            .hero { padding: 8rem 1.25rem 5rem; min-height: 100svh; }
+            .hero-ctas { flex-direction: column; }
+            .cycle-flow { gap: 0.5rem; }
+            .cycle-box { padding: 0.7rem 1rem; font-size: 0.875rem; }
+            .cycle-arrow { margin-top: -0.5rem; }
+            .footer-inner { flex-direction: column; align-items: flex-start; }
+        }
+    </style>
+</head>
+<body>
+
+<!-- ── NAV ───────────────────────────────────── -->
+<nav>
+    <a href="/" class="nav-logo">
+        <span class="nav-logo-dot"></span>
+        Inteligência Aberta
+    </a>
+    <ul class="nav-links">
+        <li><a href="manifesto.html">Manifesto</a></li>
+        <li><a href="apresentacao/laboratorios-inovacao-rfb/">Apresentação</a></li>
+        <li><a href="https://github.com/bonafe/inteligencia-aberta" class="btn-nav" target="_blank" rel="noopener">GitHub →</a></li>
+    </ul>
+</nav>
+
+<!-- ── HERO ──────────────────────────────────── -->
+<section class="hero">
+    <div class="hero-inner">
+        <div class="hero-tag">
+            ● &nbsp;Software Livre · Acesso Aberto · Fontes Abertas
+        </div>
+        <h1>Inteligência<br><em>Aberta</em></h1>
+        <p class="hero-sub">
+            Agentes de IA a serviço de cada cidadão —
+            transformando dados públicos e privados em
+            inteligência acionável, rastreável e ética.
+        </p>
+        <blockquote class="hero-quote">
+            "A inteligência não pode ser privilégio."
+        </blockquote>
+        <div class="hero-ctas">
+            <a href="https://github.com/bonafe/inteligencia-aberta" class="btn btn-primary" target="_blank" rel="noopener">
+                Ver no GitHub →
+            </a>
+            <a href="manifesto.html" class="btn btn-ghost">
+                Ler o manifesto
+            </a>
+        </div>
+    </div>
+</section>
+
+<!-- ── O QUE SIGNIFICA ABERTA ────────────────── -->
+<section class="s-aberta">
+    <div class="container">
+        <p class="section-tag">O nome</p>
+        <h2 class="section-title">O que significa "Aberta"</h2>
+        <p class="section-sub">O nome carrega mais de uma camada — e todas são intencionais.</p>
+        <div class="aberta-grid">
+            <div class="aberta-card">
+                <div class="aberta-icon">🔍</div>
+                <span class="aberta-badge">OSINT</span>
+                <h3>Fontes abertas</h3>
+                <p>Dados públicos, APIs governamentais, notícias, documentos de acesso livre. A origem técnica herdada do Open Source Intelligence.</p>
+            </div>
+            <div class="aberta-card">
+                <div class="aberta-icon">💻</div>
+                <span class="aberta-badge">MIT</span>
+                <h3>Software aberto</h3>
+                <p>Licença MIT, repositório público, sem caixa preta. Qualquer cidadão, prefeitura ou governo pode auditar, adaptar e redistribuir.</p>
+            </div>
+            <div class="aberta-card">
+                <div class="aberta-icon">🌐</div>
+                <span class="aberta-badge">Acessibilidade</span>
+                <h3>Acesso aberto</h3>
+                <p>Voz, linguagem natural, sem exigência de letramento digital. Aberto para o idoso, para quem tem deficiência visual, para o empreendedor de bairro.</p>
+            </div>
+            <div class="aberta-card">
+                <div class="aberta-icon">🔓</div>
+                <span class="aberta-badge">Free as in freedom</span>
+                <h3>Inteligência livre</h3>
+                <p>Capacidade de análise que não é reservada a quem pode pagar. No espírito do software livre — inteligência como liberdade, inteligência como direito.</p>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- ── PARA QUEM ──────────────────────────────── -->
+<section class="s-personas">
+    <div class="container">
+        <p class="section-tag">Personas</p>
+        <h2 class="section-title">Para quem</h2>
+        <p class="section-sub">Sete pessoas reais que guiam cada decisão do sistema. Se uma funcionalidade não serve a pelo menos uma delas, não deveria existir.</p>
+        <div class="personas-grid">
+            <div class="persona-card">
+                <img src="assets/img/personas/maria.png" alt="Dona Maria, aposentada" class="persona-photo">
+                <div class="persona-name">Dona Maria</div>
+                <div class="persona-role">Aposentada, 68 anos<br>Acessa por voz</div>
+            </div>
+            <div class="persona-card">
+                <img src="assets/img/personas/carlos.png" alt="Carlos, MEI" class="persona-photo">
+                <div class="persona-name">Carlos</div>
+                <div class="persona-role">MEI, 34 anos<br>Chat e áudio</div>
+            </div>
+            <div class="persona-card">
+                <img src="assets/img/personas/priya.png" alt="Priya, Defensoria Pública" class="persona-photo">
+                <div class="persona-name">Priya</div>
+                <div class="persona-role">Defensoria Pública, 41 anos<br>Interface web</div>
+            </div>
+            <div class="persona-card">
+                <img src="assets/img/personas/joao.png" alt="João, morador de comunidade" class="persona-photo">
+                <div class="persona-name">João</div>
+                <div class="persona-role">Comunidade urbana, 52 anos<br>Voz e chat simples</div>
+            </div>
+            <div class="persona-card">
+                <img src="assets/img/personas/fernanda.png" alt="Dra. Fernanda, médica de família" class="persona-photo">
+                <div class="persona-name">Dra. Fernanda</div>
+                <div class="persona-role">Médica de família, 45 anos<br>Interface web profissional</div>
+            </div>
+            <div class="persona-card">
+                <img src="assets/img/personas/analista.png" alt="Auditor da Receita Federal" class="persona-photo">
+                <div class="persona-name">Auditor RFB</div>
+                <div class="persona-role">Receita Federal, 29 anos<br>Web e API</div>
+            </div>
+            <div class="persona-card">
+                <img src="assets/img/personas/rafael.png" alt="Rafael, estudante ativista" class="persona-photo">
+                <div class="persona-name">Rafael</div>
+                <div class="persona-role">Estudante ativista, 23 anos<br>Chat e web</div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- ── COMO FUNCIONA ──────────────────────────── -->
+<section class="s-como">
+    <div class="container">
+        <p class="section-tag">Funcionamento</p>
+        <h2 class="section-title">Como funciona</h2>
+        <p class="section-sub">O sistema replica o ciclo clássico de inteligência — o mesmo que analistas profissionais usam — de forma acessível, rastreável e auditável por qualquer pessoa.</p>
+
+        <div class="cycle-flow">
+            <div class="cycle-node">
+                <div class="cycle-box">Dado</div>
+                <div class="cycle-label">bruto</div>
+            </div>
+            <span class="cycle-arrow">→</span>
+            <div class="cycle-node">
+                <div class="cycle-box navy">Informação</div>
+                <div class="cycle-label">estruturada</div>
+            </div>
+            <span class="cycle-arrow">→</span>
+            <div class="cycle-node">
+                <div class="cycle-box green">Inteligência</div>
+                <div class="cycle-label">acionável</div>
+            </div>
+        </div>
+
+        <div class="agents-grid">
+            <div class="agent-card">
+                <div class="agent-num">01</div>
+                <div class="agent-name">Planejador</div>
+                <div class="agent-desc">Define a estratégia investigativa antes de coletar qualquer dado</div>
+            </div>
+            <div class="agent-card">
+                <div class="agent-num">02</div>
+                <div class="agent-name">Coletor</div>
+                <div class="agent-desc">Obtém dados de fontes externas e internas com rastreabilidade de origem</div>
+            </div>
+            <div class="agent-card">
+                <div class="agent-num">03</div>
+                <div class="agent-name">Extrator</div>
+                <div class="agent-desc">Estrutura dados brutos via OCR e parsing — documentos, PDFs, imagens</div>
+            </div>
+            <div class="agent-card">
+                <div class="agent-num">04</div>
+                <div class="agent-name">Correlacionador</div>
+                <div class="agent-desc">Encontra conexões e padrões entre dados de fontes distintas</div>
+            </div>
+            <div class="agent-card">
+                <div class="agent-num">05</div>
+                <div class="agent-name">Validador</div>
+                <div class="agent-desc">Audita qualidade e veracidade antes de qualquer conclusão</div>
+            </div>
+            <div class="agent-card">
+                <div class="agent-num">06</div>
+                <div class="agent-name">Analista</div>
+                <div class="agent-desc">Gera insights e diferencia fato, inferência e opinião</div>
+            </div>
+            <div class="agent-card">
+                <div class="agent-num">07</div>
+                <div class="agent-name">Redator</div>
+                <div class="agent-desc">Sintetiza os resultados em linguagem natural clara para o usuário</div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- ── PRINCÍPIOS ─────────────────────────────── -->
+<section class="s-principios">
+    <div class="container">
+        <p class="section-tag">Valores</p>
+        <h2 class="section-title">Princípios fundamentais</h2>
+        <p class="section-sub">Cada decisão arquitetural e de produto é testada contra estes princípios. Se violar um, está errado.</p>
+        <div class="principios-grid">
+            <div class="principio">
+                <div class="principio-icon">⚖️</div>
+                <div class="principio-name">Inteligência como direito</div>
+                <div class="principio-desc">Todo cidadão merece um agente trabalhando para ele, independente de renda, escolaridade ou habilidade tecnológica.</div>
+            </div>
+            <div class="principio">
+                <div class="principio-icon">🔐</div>
+                <div class="principio-name">Dados sob controle do usuário</div>
+                <div class="principio-desc">O usuário decide o que guardar, o que compartilhar e com quem. Dados sigilosos nunca saem sem autorização explícita.</div>
+            </div>
+            <div class="principio">
+                <div class="principio-icon">💬</div>
+                <div class="principio-name">Acesso por linguagem natural</div>
+                <div class="principio-desc">A interface padrão é conversa — texto ou voz. Não exigimos letramento digital para usar inteligência digital.</div>
+            </div>
+            <div class="principio">
+                <div class="principio-icon">📎</div>
+                <div class="principio-name">Baseado em evidência</div>
+                <div class="principio-desc">Toda conclusão possui uma fonte rastreável associada. Sem fonte, sem dado.</div>
+            </div>
+            <div class="principio">
+                <div class="principio-icon">🏷️</div>
+                <div class="principio-name">Separação de conceitos</div>
+                <div class="principio-desc">O sistema diferencia explicitamente fato, opinião e inferência da IA. Nunca mistura os três.</div>
+            </div>
+            <div class="principio">
+                <div class="principio-icon">🔍</div>
+                <div class="principio-name">Rastreabilidade ponta a ponta</div>
+                <div class="principio-desc">O ciclo de vida completo de cada informação pode ser auditado por qualquer parte autorizada.</div>
+            </div>
+            <div class="principio">
+                <div class="principio-icon">🧩</div>
+                <div class="principio-name">Modularidade</div>
+                <div class="principio-desc">Blocos independentes — cada componente pode ser atualizado ou substituído sem afetar os demais.</div>
+            </div>
+            <div class="principio">
+                <div class="principio-icon">🛡️</div>
+                <div class="principio-name">Governança ética</div>
+                <div class="principio-desc">Conformidade com LGPD por design. Dados sensíveis nunca trafegam para LLMs externos sem autorização explícita.</div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- ── STATUS ─────────────────────────────────── -->
+<section class="s-status">
+    <div class="container">
+        <p class="section-tag">Projeto</p>
+        <h2 class="section-title">Onde estamos</h2>
+        <p class="section-sub">MVP em desenvolvimento — execução local via docker-compose. Repositório público, licença MIT.</p>
+        <div class="status-badge">
+            <span class="pulse"></span>
+            Em desenvolvimento ativo
+        </div>
+        <div class="roadmap-grid">
+            <div class="roadmap-item"><span class="ri-check"></span>Interface web operacional (Django)</div>
+            <div class="roadmap-item"><span class="ri-check"></span>Orquestração básica com LangGraph</div>
+            <div class="roadmap-item"><span class="ri-check"></span>Tools via MCP: consultar_cnpj, buscar_processos, buscar_noticias</div>
+            <div class="roadmap-item"><span class="ri-check"></span>Pipeline RAG para análise de documentos</div>
+            <div class="roadmap-item"><span class="ri-check"></span>Multi-tenancy com isolamento por organização</div>
+            <div class="roadmap-item"><span class="ri-check"></span>Interface de linguagem natural (chat)</div>
+            <div class="roadmap-item"><span class="ri-check"></span>Interface de voz em português brasileiro (STT/TTS)</div>
+            <div class="roadmap-item"><span class="ri-check"></span>Modelos locais para dados sensíveis (on-premise)</div>
+        </div>
+        <a href="https://github.com/bonafe/inteligencia-aberta" class="btn btn-primary" target="_blank" rel="noopener">
+            Acompanhar no GitHub →
+        </a>
+    </div>
+</section>
+
+<!-- ── FOOTER ─────────────────────────────────── -->
+<footer>
+    <div class="footer-inner">
+        <span class="footer-logo">Inteligência Aberta</span>
+        <ul class="footer-links">
+            <li><a href="manifesto.html">Manifesto</a></li>
+            <li><a href="https://github.com/bonafe/inteligencia-aberta" target="_blank" rel="noopener">GitHub</a></li>
+            <li><a href="https://github.com/bonafe/inteligencia-aberta/blob/main/LICENSE" target="_blank" rel="noopener">Licença MIT</a></li>
+        </ul>
+        <span>© 2026 Fernando Bonafé · Software livre</span>
+    </div>
+</footer>
+
+</body>
+</html>

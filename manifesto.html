@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Manifesto — Inteligência Aberta</title>
+    <meta name="description" content="A inteligência não pode ser privilégio. O manifesto completo do projeto Inteligência Aberta.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Lora:ital,wght@0,400;0,600;1,400;1,600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --navy:        #080f1e;
+            --green:       #10b981;
+            --green-light: #34d399;
+            --green-dim:   rgba(16,185,129,0.12);
+            --text:        #2d2d2d;
+            --text-muted:  #6b7280;
+            --bg:          #faf9f6;
+            --bg-dark:     #f0ede8;
+            --border:      #e5e2db;
+            --max-w:       680px;
+            --max-w-wide:  1120px;
+        }
+
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        html { scroll-behavior: smooth; }
+        body {
+            font-family: 'Lora', Georgia, 'Times New Roman', serif;
+            color: var(--text);
+            background: var(--bg);
+            line-height: 1.85;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        /* ── NAV ─────────────────────────────────── */
+        nav {
+            position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+            background: rgba(8,15,30,0.93);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border-bottom: 1px solid rgba(255,255,255,0.06);
+            padding: 0 2rem;
+            height: 60px;
+            display: flex; align-items: center; justify-content: space-between;
+            font-family: 'Inter', sans-serif;
+        }
+        .nav-back {
+            color: rgba(255,255,255,0.65);
+            text-decoration: none;
+            font-size: 0.875rem; font-weight: 500;
+            display: flex; align-items: center; gap: 0.4rem;
+            transition: color 0.2s;
+        }
+        .nav-back:hover { color: white; }
+        .nav-logo {
+            font-size: 0.9rem; font-weight: 700;
+            color: rgba(255,255,255,0.5);
+            display: flex; align-items: center; gap: 0.5rem;
+        }
+        .nav-logo-dot {
+            width: 7px; height: 7px; border-radius: 50%;
+            background: var(--green);
+        }
+
+        /* ── HERO ────────────────────────────────── */
+        .hero {
+            background: var(--navy);
+            padding: 9rem 2rem 6rem;
+            text-align: center;
+        }
+        .hero-eyebrow {
+            display: inline-block;
+            font-family: 'Inter', sans-serif;
+            font-size: 0.72rem; font-weight: 700;
+            letter-spacing: 0.14em; text-transform: uppercase;
+            color: var(--green-light);
+            margin-bottom: 1.5rem;
+        }
+        .hero h1 {
+            font-family: 'Lora', Georgia, serif;
+            font-size: clamp(2rem, 5vw, 3.25rem);
+            font-weight: 600;
+            color: white;
+            line-height: 1.25;
+            letter-spacing: -0.01em;
+            margin-bottom: 2rem;
+            max-width: 600px;
+            margin-left: auto; margin-right: auto;
+        }
+        .hero-opening {
+            font-size: clamp(1.15rem, 2.5vw, 1.45rem);
+            font-style: italic;
+            color: rgba(255,255,255,0.5);
+            max-width: 440px;
+            margin: 0 auto;
+            line-height: 1.7;
+        }
+
+        /* ── MANIFESTO BODY ──────────────────────── */
+        .manifesto {
+            padding: 5rem 2rem;
+        }
+        .manifesto-inner {
+            max-width: var(--max-w);
+            margin: 0 auto;
+        }
+
+        /* sections of the manifesto */
+        .m-section {
+            margin-bottom: 4rem;
+        }
+        .m-section + .m-section {
+            padding-top: 4rem;
+            border-top: 1px solid var(--border);
+        }
+
+        .m-section p {
+            font-size: clamp(1rem, 2vw, 1.1rem);
+            margin-bottom: 1.5rem;
+            color: var(--text);
+        }
+        .m-section p:last-child { margin-bottom: 0; }
+
+        .m-lead {
+            font-size: clamp(1.25rem, 3vw, 1.5rem) !important;
+            font-weight: 600;
+            color: #1a1a1a !important;
+            line-height: 1.5 !important;
+        }
+
+        .m-section h2 {
+            font-family: 'Inter', sans-serif;
+            font-size: 0.72rem; font-weight: 700;
+            letter-spacing: 0.14em; text-transform: uppercase;
+            color: var(--green);
+            margin-bottom: 1.25rem;
+        }
+
+        .m-emphasis {
+            font-size: clamp(1.1rem, 2.5vw, 1.3rem) !important;
+            font-style: italic;
+            color: #1a1a1a !important;
+            font-weight: 600;
+        }
+
+        /* drop cap on first paragraph */
+        .m-dropcap::first-letter {
+            float: left;
+            font-size: 4.5rem;
+            line-height: 0.75;
+            font-weight: 600;
+            color: var(--navy);
+            margin-right: 0.1em;
+            margin-top: 0.05em;
+            font-family: 'Lora', Georgia, serif;
+        }
+
+        /* inline highlight */
+        mark {
+            background: rgba(16,185,129,0.15);
+            color: inherit;
+            border-radius: 2px;
+            padding: 0 2px;
+        }
+
+        /* closing line */
+        .m-closing {
+            font-size: clamp(1.1rem, 2.5vw, 1.3rem) !important;
+            font-weight: 600;
+            color: var(--navy) !important;
+            font-style: normal !important;
+        }
+
+        /* ── O QUE SIGNIFICA ABERTA ──────────────── */
+        .s-aberta {
+            background: var(--navy);
+            padding: 5rem 2rem;
+        }
+        .s-aberta-inner {
+            max-width: var(--max-w-wide);
+            margin: 0 auto;
+        }
+        .s-aberta .section-tag {
+            font-family: 'Inter', sans-serif;
+            font-size: 0.72rem; font-weight: 700;
+            letter-spacing: 0.12em; text-transform: uppercase;
+            color: var(--green-light);
+            margin-bottom: 0.6rem;
+        }
+        .s-aberta h2 {
+            font-family: 'Inter', sans-serif;
+            font-size: clamp(1.75rem, 4vw, 2.4rem);
+            font-weight: 800;
+            letter-spacing: -0.025em;
+            color: white;
+            margin-bottom: 0.75rem;
+        }
+        .s-aberta .subtitle {
+            font-family: 'Inter', sans-serif;
+            font-size: 1rem;
+            color: rgba(255,255,255,0.5);
+            margin-bottom: 3rem;
+            max-width: 500px;
+        }
+        .aberta-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            gap: 1.25rem;
+        }
+        .aberta-card {
+            background: rgba(255,255,255,0.04);
+            border: 1px solid rgba(255,255,255,0.07);
+            border-radius: 12px;
+            padding: 2rem 1.75rem;
+            transition: all 0.25s;
+        }
+        .aberta-card:hover {
+            background: rgba(255,255,255,0.07);
+            border-color: rgba(16,185,129,0.35);
+            transform: translateY(-3px);
+        }
+        .aberta-icon { font-size: 1.8rem; margin-bottom: 1rem; }
+        .aberta-badge {
+            display: inline-block;
+            font-family: 'Inter', sans-serif;
+            font-size: 0.68rem; font-weight: 700;
+            letter-spacing: 0.08em; text-transform: uppercase;
+            color: var(--green-light);
+            background: var(--green-dim);
+            padding: 0.18rem 0.6rem;
+            border-radius: 4px;
+            margin-bottom: 0.65rem;
+        }
+        .aberta-card h3 {
+            font-family: 'Inter', sans-serif;
+            font-size: 1rem; font-weight: 700;
+            color: white; margin-bottom: 0.5rem;
+        }
+        .aberta-card p {
+            font-family: 'Inter', sans-serif;
+            font-size: 0.875rem;
+            color: rgba(255,255,255,0.5);
+            line-height: 1.7;
+            margin: 0;
+        }
+
+        /* ── FOOTER ──────────────────────────────── */
+        footer {
+            background: #050b15;
+            color: rgba(255,255,255,0.4);
+            padding: 3rem 2rem;
+            font-family: 'Inter', sans-serif;
+            font-size: 0.875rem;
+        }
+        .footer-inner {
+            max-width: var(--max-w-wide); margin: 0 auto;
+            display: flex; align-items: center; justify-content: space-between;
+            flex-wrap: wrap; gap: 1.5rem;
+        }
+        .footer-logo { font-weight: 700; color: rgba(255,255,255,0.65); }
+        .footer-links { display: flex; gap: 1.75rem; list-style: none; }
+        .footer-links a {
+            color: rgba(255,255,255,0.4);
+            text-decoration: none;
+            transition: color 0.2s;
+        }
+        .footer-links a:hover { color: rgba(255,255,255,0.8); }
+
+        /* ── RESPONSIVE ──────────────────────────── */
+        @media (max-width: 640px) {
+            nav { padding: 0 1.25rem; }
+            .hero { padding: 7rem 1.25rem 4rem; }
+            .manifesto { padding: 3.5rem 1.25rem; }
+            .s-aberta { padding: 4rem 1.25rem; }
+            .footer-inner { flex-direction: column; align-items: flex-start; }
+        }
+    </style>
+</head>
+<body>
+
+<!-- ── NAV ───────────────────────────────────── -->
+<nav>
+    <a href="index.html" class="nav-back">← Início</a>
+    <span class="nav-logo">
+        <span class="nav-logo-dot"></span>
+        Inteligência Aberta
+    </span>
+</nav>
+
+<!-- ── HERO ──────────────────────────────────── -->
+<section class="hero">
+    <span class="hero-eyebrow">Manifesto</span>
+    <h1>A inteligência não pode ser privilégio</h1>
+    <p class="hero-opening">
+        Por que este projeto existe — e o que acreditamos.
+    </p>
+</section>
+
+<!-- ── MANIFESTO ─────────────────────────────── -->
+<main class="manifesto">
+    <div class="manifesto-inner">
+
+        <div class="m-section">
+            <p class="m-dropcap">
+                Durante séculos, ter acesso a boas informações, assessoria jurídica, acompanhamento financeiro, orientação médica e suporte para lidar com a burocracia do Estado foi algo reservado a quem podia pagar. O cidadão comum navegou sozinho por sistemas opacos, formulários incompreensíveis e decisões que afetam sua vida sem que ninguém ao seu lado soubesse explicá-las direito.
+            </p>
+            <p class="m-emphasis">A IA muda isso — ou deveria mudar.</p>
+            <p>
+                Acreditamos que cada cidadão tem o direito a um agente inteligente trabalhando para ele. Um agente que entenda sua linguagem, conheça seu contexto, guarde sua história com segurança e o ajude a tomar decisões melhores sobre saúde, finanças, impostos, direitos e tudo mais que compõe uma vida em sociedade. Não uma ferramenta para especialistas. <mark>Uma extensão da capacidade humana, acessível a qualquer pessoa.</mark>
+            </p>
+        </div>
+
+        <div class="m-section">
+            <h2>Sobre inteligência</h2>
+            <p class="m-lead">Agir com inteligência é diferente de ser inteligente.</p>
+            <p>
+                Inteligência não é um traço fixo — é uma capacidade que depende de acesso. Acesso a informação confiável, a contexto relevante, a tempo para analisar, a alguém que explique o que está em jogo. Quando esses recursos existem, qualquer pessoa toma decisões melhores. Quando não existem, até os mais capazes ficam às escuras.
+            </p>
+            <p>
+                É por isso que a desigualdade de informação é tão grave quanto a desigualdade de renda. Saber o que assinar antes de assinar. Entender o que o médico disse antes de decidir. Compreender o que um contrato implica antes de fechar negócio. Essas capacidades definem o que uma pessoa consegue proteger — seus direitos, sua saúde, seu dinheiro, seu tempo.
+            </p>
+            <p>
+                Agentes de IA e modelos de linguagem mudam essa equação. Pela primeira vez, é possível ter acesso a um sistema que lê um documento complexo e o explica em linguagem simples, que encontra conexões entre informações dispersas, que responde perguntas específicas sobre situações reais — sem custo de consultoria, sem fila de espera, sem precisar saber de antemão qual especialista consultar.
+            </p>
+            <p>
+                Não é magia. <mark>É processamento de linguagem aplicado ao que sempre fez diferença: transformar dados brutos em compreensão, e compreensão em ação.</mark>
+            </p>
+        </div>
+
+        <div class="m-section">
+            <h2>O dever do Estado</h2>
+            <p>
+                Governos têm o dever de garantir esse acesso. Assim como o Estado provê educação, saúde e infraestrutura, deve prover acesso a modelos de linguagem e agentes inteligentes como serviço público. Excluir alguém dessa tecnologia é aprofundar a desigualdade em sua forma mais perversa — <mark>a desigualdade de capacidade de entender e agir sobre o próprio mundo.</mark>
+            </p>
+            <p class="m-closing">
+                Este projeto nasce dessa convicção.
+            </p>
+        </div>
+
+    </div>
+</main>
+
+<!-- ── O QUE SIGNIFICA ABERTA ─────────────────── -->
+<section class="s-aberta">
+    <div class="s-aberta-inner">
+        <p class="section-tag">O nome</p>
+        <h2>O que significa "Aberta"</h2>
+        <p class="subtitle">O nome carrega mais de uma camada — e todas são intencionais.</p>
+        <div class="aberta-grid">
+            <div class="aberta-card">
+                <div class="aberta-icon">🔍</div>
+                <span class="aberta-badge">OSINT</span>
+                <h3>Fontes abertas</h3>
+                <p>Dados públicos, APIs governamentais, notícias, documentos de acesso livre. A origem técnica herdada do Open Source Intelligence.</p>
+            </div>
+            <div class="aberta-card">
+                <div class="aberta-icon">💻</div>
+                <span class="aberta-badge">MIT</span>
+                <h3>Software aberto</h3>
+                <p>Licença MIT, repositório público, sem caixa preta. Qualquer cidadão, prefeitura ou governo pode auditar, adaptar e redistribuir.</p>
+            </div>
+            <div class="aberta-card">
+                <div class="aberta-icon">🌐</div>
+                <span class="aberta-badge">Acessibilidade</span>
+                <h3>Acesso aberto</h3>
+                <p>Voz, linguagem natural, sem exigência de letramento digital. Aberto para o idoso, para quem tem deficiência visual, para o empreendedor de bairro.</p>
+            </div>
+            <div class="aberta-card">
+                <div class="aberta-icon">🔓</div>
+                <span class="aberta-badge">Free as in freedom</span>
+                <h3>Inteligência livre</h3>
+                <p>Capacidade de análise que não é reservada a quem pode pagar. No espírito do software livre — inteligência como liberdade, inteligência como direito.</p>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- ── FOOTER ─────────────────────────────────── -->
+<footer>
+    <div class="footer-inner">
+        <span class="footer-logo">Inteligência Aberta</span>
+        <ul class="footer-links">
+            <li><a href="index.html">Início</a></li>
+            <li><a href="https://github.com/bonafe/inteligencia-aberta" target="_blank" rel="noopener">GitHub</a></li>
+            <li><a href="https://github.com/bonafe/inteligencia-aberta/blob/main/LICENSE" target="_blank" rel="noopener">Licença MIT</a></li>
+        </ul>
+        <span>© 2026 Fernando Bonafé · Software livre</span>
+    </div>
+</footer>
+
+</body>
+</html>
