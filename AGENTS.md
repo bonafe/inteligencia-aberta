@@ -63,6 +63,7 @@ Não há suite de testes ainda. Ao criar testes, colocá-los em `tests/` dentro 
 - Use `async/await` em FastAPI e type hints em todo código novo.
 - Ao adicionar uma ferramenta MCP nova, registre o endpoint em `services/mcp/main.py` e documente em `docs/componentes/mcp.md`.
 - Ao alterar o `InvestigationState` em `graph.py`, verifique se todos os agentes que leem/escrevem esse estado ainda estão coerentes.
+- Atualize o arquivo `CHANGELOG_IA.md` na raiz do projeto detalhando o que você fez, para manter o histórico claro para humanos e outras IAs.
 
 ## Classificação de dados — contrato entre serviços
 
