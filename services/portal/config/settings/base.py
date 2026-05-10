@@ -1,7 +1,12 @@
 import os
 from pathlib import Path
+from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
+
+# Load environment variables from the root .env file
+env_path = BASE_DIR.parent.parent / ".env"
+load_dotenv(dotenv_path=env_path)
 
 SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "inseguro-apenas-para-dev")
 
@@ -18,6 +23,7 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "apps.accounts.apps.AccountsConfig",
     "apps.artifacts.apps.ArtifactsConfig",
+    "apps.infrastructure.apps.InfrastructureConfig",
 ]
 
 MIDDLEWARE = [

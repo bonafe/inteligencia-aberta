@@ -14,3 +14,7 @@ services:
     volumes:
       - ./services/mcp:/app
     command: uvicorn main:app --host 0.0.0.0 --port 8002 --reload
+
+  db:
+    ports:
+      - "5432:5432"
