@@ -230,4 +230,4 @@ O uso indevido desta plataforma para vigilância ilegal, assédio ou qualquer fi
 
 ## Licença
 
-Distribuído sob a licença [MIT](LICENSE). © 2026 Fernando Bonafé.
+Distribuído sob a licença [MIT](LICENSE). © 2026 Fernando Bonafé & Osvaldo Américo.
