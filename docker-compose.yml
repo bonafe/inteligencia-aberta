@@ -30,7 +30,7 @@ services:
   db:
     image: postgres:16-alpine
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - ./data/postgres:/var/lib/postgresql/data
       - ./infra/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
     env_file: .env
     healthcheck:
@@ -42,7 +42,7 @@ services:
   qdrant:
     image: qdrant/qdrant:v1.9.0
     volumes:
-      - qdrant_data:/qdrant/storage
+      - ./data/qdrant:/qdrant/storage
       - ./infra/qdrant/config.yaml:/qdrant/config/production.yaml
 
   minio:
@@ -51,10 +51,5 @@ services:
     ports:
       - "9001:9001"
     volumes:
-      - minio_data:/data
+      - ./data/minio:/data
     env_file: .env
-
-volumes:
-  postgres_data:
-  qdrant_data:
-  minio_data:

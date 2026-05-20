@@ -210,6 +210,50 @@ Isso não é acessibilidade como concessão. É o design correto para uma ferram
 
 ---
 
+## Como Rodar o Inteligência Aberta Localmente
+
+Para rodar o projeto na sua máquina (Modo MVP Local), você precisa ter o **Docker** e o **Docker Compose** instalados.
+
+1. **Configure as variáveis de ambiente:**
+   ```bash
+   cp .env.example .env
+   # Pode manter as senhas padrão para testes em desenvolvimento local.
+   ```
+
+2. **Inicie a infraestrutura (Orquestrador, Portal, PostgreSQL, MinIO, Qdrant):**
+   ```bash
+   docker compose -f docker-compose.yml -f docker-compose.override.yml up --build -d
+   ```
+   *(A flag `-d` roda o sistema em segundo plano. Retire para ver os logs no terminal).*
+
+3. **Acessando os Serviços:**
+   - **Portal Web (Django):** [http://localhost:8000](http://localhost:8000)
+   - **Galeria de Capturas MHTML:** [http://localhost:8000/artifacts/gallery/](http://localhost:8000/artifacts/gallery/)
+   - **Django Admin:** [http://localhost:8000/admin](http://localhost:8000/admin)
+   - **Orquestrador API (Docs):** [http://localhost:8001/docs](http://localhost:8001/docs)
+   - **Armazenamento MinIO:** [http://localhost:9001](http://localhost:9001)
+
+### Onde os dados são salvos? (Para Backup)
+
+A partir da nossa arquitetura modular de volumes mapeados, **todos os dados** do sistema são salvos na sua máquina hospedeira dentro da pasta local `./data/` na raiz do projeto.
+
+- `./data/postgres/`: Banco de dados relacional (Django/Usuários/Artefatos).
+- `./data/minio/`: Arquivos binários brutos como as imagens e páginas capturadas offline (`.mhtml`).
+- `./data/qdrant/`: Banco vetorial (Embeddings de inteligência artificial).
+
+Para **fazer um backup** seguro: Pare os containers (`docker compose down`) e copie a pasta `data/` para um HD externo ou nuvem.
+
+### Como "zerar" o sistema para testes limpos?
+
+Se você testou a ferramenta e quer apagar tudo para começar de novo:
+```bash
+docker compose down
+sudo rm -rf data/  # ATENÇÃO: Isso apaga todos os artefatos e usuários!
+docker compose -f docker-compose.yml -f docker-compose.override.yml up --build -d
+```
+
+---
+
 ## Documentação
 
 A especificação arquitetural completa do projeto está disponível em [`docs/especificacao.md`](docs/especificacao.md).
