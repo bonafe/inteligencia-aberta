@@ -247,9 +247,18 @@ Para **fazer um backup** seguro: Pare os containers (`docker compose down`) e co
 
 Se você testou a ferramenta e quer apagar tudo para começar de novo:
 ```bash
+# 1. Pare tudo e apague os dados (Isso apaga todos os artefatos e usuários!)
 docker compose down
-sudo rm -rf data/  # ATENÇÃO: Isso apaga todos os artefatos e usuários!
+sudo rm -rf data/  
+
+# 2. Suba o sistema limpo
 docker compose -f docker-compose.yml -f docker-compose.override.yml up --build -d
+
+# 3. Recrie as tabelas do banco de dados do Django
+docker compose exec portal python manage.py migrate
+
+# 4. (Opcional) Crie um usuário administrador novamente
+docker compose exec portal python manage.py createsuperuser
 ```
 
 ---
