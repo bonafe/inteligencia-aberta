@@ -2,10 +2,73 @@
 {% block title %}Início — Inteligência Aberta{% endblock %}
 
 {% block content %}
+<style>
+  .dashboard-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 1.5rem;
+    margin-top: 2rem;
+  }
+  .tool-card {
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    padding: 1.5rem;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+    transition: transform 0.2s, box-shadow 0.2s;
+    text-decoration: none;
+    color: inherit;
+    display: flex;
+    flex-direction: column;
+  }
+  .tool-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+    text-decoration: none;
+    border-color: #2563eb;
+  }
+  .tool-card h3 {
+    margin-bottom: 0.5rem;
+    color: #1e40af;
+    font-size: 1.2rem;
+  }
+  .tool-card p {
+    color: #4b5563;
+    font-size: 0.9rem;
+    line-height: 1.4;
+  }
+</style>
+
 <div class="card" style="margin-top:2rem;">
-  <h1>Olá, {{ user.username }}</h1>
+  <h1>Bem-vindo, {{ user.username }}!</h1>
   <p style="color:#6b7280;margin-top:.5rem;">
-    Você está autenticado. A interface de investigação será implementada aqui.
+    Painel central de controle do Inteligência Aberta.
   </p>
+</div>
+
+<div class="dashboard-grid">
+  <!-- Galeria de Artefatos -->
+  <a href="{% url 'artifacts:gallery' %}" class="tool-card">
+    <h3>🖼️ Visualizador OSINT</h3>
+    <p>Galeria de snapshots MHTML e evidências capturadas pela extensão de navegador.</p>
+  </a>
+
+  <!-- Django Admin -->
+  <a href="/admin" class="tool-card">
+    <h3>⚙️ Administração</h3>
+    <p>Painel de gestão do banco de dados relacional: Usuários, Organizações e Logs.</p>
+  </a>
+
+  <!-- Swagger da API do Orquestrador -->
+  <a href="http://localhost:8001/docs" target="_blank" class="tool-card">
+    <h3>🔌 API do Orquestrador</h3>
+    <p>Documentação interativa Swagger para os endpoints de processamento em FastAPI.</p>
+  </a>
+
+  <!-- MinIO Storage -->
+  <a href="http://localhost:9001" target="_blank" class="tool-card">
+    <h3>🗄️ MinIO Console</h3>
+    <p>Acesso direto aos buckets de armazenamento S3. Senha padrão no arquivo .env.</p>
+  </a>
 </div>
 {% endblock %}
