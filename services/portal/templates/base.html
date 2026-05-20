@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}Inteligência Aberta{% endblock %}</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, sans-serif; background: #f4f5f7; color: #1a1a2e; min-height: 100vh; }
+    a { color: #2563eb; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    nav {
+      background: #1a1a2e;
+      padding: 0 1.5rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 56px;
+    }
+    nav .brand { color: #fff; font-weight: 700; font-size: 1.1rem; letter-spacing: .02em; }
+    nav .nav-links { display: flex; gap: 1.25rem; align-items: center; }
+    nav .nav-links a { color: #cbd5e1; font-size: .9rem; }
+    nav .nav-links a:hover { color: #fff; text-decoration: none; }
+
+    .container { max-width: 900px; margin: 0 auto; padding: 2rem 1.5rem; }
+
+    .card {
+      background: #fff;
+      border-radius: 8px;
+      box-shadow: 0 1px 4px rgba(0,0,0,.08);
+      padding: 2rem;
+    }
+
+    h1 { font-size: 1.5rem; margin-bottom: 1.5rem; color: #1a1a2e; }
+
+    .form-group { margin-bottom: 1.25rem; }
+    label { display: block; font-size: .875rem; font-weight: 500; margin-bottom: .4rem; color: #374151; }
+    input[type=text], input[type=email], input[type=password] {
+      width: 100%; padding: .6rem .75rem;
+      border: 1px solid #d1d5db; border-radius: 6px;
+      font-size: .95rem; outline: none;
+    }
+    input:focus { border-color: #2563eb; box-shadow: 0 0 0 3px rgba(37,99,235,.15); }
+
+    .btn {
+      display: inline-block; padding: .6rem 1.25rem;
+      border: none; border-radius: 6px; cursor: pointer;
+      font-size: .95rem; font-weight: 500;
+    }
+    .btn-primary { background: #2563eb; color: #fff; }
+    .btn-primary:hover { background: #1d4ed8; }
+
+    .errorlist { color: #dc2626; font-size: .85rem; margin-top: .3rem; list-style: none; }
+
+    .messages { margin-bottom: 1rem; }
+    .message { padding: .75rem 1rem; border-radius: 6px; margin-bottom: .5rem; font-size: .9rem; }
+    .message.error { background: #fee2e2; color: #b91c1c; }
+    .message.success { background: #d1fae5; color: #065f46; }
+    .message.info { background: #dbeafe; color: #1e40af; }
+  </style>
+  {% block extra_head %}{% endblock %}
+</head>
+<body>
+  <nav>
+    <span class="brand">Inteligência Aberta</span>
+    <div class="nav-links">
+      {% if user.is_authenticated %}
+        <span style="color:#94a3b8;font-size:.85rem;">{{ user.username }}</span>
+        <a href="{% url 'logout' %}">Sair</a>
+      {% else %}
+        <a href="{% url 'login' %}">Entrar</a>
+        <a href="{% url 'registro' %}">Criar conta</a>
+      {% endif %}
+    </div>
+  </nav>
+
+  <div class="container">
+    {% if messages %}
+      <div class="messages">
+        {% for message in messages %}
+          <div class="message {{ message.tags }}">{{ message }}</div>
+        {% endfor %}
+      </div>
+    {% endif %}
+    {% block content %}{% endblock %}
+  </div>
+</body>
+</html>

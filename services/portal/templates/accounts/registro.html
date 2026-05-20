@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Criar conta — Inteligência Aberta{% endblock %}
+
+{% block content %}
+<div style="max-width:440px;margin:3rem auto;">
+  <div class="card">
+    <h1>Criar conta</h1>
+    <form method="post">
+      {% csrf_token %}
+      {% for field in form %}
+        <div class="form-group">
+          <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+          {{ field }}
+          {% if field.errors %}
+            <ul class="errorlist">{% for e in field.errors %}<li>{{ e }}</li>{% endfor %}</ul>
+          {% endif %}
+        </div>
+      {% endfor %}
+      {% if form.non_field_errors %}
+        <ul class="errorlist" style="margin-bottom:1rem;">{% for e in form.non_field_errors %}<li>{{ e }}</li>{% endfor %}</ul>
+      {% endif %}
+      <button type="submit" class="btn btn-primary" style="width:100%;">Criar conta</button>
+    </form>
+    <p style="margin-top:1.25rem;font-size:.875rem;text-align:center;">
+      Já tem conta? <a href="{% url 'login' %}">Entrar</a>
+    </p>
+  </div>
+</div>
+{% endblock %}

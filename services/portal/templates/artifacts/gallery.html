@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Visualizador de Capturas - Inteligência Aberta</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-body: #0d1117;
+            --bg-panel: #161b22;
+            --border: #30363d;
+            --text-main: #c9d1d9;
+            --text-muted: #8b949e;
+            --accent: #58a6ff;
+            --hover: #1f2428;
+            --radius: 8px;
+        }
+        
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-body);
+            color: var(--text-main);
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        /* Top Bar */
+        header {
+            padding: 1rem 2rem;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background-color: var(--bg-panel);
+            flex-shrink: 0;
+        }
+        
+        header h1 {
+            font-size: 1.2rem;
+            font-weight: 600;
+        }
+
+        /* Carousel */
+        .carousel-container {
+            padding: 1rem 2rem;
+            display: flex;
+            gap: 1rem;
+            overflow-x: auto;
+            border-bottom: 1px solid var(--border);
+            background-color: var(--bg-panel);
+            flex-shrink: 0;
+        }
+        
+        .carousel-container::-webkit-scrollbar {
+            height: 8px;
+        }
+        .carousel-container::-webkit-scrollbar-thumb {
+            background-color: var(--border);
+            border-radius: 4px;
+        }
+
+        .card {
+            background-color: var(--bg-body);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 1rem;
+            min-width: 250px;
+            max-width: 300px;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+        
+        .card:hover, .card.active {
+            border-color: var(--accent);
+            background-color: var(--hover);
+        }
+
+        .card-title {
+            font-weight: 600;
+            font-size: 0.95rem;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            color: white;
+        }
+        
+        .card-meta {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            display: flex;
+            flex-direction: column;
+            gap: 0.2rem;
+        }
+
+        /* Main Workspace */
+        .workspace {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+        }
+
+        /* Left Metadata Panel */
+        .metadata-panel {
+            width: 300px;
+            padding: 1.5rem;
+            border-right: 1px solid var(--border);
+            background-color: var(--bg-panel);
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+            overflow-y: auto;
+        }
+
+        .metadata-section h3 {
+            font-size: 0.85rem;
+            text-transform: uppercase;
+            color: var(--text-muted);
+            margin-bottom: 0.5rem;
+            letter-spacing: 0.5px;
+        }
+
+        .metadata-value {
+            font-size: 0.9rem;
+            word-break: break-all;
+        }
+        
+        .metadata-value a {
+            color: var(--accent);
+            text-decoration: none;
+        }
+
+        .metadata-value a:hover {
+            text-decoration: underline;
+        }
+
+        .btn-fullscreen {
+            margin-top: auto;
+            background-color: var(--accent);
+            color: #000;
+            border: none;
+            padding: 0.75rem;
+            border-radius: var(--radius);
+            font-weight: 600;
+            cursor: pointer;
+            text-align: center;
+            text-decoration: none;
+            display: block;
+            transition: background-color 0.2s;
+        }
+
+        .btn-fullscreen:hover {
+            background-color: #79c0ff;
+        }
+
+        .btn-fullscreen.disabled {
+            background-color: var(--border);
+            color: var(--text-muted);
+            cursor: not-allowed;
+            pointer-events: none;
+        }
+
+        /* Right IFrame Area */
+        .iframe-container {
+            flex: 1;
+            background-color: #fff; /* White background is better for external web pages */
+            position: relative;
+        }
+
+        .iframe-container iframe {
+            width: 100%;
+            height: 100%;
+            border: none;
+        }
+        
+        .empty-state {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background-color: var(--bg-body);
+            color: var(--text-muted);
+            font-size: 1.1rem;
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <h1>Inteligência Aberta — Visualizador de MHTMLs</h1>
+    </header>
+
+    <div class="carousel-container" id="carousel">
+        {% for artifact in artifacts %}
+            <div class="card" 
+                 onclick="selectArtifact(this, '{{ artifact.id }}', '{{ artifact.content.url|escapejs }}', '{{ artifact.content.capture_timestamp }}', '{{ artifact.get_classification_level_display }}')"
+                 data-id="{{ artifact.id }}">
+                <div class="card-title">{{ artifact.content.title|default:"Sem Título" }}</div>
+                <div class="card-meta">
+                    <span title="{{ artifact.content.url }}">🔗 {{ artifact.content.url|truncatechars:35 }}</span>
+                    <span>🕒 {{ artifact.content.capture_timestamp|slice:":10" }}</span>
+                </div>
+            </div>
+        {% empty %}
+            <div style="color: var(--text-muted); font-size: 0.9rem; padding: 1rem;">Nenhuma captura MHTML encontrada no banco. Use a extensão para capturar páginas.</div>
+        {% endfor %}
+    </div>
+
+    <div class="workspace">
+        <div class="metadata-panel">
+            <div class="metadata-section">
+                <h3>ID do Artefato</h3>
+                <div class="metadata-value" id="meta-id">-</div>
+            </div>
+            <div class="metadata-section">
+                <h3>URL Original</h3>
+                <div class="metadata-value" id="meta-url">-</div>
+            </div>
+            <div class="metadata-section">
+                <h3>Data da Captura</h3>
+                <div class="metadata-value" id="meta-date">-</div>
+            </div>
+            <div class="metadata-section">
+                <h3>Classificação</h3>
+                <div class="metadata-value" id="meta-class">-</div>
+            </div>
+
+            <a href="#" id="btn-fullscreen" class="btn-fullscreen disabled" target="_blank">Abrir em Tela Cheia</a>
+        </div>
+        
+        <div class="iframe-container">
+            <div class="empty-state" id="empty-state">Selecione uma captura no topo para visualizar offline</div>
+            <iframe id="viewer" src="" style="display: none;" sandbox=""></iframe>
+        </div>
+    </div>
+
+    <script>
+        function selectArtifact(element, id, url, date, classification) {
+            // Remove active from all cards
+            document.querySelectorAll('.card').forEach(c => c.classList.remove('active'));
+            // Add active to clicked
+            element.classList.add('active');
+
+            // Update Metadata
+            document.getElementById('meta-id').innerText = id;
+            document.getElementById('meta-url').innerHTML = `<a href="${url}" target="_blank">${url}</a>`;
+            
+            try {
+                document.getElementById('meta-date').innerText = new Date(date).toLocaleString('pt-BR');
+            } catch(e) {
+                document.getElementById('meta-date').innerText = date;
+            }
+            
+            document.getElementById('meta-class').innerText = classification;
+
+            // Update Fullscreen button and Iframe source
+            const mhtmlUrl = `/artifacts/${id}/mhtml/`;
+            const btnFullscreen = document.getElementById('btn-fullscreen');
+            btnFullscreen.href = mhtmlUrl;
+            btnFullscreen.classList.remove('disabled');
+
+            document.getElementById('empty-state').style.display = 'none';
+            const viewer = document.getElementById('viewer');
+            viewer.src = mhtmlUrl;
+            viewer.style.display = 'block';
+        }
+    </script>
+</body>
+</html>

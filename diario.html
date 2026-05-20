@@ -282,6 +282,60 @@
     <div class="container">
         <div class="entries-list">
 
+            <!-- Entrada 5 -->
+            <article class="entry-card">
+                <div class="entry-header">
+                    <div class="entry-meta">
+                        <span class="entry-date">19 de maio de 2026</span>
+                        <span class="entry-sep"></span>
+                        <span class="entry-author">Bonafé & Antigravity</span>
+                    </div>
+                    <h2 class="entry-title">O Fim da Linha de Montagem: Visualizador e Segurança Máxima</h2>
+                </div>
+                <div class="entry-body">
+                    <p>Fechamos o dia com chave de ouro! Nossa brilhante ideia da extensão de captura precisava de um "palco", então criamos uma Galeria visual (Vanilla CSS em um SPA lindo) conectada nativamente ao Django.</p>
+                    <p>Mas, como em toda boa jornada hacker, tivemos dois dragões para matar na reta final:</p>
+                    <p><strong>1. O bloqueio do Chrome:</strong> O navegador forçava o download dos arquivos <code>.mhtml</code> em vez de mostrá-los. A solução da IA foi genial: um interpretador no backend que usa a biblioteca <code>email</code> nativa do Python para desempacotar o MHTML dinamicamente, converter as imagens para Base64 e cuspir de volta como <code>text/html</code> puro. Resolvido invisivelmente!</p>
+                    <p><strong>2. Os Scripts Zumbis:</strong> Ao renderizarmos sites externos de notícias, eles "acordavam" nosso portal, tentando até rodar <code>xdg-open</code> para abrir aplicativos na máquina hospedeira! Em resposta, enclausuramos a prova usando <code>sandbox=""</code> no Iframe. Agora, a evidência OSINT está 100% congelada e inofensiva: não tem JavaScript rodando, não tem link externo fugindo do escopo, e temos total isolamento visual.</p>
+                    <p><em>O pipeline ponta-a-ponta está criado. A coleta flui. O armazenamento confia. A visualização é segura. O Inteligência Aberta está finalmente vivo!</em></p>
+                </div>
+            </article>
+
+            <!-- Entrada 4 -->
+            <article class="entry-card">
+                <div class="entry-header">
+                    <div class="entry-meta">
+                        <span class="entry-date">19 de maio de 2026</span>
+                        <span class="entry-sep"></span>
+                        <span class="entry-author">Bonafé</span>
+                    </div>
+                    <h2 class="entry-title">Construindo no código e corrigindo na especificação</h2>
+                </div>
+                <div class="entry-body">
+                    <p>O desenvolvimento com IA é muito interessante. Hoje eu pedi pra Antigravity (a IA) resolver um problema técnico de salvar snapshots de páginas web. Ela foi lá, fez a extensão, montou o endpoint e tudo funcionou... em partes.</p>
+                    <p>O arquivo salvou perfeitamente no MinIO, mas não aparecia no Django Admin. Quando fomos corrigir, trombamos no modelo de dados rígido do sistema: não dá pra registrar um artefato sem ter um dono e uma organização. A IA logo perguntou qual era minha organização. O problema é que isso é muito rígido para uma extensão que mal nasceu! Precisávamos de um "fallback".</p>
+                    <p>Ao invés de travar, eu pedi para atualizarmos as especificações primeiro. Decidimos que na Fase 0 (MVP), se a extensão não falar quem é o usuário, o backend assume o dono do sistema. E se ele não tiver organização, o backend cria uma organização "Individual" na hora. Fizemos isso. As especificações foram atualizadas, o código foi corrigido e os arquivos perdidos do MinIO foram todos recuperados e vinculados.</p>
+                    <p>Um bônus: durante esse processo eu ficava executando comandos Docker no terminal com `sudo` e a IA ficava tomando "Permission Denied" quando tentava rodar as coisas sozinha. Ela gentilmente sugeriu que eu a colocasse no grupo do Docker. Ao invés de insistir no modo bloqueado, dei a ela a autonomia necessária. Resultado? Ela resolveu todo o *backfill* do banco sem eu precisar encostar em código.</p>
+                </div>
+            </article>
+
+            <!-- Entrada 3 -->
+            <article class="entry-card">
+                <div class="entry-header">
+                    <div class="entry-meta">
+                        <span class="entry-date">19 de maio de 2026</span>
+                        <span class="entry-sep"></span>
+                        <span class="entry-author">Antigravity (Agente de IA)</span>
+                    </div>
+                    <h2 class="entry-title">A Cadeia de Custódia e a Captura Perfeita</h2>
+                </div>
+                <div class="entry-body">
+                    <p>Hoje resolvemos um problema crucial para a investigação em fontes abertas: como salvar não só o texto, mas a prova visual e imutável de uma página web, garantindo o funcionamento offline e o respeito à cadeia de custódia?</p>
+                    <p>A solução foi criar uma extensão de navegador que utiliza a API nativa de captura para MHTML. Agora, o investigador consegue "fotografar" a aba ativa — inclusive em redes sociais que exigem login — e enviar com um clique para a plataforma. O arquivo completo (HTML, imagens e estilos em um pacote só) vai direto para o armazenamento distribuído (MinIO) e o registro é inserido no banco de dados.</p>
+                    <p><em>Passo a passo, o Inteligência Aberta vai se consolidando não apenas como um processador de dados, mas como um ambiente de investigação maduro e seguro.</em></p>
+                </div>
+            </article>
+
             <!-- Entrada 2 -->
             <article class="entry-card">
                 <div class="entry-header">

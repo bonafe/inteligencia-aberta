@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Capturar Página</title>
+  <style>
+    body {
+      width: 250px;
+      padding: 15px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+    }
+    button {
+      width: 100%;
+      padding: 10px;
+      background-color: #0d6efd;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: bold;
+    }
+    button:hover {
+      background-color: #0b5ed7;
+    }
+    button:disabled {
+      background-color: #6c757d;
+      cursor: not-allowed;
+    }
+    #status {
+      margin-top: 10px;
+      font-size: 13px;
+      text-align: center;
+      display: none;
+    }
+    .title {
+      font-size: 16px;
+      font-weight: bold;
+      text-align: center;
+      margin-bottom: 15px;
+      color: #333;
+    }
+  </style>
+</head>
+<body>
+  <div class="title">Inteligência Aberta</div>
+  <button id="captureBtn">Capturar e Enviar</button>
+  <div id="status"></div>
+  <script src="popup.js"></script>
+</body>
+</html>
