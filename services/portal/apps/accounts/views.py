@@ -1,4 +1,4 @@
-from django.contrib.auth import login
+from django.contrib.auth import login, get_user_model
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import redirect, render
 from django.utils.text import slugify
@@ -15,6 +15,13 @@ def registro(request):
         if form.is_valid():
             user = form.save(commit=False)
             user.email = form.cleaned_data["email"]
+            
+            # Regra: Se for o primeiro usuário a se cadastrar no sistema, ele será o administrador (dono)
+            User = get_user_model()
+            if not User.objects.exists():
+                user.is_staff = True
+                user.is_superuser = True
+                
             user.save()
             org = Organization.objects.create(
                 name=user.username,
