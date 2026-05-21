@@ -282,6 +282,25 @@
     <div class="container">
         <div class="entries-list">
 
+            <!-- Entrada 8 -->
+            <article class="entry-card">
+                <div class="entry-header">
+                    <div class="entry-meta">
+                        <span class="entry-date">20 de maio de 2026</span>
+                        <span class="entry-sep"></span>
+                        <span class="entry-author">Bonafé & Claude Code</span>
+                    </div>
+                    <h2 class="entry-title">Do texto ao significado: fragmentação, vetores e busca semântica</h2>
+                </div>
+                <div class="entry-body">
+                    <p>Com a extração de texto funcionando, chegou a hora de dar ao sistema a capacidade de entender o que está armazenado. A pergunta que queríamos responder: como encontrar "vínculos societários suspeitos" mesmo que a página capturada use as palavras "sócios ocultos" ou "participação cruzada"? A resposta está nos embeddings.</p>
+                    <p>Implementamos as Etapas 2 e 3 do pipeline. A Etapa 2 fragmenta o texto extraído em blocos de até 1000 caracteres com sobreposição de 100 — o overlap garante que um conceito que fica na virada de um bloco para o outro não se perca. Para cada fragmento, a Etapa 3 gera um vetor de 384 dimensões usando o modelo <code>paraphrase-multilingual-MiniLM-L12-v2</code> rodando localmente via fastembed (sem CUDA, sem PyTorch, sem custo de API). Cada vetor vai para o Qdrant numa coleção isolada por tenant.</p>
+                    <p>A cadeia de linhagem ficou completa: <code>documento → texto → fragmento → ponto no Qdrant</code>. Cada artefato sabe de onde veio. Cada passo é rastreável. E o pipeline inteiro dispara automaticamente quando um novo documento é capturado — do signal Django ao Qdrant, sem nenhuma intervenção manual.</p>
+                    <p>Para fechar o ciclo, construímos a interface de busca semântica. O investigador digita uma pergunta em linguagem natural, o portal gera o embedding da query e busca os fragmentos mais próximos no espaço vetorial. Os resultados aparecem ordenados por relevância, com barra de score colorida (verde acima de 70%, amarelo acima de 40%) e cards expansíveis que mostram o trecho exato com links para a fonte original e a captura MHTML.</p>
+                    <p>No teste ponta-a-ponta, criamos um documento sintético sobre uma empresa sob investigação fiscal. Em menos de 500 milissegundos, o pipeline completo havia rodado: texto extraído, 2 fragmentos gerados, 2 vetores indexados. A busca por "irregularidades fiscais" devolveu os dois fragmentos com scores de 59% e 58%. <em>O sistema agora pensa por significado, não por palavras-chave.</em></p>
+                </div>
+            </article>
+
             <!-- Entrada 7 -->
             <article class="entry-card">
                 <div class="entry-header">

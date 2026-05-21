@@ -2,6 +2,61 @@
 
 Este arquivo documenta as alterações, configurações e implementações feitas por IAs (agentes) neste repositório. O objetivo é manter um histórico unificado e transparente sobre o estado do desenvolvimento, facilitando o onboarding de novas IAs e humanos na base de código.
 
+## [20-05-2026] - Etapas 2 e 3 do Pipeline + Busca Semântica
+
+**O que foi feito:**
+- **Etapa 2 — Fragmentação de texto (`fragment_text`):**
+  - Task Celery `fragment_text` em `apps/artifacts/tasks.py`: divide o artefato `texto` em chunks de 1000 chars com overlap de 100, preservando parágrafos e frases.
+  - Cada chunk cria um `Artifact(tipo=fragmento)` com `ArtifactLineage(transformation='fragmentation', processor='split_text:chunk=1000,overlap=100')`.
+  - Dispatch automático de `embed_fragment.delay()` para cada fragmento ao final.
+  - Idempotente: verifica linhagem existente antes de reprocessar.
+
+- **Etapa 3 — Embeddings e indexação vetorial (`embed_fragment`):**
+  - Task Celery `embed_fragment` em `apps/artifacts/tasks.py`: gera vetor de 384 dimensões com `fastembed` (modelo `paraphrase-multilingual-MiniLM-L12-v2`, ONNX, CPU-only, multilíngue).
+  - Upsert no Qdrant em coleção isolada por tenant: `ia_{tenant_id_sem_hifens}`, distância Cosine.
+  - Payload no Qdrant: `title`, `source_url`, `fragment_index`, `text_preview`, `source_artifact_id`.
+  - Salva `qdrant_point_id` e `qdrant_collection` no `content` do fragmento para rastreabilidade.
+  - Idempotente: pula se `qdrant_point_id` já presente no content.
+  - `scan_unprocessed_documents` atualizado com 3 gaps: doc→texto, texto→frag, frag sem qdrant_point_id.
+
+- **Módulo `apps/artifacts/embeddings.py` (novo):**
+  - Singletons lazy `get_embedding_model()` e `get_qdrant_client()` — instância única por processo worker.
+  - `ensure_collection()`: cria coleção Qdrant se não existir (VectorParams dim=384, Cosine).
+
+- **View de busca semântica (`BuscaSemanticaView`):**
+  - `GET /artifacts/busca/`: formulário de busca (requer login).
+  - `POST /artifacts/busca/`: gera embedding da query, busca no Qdrant da coleção do tenant do usuário, retorna top-10 por similaridade Cosine. Carrega texto completo do Artifact do banco.
+  - URL registrada em `apps/artifacts/urls.py`.
+
+- **Template `templates/artifacts/busca.html` (novo):**
+  - Três estados: inicial (sem busca), sem resultados, lista de resultados.
+  - Cards `<details>/<summary>` expansíveis — sem JavaScript.
+  - Score exibido como porcentagem + barra CSS colorida (verde ≥70%, amarelo ≥40%, cinza <40%).
+  - Cada card: score, título, URL, snippet 2 linhas, tag "trecho N"; expandido: texto completo + links "Fonte original" e "Ver captura".
+
+- **Dashboard e navbar atualizados:**
+  - Card "Busca Semântica" adicionado ao `dashboard.html`.
+  - Link "Busca" adicionado à navbar em `base.html`.
+
+- **Portal reconstruído** para incluir `fastembed==0.3.6` e `qdrant-client==1.9.2` (já estavam no `requirements.txt` mas imagem não havia sido rebuilt).
+
+**Testes realizados:**
+- Pipeline ponta-a-ponta: documento sintético criado → signal disparado → `extract_text_from_mhtml` (38ms, 179 palavras) → `fragment_text` (2 fragmentos) → `embed_fragment` × 2 (vetores indexados no Qdrant). Total < 500ms.
+- Linhagem completa: `documento → texto → fragmento → Qdrant`. Todos os `ArtifactLineage` criados com transformation/processor corretos.
+- Busca semântica: query "irregularidades fiscais empresa investigada" → scores 59% e 58% nos dois fragmentos do documento de teste. Sem resultados falsos positivos.
+- View HTTP: `GET /artifacts/busca/` → 200, `POST` com query → 200 com resultados.
+
+**Status Atual:**
+- Pipeline completo funcional (Etapas 1–3). Do MHTML capturado até vetores indexados e buscáveis.
+- Busca semântica operacional no portal web, integrada ao dashboard.
+
+**Próximos Passos Sugeridos:**
+- Etapa 4: NER — extrair entidades (CPF, CNPJ, nomes, datas) dos fragmentos e criar `Artifact(tipo=pessoa/empresa)` com linhagem.
+- `SiteProfile`: LLM Discovery para aprender seletores CSS por domínio (reduz custo de extração a zero na segunda visita).
+- Grafo de vínculos (Neo4j) — Fase 2 do roadmap.
+
+---
+
 ## [20-05-2026] - Implementação da Etapa 1 do Pipeline + Correção de Integração
 
 **O que foi feito:**
