@@ -98,6 +98,16 @@ CELERY_RESULT_SERIALIZER = "json"
 CELERY_ACCEPT_CONTENT = ["json"]
 CELERY_TIMEZONE = "America/Sao_Paulo"
 CELERY_TASK_TRACK_STARTED = True
+QDRANT_HOST = os.environ.get("QDRANT_HOST", "qdrant")
+QDRANT_PORT = int(os.environ.get("QDRANT_PORT", "6333"))
+EMBEDDING_MODEL = os.environ.get(
+    "EMBEDDING_MODEL",
+    "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+)
+EMBEDDING_DIM = int(os.environ.get("EMBEDDING_DIM", "384"))
+FRAGMENT_CHUNK_SIZE = int(os.environ.get("FRAGMENT_CHUNK_SIZE", "1000"))
+FRAGMENT_OVERLAP = int(os.environ.get("FRAGMENT_OVERLAP", "100"))
+
 CELERY_BEAT_SCHEDULE = {
     "scan-unprocessed-documents": {
         "task": "apps.artifacts.tasks.scan_unprocessed_documents",

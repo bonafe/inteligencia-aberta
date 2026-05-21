@@ -18,6 +18,7 @@ services:
   worker:
     volumes:
       - ./services/portal:/app
+      - ./data/fastembed-cache:/root/.cache/fastembed
     command: celery -A config worker -l info
 
   beat:
