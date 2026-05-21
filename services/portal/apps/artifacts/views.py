@@ -10,6 +10,7 @@ from django.shortcuts import render, get_object_or_404
 from django.utils.decorators import method_decorator
 from django.views import View
 from django.views.decorators.clickjacking import xframe_options_sameorigin
+from django.contrib.auth.decorators import login_required
 from django.views.decorators.csrf import csrf_exempt
 from minio import Minio
 from minio.error import S3Error
@@ -65,6 +66,65 @@ class ArtefatoCreateAPIView(View):
             org_type=Organization.Type.INDIVIDUAL,
             owner=user,
         )
+
+
+@method_decorator(login_required, name="dispatch")
+class BuscaSemanticaView(View):
+    def get(self, request):
+        return render(request, "artifacts/busca.html", {"results": None, "query": ""})
+
+    def post(self, request):
+        query = request.POST.get("query", "").strip()
+        if not query:
+            return render(request, "artifacts/busca.html", {"results": [], "query": query})
+        results = self._search(query, request.user)
+        return render(request, "artifacts/busca.html", {"results": results, "query": query})
+
+    def _search(self, query: str, user):
+        from apps.accounts.models import Membership
+        from .embeddings import get_embedding_model, get_qdrant_client
+        from .models import Artifact
+
+        membership = Membership.objects.filter(user=user).select_related("organization").first()
+        if not membership:
+            return []
+
+        tenant_id = str(membership.organization.id)
+        collection = f"ia_{tenant_id.replace('-', '')}"
+
+        try:
+            model = get_embedding_model()
+            vector = list(model.embed([query]))[0].tolist()
+            qdrant = get_qdrant_client()
+            existing = {c.name for c in qdrant.get_collections().collections}
+            if collection not in existing:
+                return []
+            hits = qdrant.search(
+                collection_name=collection,
+                query_vector=vector,
+                limit=10,
+                with_payload=True,
+            )
+        except Exception as exc:
+            import logging
+            logging.getLogger(__name__).error("Erro na busca semântica: %s", exc)
+            return []
+
+        results = []
+        for hit in hits:
+            p = hit.payload or {}
+            artifact = Artifact.objects.filter(id=p.get("artifact_id")).first()
+            full_text = (artifact.content or {}).get("text", "") if artifact else ""
+            results.append({
+                "score": round(hit.score * 100),
+                "title": p.get("title") or "Sem título",
+                "source_url": p.get("source_url", ""),
+                "fragment_index": p.get("fragment_index", 0),
+                "text_preview": p.get("text_preview", full_text[:200]),
+                "full_text": full_text,
+                "source_artifact_id": p.get("source_artifact_id"),
+            })
+        return results
 
 
 class ArtifactGalleryView(View):

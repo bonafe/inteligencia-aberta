@@ -1,0 +1,261 @@
+{% extends "base.html" %}
+{% block title %}Busca Semântica — Inteligência Aberta{% endblock %}
+
+{% block extra_head %}
+<style>
+  /* ── Barra de busca ─────────────────────────────── */
+  .search-box {
+    display: flex;
+    gap: .75rem;
+    margin-bottom: 2rem;
+  }
+  .search-box input {
+    flex: 1;
+    padding: .75rem 1rem;
+    border: 2px solid #d1d5db;
+    border-radius: 8px;
+    font-size: 1rem;
+    outline: none;
+    transition: border-color .2s;
+  }
+  .search-box input:focus { border-color: #2563eb; }
+  .search-box button {
+    padding: .75rem 1.5rem;
+    background: #2563eb;
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    font-size: .95rem;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .search-box button:hover { background: #1d4ed8; }
+
+  /* ── Resultados ─────────────────────────────────── */
+  .results-header {
+    font-size: .85rem;
+    color: #6b7280;
+    margin-bottom: 1rem;
+  }
+
+  .result-card {
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    margin-bottom: 1rem;
+    overflow: hidden;
+    transition: border-color .2s, box-shadow .2s;
+  }
+  .result-card:hover { border-color: #93c5fd; box-shadow: 0 2px 8px rgba(37,99,235,.08); }
+
+  /* header sempre visível */
+  .result-summary {
+    display: flex;
+    align-items: flex-start;
+    gap: 1rem;
+    padding: 1.1rem 1.25rem;
+    cursor: pointer;
+    list-style: none;
+    user-select: none;
+  }
+  .result-summary::-webkit-details-marker { display: none; }
+
+  .score-badge {
+    flex-shrink: 0;
+    width: 48px;
+    text-align: center;
+  }
+  .score-num {
+    font-size: 1.1rem;
+    font-weight: 700;
+    line-height: 1;
+  }
+  .score-bar {
+    height: 4px;
+    border-radius: 2px;
+    background: #e5e7eb;
+    margin-top: 4px;
+    overflow: hidden;
+  }
+  .score-fill {
+    height: 100%;
+    border-radius: 2px;
+    background: #10b981;
+  }
+  .score-fill.medium { background: #f59e0b; }
+  .score-fill.low    { background: #9ca3af; }
+
+  .result-meta { flex: 1; min-width: 0; }
+  .result-title {
+    font-weight: 600;
+    font-size: .95rem;
+    color: #111827;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-bottom: .25rem;
+  }
+  .result-url {
+    font-size: .78rem;
+    color: #6b7280;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-bottom: .4rem;
+  }
+  .result-snippet {
+    font-size: .875rem;
+    color: #374151;
+    line-height: 1.55;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  .result-tag {
+    flex-shrink: 0;
+    font-size: .72rem;
+    background: #eff6ff;
+    color: #2563eb;
+    border: 1px solid #bfdbfe;
+    border-radius: 4px;
+    padding: .2rem .5rem;
+    white-space: nowrap;
+    align-self: flex-start;
+    margin-top: 2px;
+  }
+
+  /* detalhe expandido */
+  .result-detail {
+    border-top: 1px solid #f3f4f6;
+    padding: 1.1rem 1.25rem;
+    background: #fafafa;
+  }
+  .result-detail-label {
+    font-size: .75rem;
+    font-weight: 600;
+    color: #6b7280;
+    text-transform: uppercase;
+    letter-spacing: .05em;
+    margin-bottom: .6rem;
+  }
+  .result-full-text {
+    font-size: .9rem;
+    color: #1f2937;
+    line-height: 1.7;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .result-actions {
+    margin-top: 1rem;
+    display: flex;
+    gap: .75rem;
+    flex-wrap: wrap;
+  }
+  .btn-sm {
+    font-size: .8rem;
+    padding: .35rem .85rem;
+    border-radius: 6px;
+    border: 1px solid #d1d5db;
+    background: #fff;
+    color: #374151;
+    text-decoration: none;
+    cursor: pointer;
+  }
+  .btn-sm:hover { background: #f9fafb; text-decoration: none; color: #111827; }
+
+  /* estado vazio */
+  .empty-state {
+    text-align: center;
+    padding: 3rem 1rem;
+    color: #9ca3af;
+  }
+  .empty-state .icon { font-size: 3rem; margin-bottom: 1rem; }
+  .empty-state p { font-size: 1rem; }
+  .empty-state small { font-size: .85rem; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="card" style="margin-top:2rem;">
+  <h1>Busca Semântica</h1>
+  <p style="color:#6b7280;margin:.4rem 0 1.5rem;">
+    Busca por significado — encontra trechos relevantes mesmo com palavras diferentes.
+  </p>
+
+  <form method="post" class="search-box">
+    {% csrf_token %}
+    <input
+      type="text"
+      name="query"
+      value="{{ query }}"
+      placeholder="Ex: vínculos societários suspeitos, irregularidades fiscais…"
+      autofocus
+    >
+    <button type="submit">Buscar</button>
+  </form>
+
+  {% if results is None %}
+    {# estado inicial — nenhuma busca feita ainda #}
+    <div class="empty-state">
+      <div class="icon">🔍</div>
+      <p>Digite algo para começar a busca.</p>
+      <small>Os resultados são ordenados por relevância semântica.</small>
+    </div>
+
+  {% elif results|length == 0 %}
+    <div class="empty-state">
+      <div class="icon">📭</div>
+      <p>Nenhum resultado encontrado para <strong>"{{ query }}"</strong>.</p>
+      <small>Tente outras palavras ou capture mais páginas com a extensão.</small>
+    </div>
+
+  {% else %}
+    <p class="results-header">{{ results|length }} trecho{% if results|length != 1 %}s{% endif %} encontrado{% if results|length != 1 %}s{% endif %} para <strong>"{{ query }}"</strong></p>
+
+    {% for r in results %}
+      <details class="result-card">
+        <summary class="result-summary">
+
+          <div class="score-badge">
+            <div class="score-num"
+                 style="color:{% if r.score >= 70 %}#059669{% else %}{% if r.score >= 40 %}#d97706{% else %}#9ca3af{% endif %}{% endif %}">
+              {{ r.score }}%
+            </div>
+            <div class="score-bar">
+              <div class="score-fill {% if r.score < 40 %}low{% else %}{% if r.score < 70 %}medium{% endif %}{% endif %}"
+                   style="width:{{ r.score }}%"></div>
+            </div>
+          </div>
+
+          <div class="result-meta">
+            <div class="result-title">{{ r.title }}</div>
+            {% if r.source_url %}
+              <div class="result-url">{{ r.source_url }}</div>
+            {% endif %}
+            <div class="result-snippet">{{ r.text_preview }}</div>
+          </div>
+
+          <div class="result-tag">trecho {{ r.fragment_index|add:1 }}</div>
+
+        </summary>
+
+        <div class="result-detail">
+          <div class="result-detail-label">Trecho completo</div>
+          <div class="result-full-text">{{ r.full_text }}</div>
+          <div class="result-actions">
+            {% if r.source_url %}
+              <a href="{{ r.source_url }}" target="_blank" rel="noopener" class="btn-sm">🌐 Fonte original</a>
+            {% endif %}
+            {% if r.source_artifact_id %}
+              <a href="{% url 'artifacts:serve_mhtml' r.source_artifact_id %}" target="_blank" class="btn-sm">📄 Ver captura</a>
+            {% endif %}
+          </div>
+        </div>
+      </details>
+    {% endfor %}
+  {% endif %}
+</div>
+{% endblock %}

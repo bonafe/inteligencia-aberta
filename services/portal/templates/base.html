@@ -67,6 +67,7 @@
     <div class="nav-links">
       {% if user.is_authenticated %}
         <a href="{% url 'dashboard' %}">Painel</a>
+        <a href="{% url 'artifacts:busca' %}">Busca</a>
         <a href="{% url 'artifacts:gallery' %}">Galeria OSINT</a>
         <span style="color:#94a3b8;font-size:.85rem;margin-left:1rem;">{{ user.username }}</span>
         <a href="{% url 'logout' %}">Sair</a>
