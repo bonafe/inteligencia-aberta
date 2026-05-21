@@ -89,3 +89,18 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 LOGIN_URL = "/entrar/"
 LOGIN_REDIRECT_URL = "/"
 LOGOUT_REDIRECT_URL = "/entrar/"
+
+REDIS_URL = os.environ.get("REDIS_URL", "redis://redis:6379/0")
+CELERY_BROKER_URL = REDIS_URL
+CELERY_RESULT_BACKEND = REDIS_URL
+CELERY_TASK_SERIALIZER = "json"
+CELERY_RESULT_SERIALIZER = "json"
+CELERY_ACCEPT_CONTENT = ["json"]
+CELERY_TIMEZONE = "America/Sao_Paulo"
+CELERY_TASK_TRACK_STARTED = True
+CELERY_BEAT_SCHEDULE = {
+    "scan-unprocessed-documents": {
+        "task": "apps.artifacts.tasks.scan_unprocessed_documents",
+        "schedule": 120.0,  # a cada 2 minutos
+    },
+}

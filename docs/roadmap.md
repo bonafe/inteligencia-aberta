@@ -25,21 +25,36 @@ Cada fase deve entregar valor real a pelo menos uma persona. Nenhuma fase é "s�
 
 ---
 
-## Fase 1 — Dados Privados e RAG
+## Fase 1 — Pipeline de Transformação e RAG
 
-**Objetivo:** Usuário consegue trazer seus próprios documentos e o sistema os usa na análise.
+**Objetivo:** O sistema processa automaticamente cada artefato capturado — extrai texto, fragmenta, indexa semanticamente e reconhece entidades. Usuário consegue buscar por similaridade e trazer seus próprios documentos.
 
 **Entregáveis:**
-- [ ] Envio de documentos na interface web
-- [ ] Pipeline RAG completo (indexação, fragmentação, embedding, busca semântica)
-- [ ] Agente Extrator com OCR
+
+*Pipeline de transformação (base de tudo):*
+- [ ] Celery + Redis como fila de tarefas assíncronas (já previsto na arquitetura)
+- [ ] `ArtifactLineage` — modelo de linhagem: todo artefato derivado sabe de onde veio e como foi transformado
+- [ ] Etapa 1: extração de texto com `trafilatura` (genérica, sem LLM)
+- [ ] Etapa 1b: `SiteProfile` — extração aprendida por domínio via LLM Discovery (LLM roda uma vez, seletores CSS ficam salvos)
+- [ ] Etapa 2: fragmentação em chunks com overlap configurável
+- [ ] Etapa 3: embedding com `sentence-transformers` local (`paraphrase-multilingual-mpnet-base-v2`)
+- [ ] Etapa 4a: NER básico — extração de CPF, CNPJ, nomes, datas de texto não estruturado
+- [ ] `SkillManifest` — registry de skills com catch-up automático para artefatos históricos
+- [ ] Isolamento de índice vetorial por organização (collections separadas no Qdrant)
+
+*Documentos do usuário:*
+- [ ] Envio de documentos na interface web (PDF, imagem)
+- [ ] Agente Extrator com OCR (integrado ao mesmo pipeline)
 - [ ] LLM local integrado (Ollama) — para dados restrito/confidencial
-- [ ] Isolamento de índice vetorial por organização
+
+*Compartilhamento:*
 - [ ] Controle de compartilhamento básico (criar, revogar)
 
-**Caso de uso habilitado:** UC-02 (análise financeira do MEI), UC-03 parcial.
+**Spec de referência:** [`docs/arquitetura/pipeline-transformacao.md`](../arquitetura/pipeline-transformacao.md)
 
-**Persona atendida:** P2 (Carlos).
+**Caso de uso habilitado:** UC-02 (análise financeira do MEI), UC-03 parcial. Qualquer captura MHTML da Fase 0 passa a ser buscável semanticamente.
+
+**Persona atendida:** P2 (Carlos), P7 (Rafael) com busca sobre capturas existentes.
 
 ---
 

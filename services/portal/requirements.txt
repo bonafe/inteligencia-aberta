@@ -2,3 +2,5 @@ Django==5.0.6
 psycopg2-binary==2.9.9
 python-dotenv==1.0.1
 minio==7.2.7
+celery[redis]==5.4.0
+trafilatura==1.12.2

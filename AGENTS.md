@@ -4,9 +4,9 @@ Guia para agentes de IA (Codex, Claude, Gemini, etc.) que operam neste repositó
 
 ## Contexto do projeto
 
-Plataforma de agentes de IA que transforma dados públicos em inteligência acionável para cidadãos brasileiros. Fase atual: **Fase 0 — MVP local**, com foco em implementar o grafo de investigação e as ferramentas MCP básicas.
+Plataforma de agentes de IA que transforma dados públicos em inteligência acionável para cidadãos brasileiros. Fase atual: **Fase 0 em conclusão / início de Fase 1** — pipeline de captura MHTML ponta-a-ponta funcional, pipeline de transformação de texto (Etapa 1) implementado. Próximo: fragmentação, embeddings, NER.
 
-Stack: Python 3.12, Django 5.0.6, FastAPI 0.111.0, LangGraph 0.1.19, LangChain-Anthropic 0.1.19, PostgreSQL 16, Qdrant v1.9.0, MinIO, Docker Compose.
+Stack: Python 3.12, Django 5.0.6, FastAPI 0.111.0, LangGraph 0.1.19, LangChain-Anthropic 0.1.19, Celery 5.4.0, Redis 7, trafilatura 1.12.2, PostgreSQL 16, Qdrant v1.9.0, MinIO, Docker Compose.
 
 ## Comandos para validar mudanças
 
@@ -41,7 +41,11 @@ Não há suite de testes ainda. Ao criar testes, colocá-los em `tests/` dentro 
 | `services/mcp/tools/cnpj.py` | Funcional — consulta BrasilAPI |
 | `services/mcp/tools/processos.py` | **TODO** — integrar DataJud/CNJ |
 | `services/mcp/tools/noticias.py` | **TODO** — integrar NewsAPI ou RSS |
-| `services/portal/apps/artifacts/models.py` | Modelos centrais: Artifact, AuditLog, Sharing |
+| `services/portal/apps/artifacts/models.py` | Modelos: Artifact (tipos incl. texto/fragmento), ArtifactLineage, AuditLog, Sharing |
+| `services/portal/apps/artifacts/tasks.py` | Tasks Celery: `extract_text_from_mhtml`, `scan_unprocessed_documents` |
+| `services/portal/apps/artifacts/signals.py` | Signal post_save → dispara pipeline automaticamente |
+| `services/portal/apps/artifacts/views.py` | Views web + `ArtefatoCreateAPIView` (API interna para orchestrator) |
+| `services/portal/config/celery.py` | App Celery — não modificar sem entender impacto no worker/beat |
 | `services/portal/apps/accounts/models.py` | Multi-tenancy: User, Organization, Membership, Team |
 | `services/portal/config/settings/` | Django settings por ambiente (base/development/production) |
 
@@ -55,6 +59,7 @@ Não há suite de testes ainda. Ao criar testes, colocá-los em `tests/` dentro 
 - **Não renomeie os níveis de classificação** (`público`, `interno`, `restrito`, `confidencial`) — são contratos entre serviços.
 - **Não commite `.env`** — use `.env.example` como referência.
 - **Não escreva lógica de negócio no portal Django** que deveria estar no orchestrator. O portal é interface e persistência; o orchestrator é processamento.
+- **Não crie artefatos com psycopg2 direto no banco a partir do orchestrator.** O orchestrator deve chamar `POST portal:8000/artifacts/api/v1/artefatos/` para que o signal Django dispare o pipeline. Escrever diretamente no banco bypassa o ORM e o signal nunca é acionado.
 
 ### Sempre faça
 
@@ -64,6 +69,8 @@ Não há suite de testes ainda. Ao criar testes, colocá-los em `tests/` dentro 
 - Ao adicionar uma ferramenta MCP nova, registre o endpoint em `services/mcp/main.py` e documente em `docs/componentes/mcp.md`.
 - Ao alterar o `InvestigationState` em `graph.py`, verifique se todos os agentes que leem/escrevem esse estado ainda estão coerentes.
 - Atualize o arquivo `CHANGELOG_IA.md` na raiz do projeto detalhando o que você fez, para manter o histórico claro para humanos e outras IAs.
+- Ao criar uma nova transformação de artefato (nova Etapa do pipeline), registre `ArtifactLineage` com `transformation`, `processor` e `parameters`. A linhagem é o contrato de rastreabilidade do sistema.
+- Ao adicionar uma nova task Celery, registre-a também no `scan_unprocessed_documents` se ela precisar processar artefatos históricos.
 
 ## Classificação de dados — contrato entre serviços
 

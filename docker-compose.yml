@@ -8,6 +8,8 @@ services:
         condition: service_healthy
       minio:
         condition: service_started
+      redis:
+        condition: service_started
     env_file: .env
 
   orchestrator:
@@ -44,6 +46,33 @@ services:
     volumes:
       - ./data/qdrant:/qdrant/storage
       - ./infra/qdrant/config.yaml:/qdrant/config/production.yaml
+
+  worker:
+    build: ./services/portal
+    command: celery -A config worker -l info
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      minio:
+        condition: service_started
+    env_file: .env
+
+  beat:
+    build: ./services/portal
+    command: celery -A config beat -l info
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    env_file: .env
+
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - ./data/redis:/data
 
   minio:
     image: minio/minio:latest

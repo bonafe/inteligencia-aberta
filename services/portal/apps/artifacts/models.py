@@ -11,6 +11,8 @@ class Artifact(models.Model):
         PROCESS = "processo", "Processo"
         ADDRESS = "endereco", "Endereço"
         EVENT = "evento", "Evento"
+        TEXT = "texto", "Texto Extraído"
+        FRAGMENT = "fragmento", "Fragmento"
 
     class ClassificationLevel(models.TextChoices):
         PUBLIC = "publico", "Público"
@@ -51,6 +53,22 @@ class Artifact(models.Model):
 
     def __str__(self):
         return f"{self.get_artifact_type_display()} / {self.id}"
+
+
+class ArtifactLineage(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    parent = models.ForeignKey(Artifact, on_delete=models.PROTECT, related_name="children_lineage")
+    child = models.ForeignKey(Artifact, on_delete=models.PROTECT, related_name="parent_lineage")
+    transformation = models.CharField(max_length=50)
+    processor = models.CharField(max_length=100)
+    parameters = models.JSONField(default=dict)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "artifacts_lineage"
+
+    def __str__(self):
+        return f"{self.transformation}: {self.parent_id} → {self.child_id}"
 
 
 class AuditLog(models.Model):

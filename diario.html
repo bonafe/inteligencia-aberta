@@ -282,6 +282,45 @@
     <div class="container">
         <div class="entries-list">
 
+            <!-- Entrada 7 -->
+            <article class="entry-card">
+                <div class="entry-header">
+                    <div class="entry-meta">
+                        <span class="entry-date">20 de maio de 2026</span>
+                        <span class="entry-sep"></span>
+                        <span class="entry-author">Bonafé & Claude Code</span>
+                    </div>
+                    <h2 class="entry-title">O bug que não existe até você usar de verdade</h2>
+                </div>
+                <div class="entry-body">
+                    <p>Implementamos o pipeline. Os testes passaram. O worker subiu, registrou a task, processou 1166 palavras do National Geographic. Tudo verde. E então eu fui capturar uma página com a extensão — do jeito que qualquer usuário usaria — e nada aconteceu.</p>
+                    <p>Rastreamos o caminho completo. A extensão chama o orchestrator. O orchestrator salva no MinIO. Até aqui, tudo certo. Mas na hora de registrar o artefato no banco, o orchestrator usava psycopg2 direto — uma conexão crua com o PostgreSQL, sem passar pelo Django. O signal <code>post_save</code> que dispara o pipeline só funciona quando o ORM do Django cria o registro. Escrever direto no banco é invisível para ele.</p>
+                    <p>O teste que fizemos antes tinha funcionado porque criamos o artefato pelo shell do Django, que usa o ORM. Era um teste do pipeline isolado, não do fluxo real. A diferença entre "funciona nos testes" e "funciona de verdade" foi exatamente um nível de abstração que pulamos sem perceber.</p>
+                    <p>A correção foi fazer o orchestrator chamar um endpoint HTTP no portal Django para criar o artefato — em vez de ir direto ao banco. Django vira a única porta de entrada para operações de dados, o ORM cuida do signal, e o pipeline dispara. Adicionamos também um Celery Beat que varre artefatos históricos a cada dois minutos como rede de segurança — qualquer artefato que por alguma razão não tenha sido processado é pego aqui.</p>
+                    <p><em>O sistema mais robusto não é o que nunca falha nos testes — é o que deixa falhas visíveis quando você usa do jeito errado.</em></p>
+                </div>
+            </article>
+
+            <!-- Entrada 6 -->
+            <article class="entry-card">
+                <div class="entry-header">
+                    <div class="entry-meta">
+                        <span class="entry-date">20 de maio de 2026</span>
+                        <span class="entry-sep"></span>
+                        <span class="entry-author">Bonafé & Claude Code</span>
+                    </div>
+                    <h2 class="entry-title">Desenhar antes de construir: o pipeline que vai mover os dados</h2>
+                </div>
+                <div class="entry-body">
+                    <p>Hoje não escrevi uma linha de código. E foi uma das sessões mais produtivas do projeto.</p>
+                    <p>Com o fluxo de captura funcionando — a extensão captura, o MinIO armazena, o Django exibe — a pergunta natural virou: <em>e agora?</em> A página está salva. Temos o HTML. Mas o que o sistema faz com isso? O dado bruto sozinho não investiga nada. Precisávamos de uma resposta antes de sair implementando.</p>
+                    <p>A conversa girou em torno de um pipeline de transformação: extrair o texto relevante da página, fragmentar em pedaços, converter em vetores semânticos (embeddings), reconhecer entidades como CPFs e CNPJs, e no futuro mapear relações num grafo. Cada etapa produz um novo artefato que aponta para o anterior — isso é o que chamamos de linhagem de dados. A ideia é que, daqui a seis meses, você consiga olhar para qualquer conclusão do sistema e rastrear exatamente de onde ela veio e por quais transformações passou.</p>
+                    <p>Surgiu também uma ideia que achei elegante: ao invés de sempre mandar a página para um LLM extrair o conteúdo (caro e lento), o sistema aprende. Na primeira vez que vê um domínio novo, usa o LLM para descobrir quais seletores CSS apontam para o conteúdo principal. Salva isso. Da segunda vez em diante, aplica os seletores direto — sem custo, sem latência. O LLM vira professor, não operário.</p>
+                    <p>Na parte de mensageria, a tentação era ir direto para Kafka. Mas quando perguntamos "o que exatamente o Kafka resolve que o Celery não resolve agora?", a resposta foi honesta: nada que justifique o custo operacional no momento. Celery + Redis já está na especificação original da arquitetura. Kafka entra quando tivermos escala de verdade, não antes.</p>
+                    <p><em>A especificação está escrita. O roadmap está atualizado. Na próxima sessão, o código vai ter para onde correr.</em></p>
+                </div>
+            </article>
+
             <!-- Entrada 5 -->
             <article class="entry-card">
                 <div class="entry-header">

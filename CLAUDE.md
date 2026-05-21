@@ -27,17 +27,28 @@ Não existe Makefile, CI/CD, pytest, linting ou pre-commit configurados. Ao adic
 
 ## Arquitetura de serviços
 
-Três microserviços Python em containers independentes:
+Três microserviços Python + workers de processamento:
 
 | Serviço | Stack | Porta | Papel |
 |---------|-------|-------|-------|
-| `portal` | Django 5.0.6 | 8000 | Interface web, modelos de dados, admin |
-| `orchestrator` | FastAPI + LangGraph | 8001 | Grafo de investigação, motor de política |
+| `portal` | Django 5.0.6 | 8000 | Interface web, modelos de dados, admin, API interna |
+| `orchestrator` | FastAPI + LangGraph | 8001 | Captura MHTML, grafo de investigação, motor de política |
 | `mcp` | FastAPI + httpx | 8002 | Ferramentas externas (CNPJ, processos, notícias) |
+| `worker` | Celery 5.4 | — | Executa tasks assíncronas do pipeline |
+| `beat` | Celery Beat | — | Agenda tasks periódicas (catch-up scan a cada 2min) |
 
-Infraestrutura de suporte: PostgreSQL 16-alpine (porta 5432), Qdrant v1.9.0 (6333), MinIO latest (9000/9001).
+Infraestrutura de suporte: PostgreSQL 16-alpine (5432), Qdrant v1.9.0 (6333), MinIO latest (9000/9001), Redis 7-alpine (6379).
 
-O fluxo de uma investigação é: `POST /investigar` no orchestrator → `policy_engine.check()` → grafo LangGraph (`planejador → coletor → redator`) → chamadas HTTP ao MCP → resposta em markdown.
+**Fluxo de captura MHTML (funcional):**
+```
+Extensão Chrome → POST orchestrator:8001/api/v1/capture/mhtml
+  → MinIO (armazena MHTML bruto)
+  → POST portal:8000/artifacts/api/v1/artefatos/  (Django ORM → signal)
+  → Celery worker: extract_text_from_mhtml
+  → Artifact(tipo=texto) + ArtifactLineage criados
+```
+
+**Fluxo de investigação:** `POST /investigar` no orchestrator → `policy_engine.check()` → grafo LangGraph (`planejador → coletor → redator`) → chamadas HTTP ao MCP → resposta em markdown. (Agentes ainda são stubs — Fase 0.)
 
 ## Estrutura de código crítica
 
@@ -47,7 +58,13 @@ O fluxo de uma investigação é: `POST /investigar` no orchestrator → `policy
 
 **`services/portal/apps/accounts/`** — multi-tenancy. `User` com UUID PK, `Organization` (INDIVIDUAL/TEAM/INSTITUTIONAL), `Membership` com papéis (OWNER/ADMIN/MEMBER/GUEST).
 
-**`services/portal/apps/artifacts/`** — modelo de dados central. `Artifact` com tipo, classificação e organização dona. `AuditLog` registra todo acesso. `Sharing` controla compartilhamento granular com expiração e revogação.
+**`services/portal/apps/artifacts/`** — modelo de dados central.
+- `models.py`: `Artifact` (tipos: pessoa/empresa/documento/processo/texto/fragmento), `ArtifactLineage` (rastreia pai→filho + transformação + processador), `AuditLog`, `Sharing`.
+- `tasks.py`: `extract_text_from_mhtml` (Etapa 1 do pipeline), `scan_unprocessed_documents` (catch-up periódico via Beat).
+- `signals.py`: `post_save` em `Artifact` dispara a task de extração automaticamente.
+- `views.py`: `ArtefatoCreateAPIView` — endpoint interno `POST /artifacts/api/v1/artefatos/` usado pelo orchestrator para criar artefatos via ORM (necessário para o signal disparar).
+
+**`services/portal/config/celery.py`** — app Celery do projeto. `config/__init__.py` o exporta para que `celery -A config` funcione.
 
 **`services/mcp/tools/cnpj.py`** — única ferramenta funcional (BrasilAPI). `processos.py` e `noticias.py` são stubs.
 

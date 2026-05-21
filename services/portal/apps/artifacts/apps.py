@@ -6,3 +6,6 @@ class ArtifactsConfig(AppConfig):
     name = "apps.artifacts"
     label = "artifacts"
     verbose_name = "Artefatos e Auditoria"
+
+    def ready(self):
+        import apps.artifacts.signals  # noqa: F401

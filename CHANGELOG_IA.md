@@ -2,6 +2,65 @@
 
 Este arquivo documenta as alterações, configurações e implementações feitas por IAs (agentes) neste repositório. O objetivo é manter um histórico unificado e transparente sobre o estado do desenvolvimento, facilitando o onboarding de novas IAs e humanos na base de código.
 
+## [20-05-2026] - Implementação da Etapa 1 do Pipeline + Correção de Integração
+
+**O que foi feito:**
+- **Implementação completa da Etapa 1 do pipeline de transformação:**
+  - Modelo `ArtifactLineage` adicionado em `apps/artifacts/models.py` com tabela `artifacts_lineage`.
+  - Novos tipos `texto` e `fragmento` adicionados a `Artifact.Type`.
+  - Migration `0002` criada e aplicada.
+  - Task Celery `extract_text_from_mhtml` em `apps/artifacts/tasks.py`: lê MHTML do MinIO, desempacota com o módulo `email`, extrai texto com `trafilatura` (modo padrão + fallback `favor_recall`), cria `Artifact(tipo=texto)` e `ArtifactLineage`.
+  - Task Celery `scan_unprocessed_documents` em `apps/artifacts/tasks.py`: varre artefatos `documento` sem filho `texto` e enfileira extração — cobre histórico e garante resiliência a falhas.
+  - Signal Django `dispatch_extraction_pipeline` em `apps/artifacts/signals.py`: dispara `extract_text_from_mhtml.delay()` automaticamente no `post_save` de qualquer `Artifact(tipo=documento, mhtml_path presente)`.
+  - `config/celery.py` criado; `config/__init__.py` expõe `celery_app`; settings com `CELERY_BEAT_SCHEDULE` (scan a cada 2 minutos).
+  - Redis 7-alpine + serviços `worker` e `beat` adicionados ao `docker-compose.yml`.
+
+- **Bug identificado e corrigido — orchestrator bypassing Django ORM:**
+  - O endpoint `POST /api/v1/capture/mhtml` do orchestrator escrevia direto no PostgreSQL via `psycopg2`, o que fazia o signal `post_save` nunca disparar.
+  - Correção: orchestrator substituiu o bloco `psycopg2` por `httpx.post()` ao novo endpoint Django `POST portal:8000/artifacts/api/v1/artefatos/`.
+  - Novo endpoint `ArtefatoCreateAPIView` em `apps/artifacts/views.py` encapsula a lógica de fallback (user/org) e cria o artefato via ORM, disparando o signal automaticamente.
+  - `psycopg2` e `datetime` removidos das importações do orchestrator (`main.py`).
+
+**Testes realizados:**
+- Task disparada manualmente: extraiu 1166 palavras de captura existente (National Geographic Brasil). Linhagem criada corretamente.
+- Signal automático: novo artefato criado → filho `texto` apareceu em < 1 segundo.
+- Endpoint Django: `POST /artifacts/api/v1/artefatos/` retorna `{"artifact_id": "uuid"}` com status 201.
+- Beat catch-up: ao subir, processou todos os artefatos históricos sem filho texto em paralelo.
+- Fluxo real via orchestrator: artefato criado via API dispara signal → worker processa → linhagem registrada.
+
+**Status Atual:**
+- Pipeline Etapa 1 funcional ponta-a-ponta. Qualquer captura nova via extensão Chrome ou chamada ao orchestrator gera automaticamente um artefato de texto extraído com linhagem completa.
+
+**Próximos Passos Sugeridos:**
+- Etapa 2: Fragmentador — dividir o `Artifact(tipo=texto)` em chunks com overlap e criar `Artifact(tipo=fragmento)` com linhagem.
+- Etapa 3: Embedder — gerar vetores com `sentence-transformers` local e indexar no Qdrant por tenant.
+- Implementar `SiteProfile` (LLM Discovery para seletores CSS por domínio).
+
+---
+
+## [20-05-2026] - Especificação do Pipeline de Transformação de Artefatos
+
+**O que foi feito:**
+- **Conversação arquitetural:** Discussão aprofundada sobre o fluxo do dado após a captura — desde a extração de texto até a indexação semântica, NER e futuramente o grafo de vínculos.
+- **Novo documento de especificação:** Criado `docs/arquitetura/pipeline-transformacao.md` descrevendo os 5 estágios do pipeline (extração → fragmentação → embedding → NER/sumarização → grafo), os novos modelos de dados e a estratégia de orquestração.
+- **Decisões registradas:**
+  - *Extração de texto em camadas:* `trafilatura` como extrator genérico padrão; LLM Discovery como fallback que aprende seletores CSS por domínio e salva em `SiteProfile` (LLM roda uma vez por domínio, depois é custo zero).
+  - *Linhagem de dados:* Modelo `ArtifactLineage` — todo artefato derivado registra seu pai, a transformação aplicada, o processador e os parâmetros. Forma um DAG auditável de ponta a ponta.
+  - *Mensageria:* Celery + Redis (já previsto na arquitetura) é suficiente para as Fases 0–4. Kafka adiado para Fase 5 (Kubernetes). Redis Streams como stepping stone intermediário se necessário.
+  - *Registry dinâmico:* Modelo `SkillManifest` — skills e MCPs se auto-registram com input_type, output_type e trigger_rules. Quando uma skill nova chega, catch-up automático reprocessa artefatos históricos compatíveis.
+  - *Embeddings locais:* `sentence-transformers` com `paraphrase-multilingual-mpnet-base-v2` para não enviar dados a APIs externas, compatível com a política de LLM local para dados `restrito`/`confidencial`.
+- **Roadmap atualizado:** Fase 1 renomeada para "Pipeline de Transformação e RAG" com os entregáveis refinados para refletir o pipeline especificado.
+
+**Status Atual:**
+- Especificação da Fase 1 completa e coerente com a arquitetura existente. Nenhum código foi escrito nesta sessão — deliberadamente, o objetivo foi especificar antes de implementar.
+
+**Próximos Passos Sugeridos:**
+- Implementar `ArtifactLineage` e `SiteProfile` como modelos Django e gerar migrações.
+- Adicionar Celery + Redis ao `docker-compose.yml`.
+- Implementar a Etapa 1 do pipeline: task Celery que lê o MHTML do MinIO, extrai texto com `trafilatura` e cria um novo `Artifact` do tipo "texto" com a linhagem registrada.
+
+---
+
 ## [19-05-2026] - Extensão de Captura e Armazenamento MHTML
 
 **O que foi feito:**

@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import Artifact, AuditLog, Sharing
+from .models import Artifact, ArtifactLineage, AuditLog, Sharing
 
 
 @admin.register(Artifact)
@@ -8,6 +8,19 @@ class ArtifactAdmin(admin.ModelAdmin):
     list_filter = ("artifact_type", "classification_level", "info_type")
     search_fields = ("id",)
     readonly_fields = ("id", "classified_at", "created_at", "updated_at")
+
+
+@admin.register(ArtifactLineage)
+class ArtifactLineageAdmin(admin.ModelAdmin):
+    list_display = ("transformation", "processor", "parent", "child", "created_at")
+    list_filter = ("transformation",)
+    readonly_fields = ("id", "parent", "child", "transformation", "processor", "parameters", "created_at")
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
 
 
 @admin.register(AuditLog)

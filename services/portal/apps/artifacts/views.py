@@ -1,15 +1,71 @@
-import os
-import email
 import base64
+import email
+import json
+import os
+import uuid
 from email import policy
+
+from django.http import HttpResponse, Http404, JsonResponse
 from django.shortcuts import render, get_object_or_404
-from django.views import View
-from django.http import HttpResponse, Http404
-from django.views.decorators.clickjacking import xframe_options_sameorigin
 from django.utils.decorators import method_decorator
-from .models import Artifact
+from django.views import View
+from django.views.decorators.clickjacking import xframe_options_sameorigin
+from django.views.decorators.csrf import csrf_exempt
 from minio import Minio
 from minio.error import S3Error
+
+from apps.accounts.models import Organization, User
+from .models import Artifact
+
+@method_decorator(csrf_exempt, name="dispatch")
+class ArtefatoCreateAPIView(View):
+    """Endpoint interno para criação de artefatos via ORM (dispara signal → pipeline)."""
+
+    def post(self, request):
+        try:
+            data = json.loads(request.body)
+        except json.JSONDecodeError:
+            return JsonResponse({"error": "JSON inválido"}, status=400)
+
+        user = self._resolve_user(data.get("user_id"))
+        if user is None:
+            return JsonResponse({"error": "Nenhum usuário encontrado"}, status=400)
+
+        org = self._resolve_org(data.get("tenant_id"), user)
+
+        artifact = Artifact.objects.create(
+            artifact_type=data.get("artifact_type", Artifact.Type.DOCUMENT),
+            content=data.get("content", {}),
+            classification_level=data.get("classification_level", Artifact.ClassificationLevel.RESTRICTED),
+            tenant=org,
+            allow_external_llm=False,
+            classified_by=user,
+            info_type=data.get("info_type", Artifact.InfoType.FACT),
+            sources=data.get("sources", []),
+        )
+
+        return JsonResponse({"artifact_id": str(artifact.id)}, status=201)
+
+    def _resolve_user(self, user_id):
+        if user_id:
+            return User.objects.filter(id=user_id).first()
+        return User.objects.order_by("date_joined").first()
+
+    def _resolve_org(self, tenant_id, user):
+        if tenant_id:
+            org = Organization.objects.filter(id=tenant_id).first()
+            if org:
+                return org
+        org = Organization.objects.filter(owner=user).first()
+        if org:
+            return org
+        return Organization.objects.create(
+            name="Uso Individual",
+            slug=f"individual-{str(uuid.uuid4())[:8]}",
+            org_type=Organization.Type.INDIVIDUAL,
+            owner=user,
+        )
+
 
 class ArtifactGalleryView(View):
     def get(self, request):
