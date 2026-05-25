@@ -4,7 +4,6 @@ import os
 import uuid as uuid_lib
 from email import policy as email_policy
 
-import trafilatura
 from celery import shared_task
 from django.conf import settings
 from minio import Minio
@@ -96,22 +95,32 @@ def extract_text_from_mhtml(self, artifact_id: str):
     if not html_content:
         return {"status": "skipped", "reason": "HTML não encontrado no MHTML"}
 
-    text = trafilatura.extract(html_content, include_comments=False, include_tables=True)
-    if not text:
-        text = trafilatura.extract(
-            html_content, include_comments=False, include_tables=True, favor_recall=True
-        )
+    from .extractors import detect_page_type, route
+
+    url = content.get("url", "")
+    title = content.get("title", "")
+
+    page_type, confidence, detection_source, cache_id = detect_page_type(
+        html_content, url, artifact.tenant_id
+    )
+    extracted = route(page_type, html_content, url, title)
+    text = extracted["text"]
 
     if not text:
-        return {"status": "skipped", "reason": "trafilatura não extraiu conteúdo"}
+        return {"status": "skipped", "reason": "extrator não produziu conteúdo"}
 
     child = Artifact.objects.create(
         artifact_type=Artifact.Type.TEXT,
         content={
             "text": text,
-            "title": content.get("title", ""),
-            "source_url": content.get("url", ""),
-            "extraction_method": "trafilatura",
+            "title": title,
+            "source_url": url,
+            "page_type": page_type,
+            "detection_confidence": confidence,
+            "detection_source": detection_source,
+            "url_pattern_cache_id": cache_id,
+            "structured_data": extracted.get("structured_data"),
+            "extractor_version": extracted["extractor_version"],
             "char_count": len(text),
             "word_count": len(text.split()),
         },
@@ -127,8 +136,8 @@ def extract_text_from_mhtml(self, artifact_id: str):
         parent=artifact,
         child=child,
         transformation="text_extraction",
-        processor=f"trafilatura:{trafilatura.__version__}",
-        parameters={},
+        processor=f"extractor:{page_type}:{extracted['extractor_version'].split(':')[-1]}",
+        parameters={"page_type": page_type, "detection_source": detection_source},
     )
 
     fragment_text.delay(str(child.id))

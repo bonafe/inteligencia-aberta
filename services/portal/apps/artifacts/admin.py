@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import Artifact, ArtifactLineage, AuditLog, Sharing
+from .models import Artifact, ArtifactLineage, AuditLog, Sharing, URLPatternCache
 
 
 @admin.register(Artifact)
@@ -47,3 +47,12 @@ class SharingAdmin(admin.ModelAdmin):
     list_display = ("artifact", "shared_by", "recipient_type", "status", "created_at", "expires_at")
     list_filter = ("status", "recipient_type")
     readonly_fields = ("id", "created_at")
+
+
+@admin.register(URLPatternCache)
+class URLPatternCacheAdmin(admin.ModelAdmin):
+    list_display = ("domain", "path_pattern", "page_type", "confidence", "hit_count", "divergence_count", "needs_review", "tenant", "last_seen_at")
+    list_filter = ("page_type", "needs_review", "tenant")
+    search_fields = ("domain", "path_pattern")
+    readonly_fields = ("id", "hit_count", "divergence_count", "last_seen_at", "created_at")
+    ordering = ("-last_seen_at",)

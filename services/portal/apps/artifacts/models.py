@@ -1,5 +1,6 @@
 import uuid
 from django.db import models
+from django.db.models import Index
 from apps.accounts.models import User, Organization
 
 
@@ -122,3 +123,28 @@ class Sharing(models.Model):
 
     def __str__(self):
         return f"{self.artifact} → {self.recipient_type}:{self.recipient_id}"
+
+
+class URLPatternCache(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    tenant = models.ForeignKey(
+        Organization, on_delete=models.CASCADE, related_name="url_pattern_caches"
+    )
+    domain = models.CharField(max_length=255)
+    path_pattern = models.CharField(max_length=1024)
+    page_type = models.CharField(max_length=50)
+    extractor_config = models.JSONField(default=dict)
+    confidence = models.FloatField()
+    hit_count = models.PositiveIntegerField(default=1)
+    divergence_count = models.PositiveIntegerField(default=0)
+    needs_review = models.BooleanField(default=False)
+    last_seen_at = models.DateTimeField(auto_now=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "artifacts_url_pattern_cache"
+        unique_together = [("tenant", "domain", "path_pattern")]
+        indexes = [Index(fields=["tenant", "domain"])]
+
+    def __str__(self):
+        return f"{self.domain}{self.path_pattern} → {self.page_type}"
