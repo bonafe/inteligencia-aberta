@@ -61,18 +61,6 @@ def _fmt_brl(v: float) -> str:
 
 # ── Extratores ─────────────────────────────────────────────────────────────
 
-def extract_article(html: str, url: str, title: str) -> dict:
-    import trafilatura
-    text = trafilatura.extract(html, include_comments=False, include_tables=True)
-    if not text:
-        text = trafilatura.extract(html, include_comments=False, include_tables=True, favor_recall=True)
-    return {
-        "text": text or "",
-        "structured_data": None,
-        "extractor_version": f"article:{EXTRACTOR_VERSION}",
-    }
-
-
 def extract_financial_table(html: str, url: str, title: str) -> dict:
     try:
         from bs4 import BeautifulSoup
@@ -393,7 +381,7 @@ def extract_fallback(html: str, url: str, title: str) -> dict:
 # ── Router ──────────────────────────────────────────────────────────────────
 
 _ROUTER = {
-    "artigo": extract_article,
+    "artigo": extract_fallback,
     "tabular_financeiro": extract_financial_table,
     "tabular_generico": extract_generic_table,
     "processo_judicial": extract_judicial_process,
