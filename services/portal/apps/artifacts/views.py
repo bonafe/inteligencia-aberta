@@ -1,11 +1,14 @@
 import base64
 import email
 import json
+import logging
 import os
 import uuid
 from email import policy
 
 from django.http import HttpResponse, Http404, JsonResponse
+
+logger = logging.getLogger(__name__)
 from django.shortcuts import render, get_object_or_404
 from django.utils.decorators import method_decorator
 from django.views import View
@@ -28,15 +31,24 @@ class ArtefatoCreateAPIView(View):
         except json.JSONDecodeError:
             return JsonResponse({"error": "JSON inválido"}, status=400)
 
+        content = data.get("content", {})
+        logger.info(
+            "artefato recebido via API — tipo=%s url=%s user_id=%s tenant_id=%s",
+            data.get("artifact_type"), content.get("url", ""),
+            data.get("user_id"), data.get("tenant_id"),
+        )
+
         user = self._resolve_user(data.get("user_id"))
         if user is None:
             return JsonResponse({"error": "Nenhum usuário encontrado"}, status=400)
+        logger.info("usuário resolvido — id=%s email=%s", user.id, user.email)
 
         org = self._resolve_org(data.get("tenant_id"), user)
+        logger.info("organização resolvida — id=%s nome=%s tipo=%s", org.id, org.name, org.org_type)
 
         artifact = Artifact.objects.create(
             artifact_type=data.get("artifact_type", Artifact.Type.DOCUMENT),
-            content=data.get("content", {}),
+            content=content,
             classification_level=data.get("classification_level", Artifact.ClassificationLevel.RESTRICTED),
             tenant=org,
             allow_external_llm=False,
@@ -44,6 +56,7 @@ class ArtefatoCreateAPIView(View):
             info_type=data.get("info_type", Artifact.InfoType.FACT),
             sources=data.get("sources", []),
         )
+        logger.info("artefato criado — id=%s tipo=%s classificacao=%s", artifact.id, artifact.artifact_type, artifact.classification_level)
 
         return JsonResponse({"artifact_id": str(artifact.id)}, status=201)
 

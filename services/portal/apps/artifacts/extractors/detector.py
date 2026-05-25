@@ -137,6 +137,8 @@ def detect_page_type(
     from apps.artifacts.models import URLPatternCache
 
     domain, path_pattern = normalize_url(url)
+    logger.info("URL normalizada — domain=%s path_pattern=%s", domain, path_pattern)
+
     cache_obj = None
     cache_id = None
 
@@ -148,13 +150,33 @@ def detect_page_type(
         if cache_obj:
             cache_id = str(cache_obj.id)
             if cache_obj.confidence >= 0.9 and not cache_obj.needs_review:
+                logger.info(
+                    "cache HIT — page_type=%s confidence=%.2f hit_count=%d",
+                    cache_obj.page_type, cache_obj.confidence, cache_obj.hit_count,
+                )
                 URLPatternCache.objects.filter(id=cache_obj.id).update(
                     hit_count=django_models.F("hit_count") + 1
                 )
                 return cache_obj.page_type, cache_obj.confidence, "cache", cache_id
+            else:
+                logger.info(
+                    "cache encontrado mas não confiável — confidence=%.2f needs_review=%s → análise estrutural",
+                    cache_obj.confidence, cache_obj.needs_review,
+                )
+        else:
+            logger.info("cache MISS — rodando análise estrutural")
 
     metrics = analyze_html(html)
+    logger.info(
+        "métricas HTML — table_ratio=%.2f tables=%d rows=%d monetary=%d dates=%d cnj=%d cnpj=%d article=%s main=%s paragraphs=%d",
+        metrics["table_ratio"], metrics["table_count"], metrics["table_row_count"],
+        metrics["monetary_count"], metrics["date_count"],
+        metrics["process_number_count"], metrics["cnpj_count"],
+        metrics["has_article"], metrics["has_main"], metrics["paragraph_count"],
+    )
+
     page_type, confidence = classify(metrics)
+    logger.info("classificado como '%s' (confidence=%.2f)", page_type, confidence)
 
     if domain and path_pattern:
         if cache_obj is not None:
@@ -163,17 +185,22 @@ def detect_page_type(
                     divergence_count=django_models.F("divergence_count") + 1
                 )
                 cache_obj.refresh_from_db(fields=["divergence_count"])
+                logger.warning(
+                    "divergência no cache — cached=%s detected=%s divergence_count=%d domain=%s%s",
+                    cache_obj.page_type, page_type, cache_obj.divergence_count, domain, path_pattern,
+                )
                 if cache_obj.divergence_count >= 3:
                     URLPatternCache.objects.filter(id=cache_obj.id).update(needs_review=True)
                     logger.warning(
-                        "URLPatternCache needs_review: %s%s (detected=%s, cached=%s)",
-                        domain, path_pattern, page_type, cache_obj.page_type,
+                        "cache marcado needs_review=True — %s%s (3 divergências acumuladas)",
+                        domain, path_pattern,
                     )
             else:
                 URLPatternCache.objects.filter(id=cache_obj.id).update(
                     hit_count=django_models.F("hit_count") + 1,
                     confidence=confidence,
                 )
+                logger.info("cache atualizado — hit_count incrementado para %s%s", domain, path_pattern)
         else:
             try:
                 new_cache = URLPatternCache.objects.create(
@@ -184,6 +211,7 @@ def detect_page_type(
                     confidence=confidence,
                 )
                 cache_id = str(new_cache.id)
+                logger.info("cache criado — id=%s domain=%s path=%s type=%s", cache_id, domain, path_pattern, page_type)
             except Exception:
                 logger.exception("URLPatternCache create failed")
 

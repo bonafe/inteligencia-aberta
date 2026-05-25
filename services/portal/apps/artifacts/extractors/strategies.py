@@ -393,4 +393,6 @@ _ROUTER = {
 
 
 def route(page_type: str, html: str, url: str, title: str) -> dict:
-    return _ROUTER.get(page_type, extract_fallback)(html, url, title)
+    extractor = _ROUTER.get(page_type, extract_fallback)
+    logger.info("route — page_type=%s → %s", page_type, extractor.__name__)
+    return extractor(html, url, title)
