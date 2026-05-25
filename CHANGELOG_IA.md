@@ -2,6 +2,32 @@
 
 Este arquivo documenta as alterações, configurações e implementações feitas por IAs (agentes) neste repositório. O objetivo é manter um histórico unificado e transparente sobre o estado do desenvolvimento, facilitando o onboarding de novas IAs e humanos na base de código.
 
+## [24-05-2026] - Especificação da Extração Adaptativa de HTML
+
+**O que foi feito:**
+- **Identificação de limitação arquitetural:**
+  - A task `extract_text_from_mhtml` trata todas as páginas de forma idêntica (trafilatura sobre texto puro), o que é inadequado para extratos bancários, processos judiciais e fichas de CNPJ — tipos de página onde a estrutura tabular é o dado, não o texto narrativo.
+
+- **Spec `docs/componentes/pipeline/extracao-adaptativa.md` (novo):**
+  - Define 8 tipos de página: `artigo`, `tabular_financeiro`, `tabular_generico`, `processo_judicial`, `perfil_pessoa_juridica`, `documento_juridico`, `misto`, `desconhecido`.
+  - Algoritmo de detecção em duas fases: (1) lookup no `URLPatternCache` por padrão de URL normalizado; (2) análise estrutural do HTML (table_ratio, monetary_count, process_number_count, etc.) com regras de classificação priorizadas.
+  - Extratores por tipo: BeautifulSoup + heurística de colunas para `tabular_financeiro`; regex CNJ + extração de partes e movimentações para `processo_judicial`; trafilatura preservado para `artigo` e `desconhecido`.
+  - Campo `structured_data` no `content` do Artifact TEXT: extrato financeiro gera JSON com lista de transações `{data, descricao, valor, saldo}`; processo judicial gera JSON com número CNJ, partes e movimentações.
+  - Modelo `URLPatternCache` (novo): `tenant`, `domain`, `path_pattern` (URL normalizada com IDs substituídos por `*`), `page_type`, `confidence`, `hit_count`, `divergence_count`, `needs_review`. Isolado por tenant.
+  - Lógica de aprendizado: na segunda captura do mesmo padrão, usa tipo cacheado (sem análise estrutural). Após 3 divergências entre cache e análise, marca `needs_review = true` — sinal de que o layout da página mudou (ex: nova versão do internet banking).
+  - `ArtifactLineage.processor` passa a identificar extrator e versão: `extractor:tabular_financeiro:1.0`.
+  - 10 critérios de aceitação definidos.
+
+**Status Atual:**
+- Especificação completa. Nenhum código escrito — objetivo desta sessão foi especificar antes de implementar.
+
+**Próximos Passos:**
+- Implementar `URLPatternCache` como modelo Django + migration.
+- Implementar `detect_page_type()` e os extratores por tipo em `apps/artifacts/tasks.py` (ou módulo separado `apps/artifacts/extractors/`).
+- Integrar o roteamento na task `extract_text_from_mhtml`.
+
+---
+
 ## [20-05-2026] - Etapas 2 e 3 do Pipeline + Busca Semântica
 
 **O que foi feito:**

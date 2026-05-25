@@ -32,10 +32,11 @@ Cada fase deve entregar valor real a pelo menos uma persona. Nenhuma fase é "s�
 **Entregáveis:**
 
 *Pipeline de transformação (base de tudo):*
-- [ ] Celery + Redis como fila de tarefas assíncronas (já previsto na arquitetura)
-- [ ] `ArtifactLineage` — modelo de linhagem: todo artefato derivado sabe de onde veio e como foi transformado
-- [ ] Etapa 1: extração de texto com `trafilatura` (genérica, sem LLM)
-- [ ] Etapa 1b: `SiteProfile` — extração aprendida por domínio via LLM Discovery (LLM roda uma vez, seletores CSS ficam salvos)
+- [x] Celery + Redis como fila de tarefas assíncronas (já previsto na arquitetura)
+- [x] `ArtifactLineage` — modelo de linhagem: todo artefato derivado sabe de onde veio e como foi transformado
+- [x] Etapa 1: extração de texto com `trafilatura` (genérica, sem LLM)
+- [ ] Etapa 1b: Extração adaptativa por tipo de página — detecta automaticamente se a página é artigo, extrato financeiro, processo judicial, ficha de CNPJ etc. e aplica extrator específico; `URLPatternCache` aprende padrões de URL por tenant para evitar redetecção ([spec](../componentes/pipeline/extracao-adaptativa.md))
+- [ ] Etapa 1c: `SiteProfile` — extração aprendida por domínio via LLM Discovery (LLM roda uma vez, seletores CSS ficam salvos)
 - [ ] Etapa 2: fragmentação em chunks com overlap configurável
 - [ ] Etapa 3: embedding com `sentence-transformers` local (`paraphrase-multilingual-mpnet-base-v2`)
 - [ ] Etapa 4a: NER básico — extração de CPF, CNPJ, nomes, datas de texto não estruturado

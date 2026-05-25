@@ -282,6 +282,26 @@
     <div class="container">
         <div class="entries-list">
 
+            <!-- Entrada 9 -->
+            <article class="entry-card">
+                <div class="entry-header">
+                    <div class="entry-meta">
+                        <span class="entry-date">24 de maio de 2026</span>
+                        <span class="entry-sep"></span>
+                        <span class="entry-author">Bonafé & Claude Code</span>
+                    </div>
+                    <h2 class="entry-title">A página de extrato não é só texto — e o sistema precisa saber disso</h2>
+                </div>
+                <div class="entry-body">
+                    <p>Hoje paramos para olhar para algo que estava funcionando e percebemos que estava errado. O pipeline extrai texto de qualquer página capturada usando o mesmo método: jogar o HTML no trafilatura e pegar o que sair. Para um artigo de jornal, funciona muito bem. Mas e se a página for um extrato bancário?</p>
+                    <p>Um extrato é uma tabela. Cada linha é uma transação: data, descrição, valor, saldo. O trafilatura achata tudo isso em texto linear — e no processo destrói exatamente o que tinha valor. "15/03/2024 Pix João R$ 150,00 Saldo R$ 2.340,50" vira uma sequência de caracteres sem estrutura. O sistema captura a prova mas perde os dados.</p>
+                    <p>O mesmo problema aparece em processos judiciais (onde importa saber quem é polo ativo, polo passivo, e quais foram as movimentações), em fichas de CNPJ, em licitações. Cada tipo de página tem uma estrutura própria e precisa de uma estratégia de extração própria.</p>
+                    <p>Especificamos o componente de extração adaptativa. A ideia central é simples: antes de extrair, o sistema analisa a estrutura do HTML — quantas tabelas tem, qual a proporção de texto versus células, há padrões de número CNJ, de valores monetários, de datas? A partir dessas métricas, classifica a página em um dos oito tipos que identificamos (artigo, extrato financeiro, processo judicial, ficha de pessoa jurídica, entre outros) e aplica o extrator certo.</p>
+                    <p>Mas o mais interessante não é a detecção — é o que acontece depois. O resultado fica armazenado num cache de padrões de URL, normalizado por domínio e estrutura de path. Na próxima vez que o investigador capturar um extrato do mesmo banco, o sistema já sabe o que é aquela página e vai direto para o extrator correto, sem reanalisar. E se o banco mudar o layout do site, o sistema detecta a divergência e sinaliza para revisão humana.</p>
+                    <p><em>A especificação está pronta. A implementação vem a seguir — desta vez com testes antes do código.</em></p>
+                </div>
+            </article>
+
             <!-- Entrada 8 -->
             <article class="entry-card">
                 <div class="entry-header">
