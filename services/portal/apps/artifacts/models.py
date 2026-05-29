@@ -12,9 +12,6 @@ class Artifact(models.Model):
         PROCESS = "processo", "Processo"
         ADDRESS = "endereco", "Endereço"
         EVENT = "evento", "Evento"
-        TEXT = "texto", "Texto Extraído"
-        FRAGMENT = "fragmento", "Fragmento"
-
     class ClassificationLevel(models.TextChoices):
         PUBLIC = "publico", "Público"
         INTERNAL = "interno", "Interno"
@@ -123,6 +120,55 @@ class Sharing(models.Model):
 
     def __str__(self):
         return f"{self.artifact} → {self.recipient_type}:{self.recipient_id}"
+
+
+class DocumentText(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    document = models.OneToOneField(
+        Artifact, on_delete=models.CASCADE, related_name="extracted_text"
+    )
+    text = models.TextField()
+    title = models.CharField(max_length=500, blank=True)
+    source_url = models.CharField(max_length=2048, blank=True)
+    page_type = models.CharField(max_length=50, blank=True)
+    detection_confidence = models.FloatField(null=True, blank=True)
+    detection_source = models.CharField(max_length=50, blank=True)
+    url_pattern_cache = models.ForeignKey(
+        "URLPatternCache", null=True, blank=True, on_delete=models.SET_NULL
+    )
+    structured_data = models.JSONField(null=True, blank=True)
+    extractor_version = models.CharField(max_length=100, blank=True)
+    char_count = models.IntegerField(default=0)
+    word_count = models.IntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "artifacts_document_text"
+
+    def __str__(self):
+        return f"DocumentText({self.document_id}) — {self.word_count}w"
+
+
+class DocumentFragment(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    document_text = models.ForeignKey(
+        DocumentText, on_delete=models.CASCADE, related_name="fragments"
+    )
+    text = models.TextField()
+    fragment_index = models.IntegerField()
+    total_fragments = models.IntegerField()
+    qdrant_point_id = models.CharField(max_length=100, blank=True)
+    qdrant_collection = models.CharField(max_length=100, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "artifacts_document_fragment"
+        ordering = ["fragment_index"]
+
+    def __str__(self):
+        return f"Fragment {self.fragment_index + 1}/{self.total_fragments} of {self.document_text_id}"
 
 
 class URLPatternCache(models.Model):

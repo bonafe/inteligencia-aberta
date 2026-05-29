@@ -4,7 +4,7 @@
 
 ### Artefato de Inteligência
 
-Unidade fundamental de dado no sistema. Todo dado coletado ou produzido é um artefato.
+Unidade fundamental de dado no sistema. Representa entidades do mundo real coletadas ou produzidas durante uma investigação. Apenas estes seis tipos são artefatos de inteligência — texto extraído e fragmentos de RAG são modelos de pipeline separados (ver abaixo).
 
 ```json
 {
@@ -94,6 +94,54 @@ Unidade fundamental de dado no sistema. Todo dado coletado ou produzido é um ar
   }
 }
 ```
+
+---
+
+## Modelos de Pipeline
+
+Texto extraído e fragmentos de RAG **não são artefatos de inteligência**. São artefatos de infraestrutura de pipeline com modelos próprios, derivados de um `documento` mas não compartilhando o mesmo contrato semântico (sem `info_type`, sem `sources` independentes).
+
+### DocumentText
+
+Texto limpo extraído de um artefato `documento`. Relação 1:1 com o documento de origem.
+
+```python
+class DocumentText(Model):
+    id                  = UUIDField(primary_key=True)
+    document            = OneToOneField(Artifact, related_name="extracted_text")
+    text                = TextField
+    title               = CharField
+    source_url          = CharField
+    page_type           = CharField          # "artigo", "tabular_financeiro", etc.
+    detection_confidence = FloatField
+    detection_source    = CharField          # "cache" | "structural_analysis"
+    url_pattern_cache   = FK(URLPatternCache, null=True)
+    structured_data     = JSONField(null=True)
+    extractor_version   = CharField
+    char_count          = IntegerField
+    word_count          = IntegerField
+    created_at          = DateTimeField
+    updated_at          = DateTimeField
+```
+
+### DocumentFragment
+
+Chunk de texto para busca semântica (RAG). Pertence a um `DocumentText`.
+
+```python
+class DocumentFragment(Model):
+    id               = UUIDField(primary_key=True)
+    document_text    = ForeignKey(DocumentText, related_name="fragments")
+    text             = TextField
+    fragment_index   = IntegerField
+    total_fragments  = IntegerField
+    qdrant_point_id  = CharField(blank=True)   # preenchido após embed_fragment
+    qdrant_collection = CharField(blank=True)
+    created_at       = DateTimeField
+    updated_at       = DateTimeField
+```
+
+Classificação e tenant para isolamento no Qdrant são derivados de `fragment.document_text.document`.
 
 ---
 

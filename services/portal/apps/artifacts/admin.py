@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import Artifact, ArtifactLineage, AuditLog, Sharing, URLPatternCache
+from .models import Artifact, ArtifactLineage, AuditLog, DocumentFragment, DocumentText, Sharing, URLPatternCache
 
 
 @admin.register(Artifact)
@@ -47,6 +47,22 @@ class SharingAdmin(admin.ModelAdmin):
     list_display = ("artifact", "shared_by", "recipient_type", "status", "created_at", "expires_at")
     list_filter = ("status", "recipient_type")
     readonly_fields = ("id", "created_at")
+
+
+@admin.register(DocumentText)
+class DocumentTextAdmin(admin.ModelAdmin):
+    list_display = ("id", "document", "page_type", "word_count", "char_count", "detection_source", "created_at")
+    list_filter = ("page_type", "detection_source")
+    search_fields = ("document__id",)
+    readonly_fields = ("id", "document", "created_at", "updated_at")
+
+
+@admin.register(DocumentFragment)
+class DocumentFragmentAdmin(admin.ModelAdmin):
+    list_display = ("id", "document_text", "fragment_index", "total_fragments", "qdrant_point_id", "created_at")
+    list_filter = ("total_fragments",)
+    search_fields = ("document_text__document__id", "qdrant_point_id")
+    readonly_fields = ("id", "document_text", "fragment_index", "total_fragments", "created_at", "updated_at")
 
 
 @admin.register(URLPatternCache)

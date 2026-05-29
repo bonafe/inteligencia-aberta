@@ -11,19 +11,21 @@ Todo artefato bruto capturado (MHTML, PDF, imagem) percorre um pipeline de trans
 ```
 Artefato Bruto (MinIO)
       ↓
-[1] Extrator de Texto      → artifact_type="texto"
+[1] Extrator de Texto      → DocumentText (modelo de pipeline)
       ↓
-[2] Fragmentador           → N artefatos artifact_type="fragmento"
+[2] Fragmentador           → N DocumentFragment (modelo de pipeline)
       ↓
 [3] Embedder               → vetores no Qdrant (com payload de linhagem)
       ↓ [paralelo]
-[4a] NER                   → entidades (CPF, CNPJ, nomes, datas, endereços)
+[4a] NER                   → entidades Artifact (pessoa, empresa…) via ArtifactLineage
 [4b] Sumarizador           → artifact_type="sumario" via LLM local
       ↓ [Fase 2]
 [5] Correlacionador        → relações entre entidades → Neo4j
 ```
 
-A classificação do artefato pai é herdada por todos os descendentes. Um MHTML `restrito` produz texto, fragmentos e entidades `restrito`. A classificação nunca muda automaticamente — reclassificação é uma operação explícita do usuário.
+**Separação de responsabilidades:** `DocumentText` e `DocumentFragment` são modelos de infraestrutura de pipeline — não são artefatos de inteligência. Não carregam `info_type`, `sources` independentes ou auditoria de negócio. A classificação e o tenant são herdados do artefato `documento` de origem no momento do processamento.
+
+`ArtifactLineage` é reservado para rastrear relações entre artefatos de inteligência (ex: NER produzindo `pessoa` ou `empresa` a partir de um `documento`). O pipeline MHTML→texto→fragmento é rastreado pelos relacionamentos diretos dos modelos (`DocumentText.document`, `DocumentFragment.document_text`).
 
 ---
 
@@ -79,35 +81,42 @@ O isolamento por organização é garantido por collections separadas no Qdrant:
 
 ## Modelos de Dados
 
+### DocumentText e DocumentFragment
+
+Modelos de pipeline que representam as etapas de extração e fragmentação. Ver spec completa em [`../arquitetura/modelo-de-dados.md`](./modelo-de-dados.md).
+
+**Cadeia de derivação:**
+
+```
+Artifact(tipo=documento)  ← artefato de inteligência
+  └─ DocumentText          ← texto extraído (1:1)
+       ├─ DocumentFragment[0] → ponto vetorial no Qdrant
+       ├─ DocumentFragment[1] → ponto vetorial no Qdrant
+       └─ DocumentFragment[N] → ponto vetorial no Qdrant
+```
+
 ### ArtifactLineage
 
-Registra a origem e a transformação que produziu cada artefato derivado. Forma um DAG (grafo acíclico dirigido) de linhagem.
+Registra relações de linhagem **entre artefatos de inteligência** — entidades extraídas, correlações, relatórios gerados. Não é usado para a cadeia documento→texto→fragmento (rastreada pelos FKs dos modelos de pipeline).
 
 ```python
 class ArtifactLineage(Model):
     id             = UUIDField(primary_key=True)
     parent         = FK(Artifact, related_name="children_lineage")
     child          = FK(Artifact, related_name="parent_lineage")
-    transformation = CharField   # "text_extraction", "fragmentation", "embedding", "ner"
-    processor      = CharField   # "trafilatura:0.9.1", "selector:div.conteudo", "sentence-transformers:0.4.1"
-    parameters     = JSONField   # {"chunk_size": 512, "overlap": 50}
+    transformation = CharField   # "ner", "correlation", "report_generation"
+    processor      = CharField   # "spacy:pt_core_news_lg", "correlacionador-v1"
+    parameters     = JSONField
     created_at     = DateTimeField
 ```
 
-Um artefato pode ter múltiplos pais (relatório gerado de três fontes) e múltiplos filhos (documento fragmentado em 20 chunks).
-
-**Exemplo de linhagem:**
+**Exemplo de linhagem de inteligência (Fase 2+):**
 
 ```
-captura.mhtml  (doc_abc)
-  └─ [text_extraction / trafilatura:0.9.1]
-     texto_limpo  (txt_def)
-       ├─ [fragmentation / chunk_size=512,overlap=50]
-       │    fragmento_1  (frg_001) → vetor no Qdrant
-       │    fragmento_2  (frg_002) → vetor no Qdrant
-       └─ [ner / spacy:pt_core_news_lg]
-            entidade: CNPJ 12.345.678/0001-99  (ent_101)
-            entidade: "João Silva"              (ent_102)
+Artifact(documento, doc_abc)
+  └─ [ner / spacy:pt_core_news_lg]
+       Artifact(empresa, ent_101)  — CNPJ 12.345.678/0001-99
+       Artifact(pessoa,  ent_102)  — "João Silva"
 ```
 
 ### SiteProfile

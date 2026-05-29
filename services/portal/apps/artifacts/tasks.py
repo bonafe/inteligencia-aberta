@@ -46,7 +46,7 @@ def _split_text(text: str, chunk_size: int = 1000, overlap: int = 100) -> list[s
 
 @shared_task(bind=True, max_retries=3, default_retry_delay=60)
 def extract_text_from_mhtml(self, artifact_id: str):
-    from .models import Artifact, ArtifactLineage
+    from .models import Artifact, DocumentText
 
     try:
         artifact = Artifact.objects.get(id=artifact_id)
@@ -63,14 +63,12 @@ def extract_text_from_mhtml(self, artifact_id: str):
         logger.info("[%s] sem mhtml_path — ignorado", artifact_id)
         return {"status": "skipped", "reason": "sem mhtml_path no conteúdo"}
 
-    # Idempotência: já tem filho texto?
-    existing_child = ArtifactLineage.objects.filter(
-        parent=artifact, transformation="text_extraction"
-    ).first()
-    if existing_child:
-        logger.info("[%s] já processado — child_id=%s", artifact_id, existing_child.child_id)
-        fragment_text.delay(str(existing_child.child_id))
-        return {"status": "already_done", "child_artifact_id": str(existing_child.child_id)}
+    # Idempotência: já tem DocumentText?
+    existing = DocumentText.objects.filter(document=artifact).first()
+    if existing:
+        logger.info("[%s] já processado — document_text_id=%s", artifact_id, existing.id)
+        fragment_text.delay(str(existing.id))
+        return {"status": "already_done", "document_text_id": str(existing.id)}
 
     logger.info("[%s] buscando MHTML no MinIO — bucket=%s path=%s", artifact_id, mhtml_bucket, mhtml_path)
     try:
@@ -135,77 +133,57 @@ def extract_text_from_mhtml(self, artifact_id: str):
         extracted["extractor_version"],
     )
 
-    child = Artifact.objects.create(
-        artifact_type=Artifact.Type.TEXT,
-        content={
-            "text": text,
-            "title": title,
-            "source_url": url,
-            "page_type": page_type,
-            "detection_confidence": confidence,
-            "detection_source": detection_source,
-            "url_pattern_cache_id": cache_id,
-            "structured_data": extracted.get("structured_data"),
-            "extractor_version": extracted["extractor_version"],
-            "char_count": len(text),
-            "word_count": len(text.split()),
-        },
-        classification_level=artifact.classification_level,
-        tenant=artifact.tenant,
-        allow_external_llm=artifact.allow_external_llm,
-        classified_by=artifact.classified_by,
-        info_type=artifact.info_type,
-        sources=artifact.sources,
+    doc_text = DocumentText.objects.create(
+        document=artifact,
+        text=text,
+        title=title,
+        source_url=url,
+        page_type=page_type,
+        detection_confidence=confidence,
+        detection_source=detection_source,
+        url_pattern_cache_id=cache_id,
+        structured_data=extracted.get("structured_data"),
+        extractor_version=extracted["extractor_version"],
+        char_count=len(text),
+        word_count=len(text.split()),
     )
 
-    ArtifactLineage.objects.create(
-        parent=artifact,
-        child=child,
-        transformation="text_extraction",
-        processor=f"extractor:{page_type}:{extracted['extractor_version'].split(':')[-1]}",
-        parameters={"page_type": page_type, "detection_source": detection_source},
-    )
-
-    logger.info("[%s] artefato TEXT criado — child_id=%s → despachando fragment_text", artifact_id, child.id)
-    fragment_text.delay(str(child.id))
+    logger.info("[%s] DocumentText criado — id=%s → despachando fragment_text", artifact_id, doc_text.id)
+    fragment_text.delay(str(doc_text.id))
 
     return {
         "status": "success",
-        "child_artifact_id": str(child.id),
-        "word_count": child.content["word_count"],
+        "document_text_id": str(doc_text.id),
+        "word_count": doc_text.word_count,
     }
 
 
 # ── Etapa 2: fragmentação ─────────────────────────────────────────────────────
 
 @shared_task(bind=True, max_retries=3, default_retry_delay=60)
-def fragment_text(self, texto_artifact_id: str):
-    from .models import Artifact, ArtifactLineage
+def fragment_text(self, document_text_id: str):
+    from .models import DocumentText, DocumentFragment
 
     try:
-        artifact = Artifact.objects.get(id=texto_artifact_id)
-    except Artifact.DoesNotExist:
-        return {"status": "error", "reason": f"Artifact {texto_artifact_id} não encontrado"}
+        doc_text = DocumentText.objects.get(id=document_text_id)
+    except DocumentText.DoesNotExist:
+        return {"status": "error", "reason": f"DocumentText {document_text_id} não encontrado"}
 
-    logger.info("[%s] fragment_text iniciado", texto_artifact_id)
+    logger.info("[%s] fragment_text iniciado", document_text_id)
 
     # Idempotência: já foi fragmentado?
-    existing_ids = list(
-        ArtifactLineage.objects.filter(
-            parent=artifact, transformation="fragmentation"
-        ).values_list("child_id", flat=True)
-    )
+    existing_ids = list(doc_text.fragments.values_list("id", flat=True))
     if existing_ids:
-        logger.info("[%s] já fragmentado — %d fragmentos existentes", texto_artifact_id, len(existing_ids))
+        logger.info("[%s] já fragmentado — %d fragmentos existentes", document_text_id, len(existing_ids))
         for frag_id in existing_ids:
-            frag = Artifact.objects.filter(id=frag_id).first()
-            if frag and not (frag.content or {}).get("qdrant_point_id"):
+            frag = DocumentFragment.objects.filter(id=frag_id).first()
+            if frag and not frag.qdrant_point_id:
                 embed_fragment.delay(str(frag_id))
         return {"status": "already_done", "fragments": len(existing_ids)}
 
-    text = (artifact.content or {}).get("text", "")
+    text = doc_text.text
     if not text:
-        logger.info("[%s] sem texto no artefato — ignorado", texto_artifact_id)
+        logger.info("[%s] sem texto no DocumentText — ignorado", document_text_id)
         return {"status": "skipped", "reason": "sem texto no conteúdo"}
 
     chunk_size = getattr(settings, "FRAGMENT_CHUNK_SIZE", 1000)
@@ -214,72 +192,54 @@ def fragment_text(self, texto_artifact_id: str):
 
     logger.info(
         "[%s] fragmentando — %d chars → %d fragmentos (chunk=%d overlap=%d)",
-        texto_artifact_id, len(text), len(chunks), chunk_size, overlap,
+        document_text_id, len(text), len(chunks), chunk_size, overlap,
     )
 
-    source_url = (artifact.content or {}).get("source_url", "")
-    title = (artifact.content or {}).get("title", "")
-
     for i, chunk in enumerate(chunks):
-        frag = Artifact.objects.create(
-            artifact_type=Artifact.Type.FRAGMENT,
-            content={
-                "text": chunk,
-                "fragment_index": i,
-                "total_fragments": len(chunks),
-                "source_url": source_url,
-                "title": title,
-            },
-            classification_level=artifact.classification_level,
-            tenant=artifact.tenant,
-            allow_external_llm=artifact.allow_external_llm,
-            classified_by=artifact.classified_by,
-            info_type=artifact.info_type,
-            sources=artifact.sources,
-        )
-        ArtifactLineage.objects.create(
-            parent=artifact,
-            child=frag,
-            transformation="fragmentation",
-            processor=f"split_text:chunk={chunk_size},overlap={overlap}",
-            parameters={"chunk_size": chunk_size, "overlap": overlap, "fragment_index": i},
+        frag = DocumentFragment.objects.create(
+            document_text=doc_text,
+            text=chunk,
+            fragment_index=i,
+            total_fragments=len(chunks),
         )
         embed_fragment.delay(str(frag.id))
 
-    logger.info("[%s] %d fragmentos criados e despachados para embed_fragment", texto_artifact_id, len(chunks))
+    logger.info("[%s] %d fragmentos criados e despachados para embed_fragment", document_text_id, len(chunks))
     return {"status": "success", "fragments": len(chunks)}
 
 
 # ── Etapa 3: embedding ────────────────────────────────────────────────────────
 
 @shared_task(bind=True, max_retries=3, default_retry_delay=60)
-def embed_fragment(self, fragmento_artifact_id: str):
-    from .models import Artifact, ArtifactLineage
+def embed_fragment(self, fragment_id: str):
+    from .models import DocumentFragment
     from .embeddings import ensure_collection, get_embedding_model, get_qdrant_client
 
     try:
-        artifact = Artifact.objects.get(id=fragmento_artifact_id)
-    except Artifact.DoesNotExist:
-        return {"status": "error", "reason": f"Artifact {fragmento_artifact_id} não encontrado"}
+        fragment = DocumentFragment.objects.select_related(
+            "document_text__document"
+        ).get(id=fragment_id)
+    except DocumentFragment.DoesNotExist:
+        return {"status": "error", "reason": f"DocumentFragment {fragment_id} não encontrado"}
 
-    logger.info("[%s] embed_fragment iniciado", fragmento_artifact_id)
+    logger.info("[%s] embed_fragment iniciado", fragment_id)
 
-    content = artifact.content or {}
+    if fragment.qdrant_point_id:
+        logger.info("[%s] embedding já existe — qdrant_point_id=%s", fragment_id, fragment.qdrant_point_id)
+        return {"status": "already_done", "qdrant_point_id": fragment.qdrant_point_id}
 
-    if content.get("qdrant_point_id"):
-        logger.info("[%s] embedding já existe — qdrant_point_id=%s", fragmento_artifact_id, content["qdrant_point_id"])
-        return {"status": "already_done", "qdrant_point_id": content["qdrant_point_id"]}
-
-    text = content.get("text", "")
+    text = fragment.text
     if not text:
-        logger.info("[%s] sem texto no fragmento — ignorado", fragmento_artifact_id)
+        logger.info("[%s] sem texto no fragmento — ignorado", fragment_id)
         return {"status": "skipped", "reason": "sem texto no fragmento"}
+
+    document = fragment.document_text.document
 
     logger.info(
         "[%s] gerando embedding — fragmento %d/%d (%d chars): %s…",
-        fragmento_artifact_id,
-        content.get("fragment_index", 0) + 1,
-        content.get("total_fragments", "?"),
+        fragment_id,
+        fragment.fragment_index + 1,
+        fragment.total_fragments,
         len(text),
         text[:60].replace("\n", " "),
     )
@@ -287,60 +247,44 @@ def embed_fragment(self, fragmento_artifact_id: str):
         model = get_embedding_model()
         vector = list(model.embed([text]))[0].tolist()
     except Exception as exc:
-        logger.warning("[%s] falha ao gerar embedding — tentativa %d: %s", fragmento_artifact_id, self.request.retries + 1, exc)
+        logger.warning("[%s] falha ao gerar embedding — tentativa %d: %s", fragment_id, self.request.retries + 1, exc)
         raise self.retry(exc=exc)
 
-    logger.info("[%s] embedding gerado — dim=%d", fragmento_artifact_id, len(vector))
-
-    # Monta payload com linhagem completa
-    parent_lin = ArtifactLineage.objects.filter(
-        child=artifact, transformation="fragmentation"
-    ).first()
-    texto_id = str(parent_lin.parent_id) if parent_lin else None
-
-    avo_lin = (
-        ArtifactLineage.objects.filter(
-            child_id=texto_id, transformation="text_extraction"
-        ).first()
-        if texto_id
-        else None
-    )
-    source_id = str(avo_lin.parent_id) if avo_lin else None
+    logger.info("[%s] embedding gerado — dim=%d", fragment_id, len(vector))
 
     payload = {
-        "artifact_id": str(artifact.id),
-        "texto_artifact_id": texto_id,
-        "source_artifact_id": source_id,
-        "tenant_id": str(artifact.tenant_id),
-        "fragment_index": content.get("fragment_index", 0),
-        "classification_level": artifact.classification_level,
-        "source_url": content.get("source_url", ""),
-        "title": content.get("title", ""),
+        "fragment_id": str(fragment.id),
+        "document_text_id": str(fragment.document_text_id),
+        "document_artifact_id": str(document.id),
+        "tenant_id": str(document.tenant_id),
+        "fragment_index": fragment.fragment_index,
+        "classification_level": document.classification_level,
+        "source_url": fragment.document_text.source_url,
+        "title": fragment.document_text.title,
         "text_preview": text[:200],
-        "created_at": artifact.created_at.isoformat(),
+        "created_at": fragment.created_at.isoformat(),
     }
 
     try:
         qdrant = get_qdrant_client()
-        collection = ensure_collection(qdrant, str(artifact.tenant_id), len(vector))
+        collection = ensure_collection(qdrant, str(document.tenant_id), len(vector))
         point_id = str(uuid_lib.uuid4())
 
-        logger.info("[%s] upsert no Qdrant — collection=%s point_id=%s", fragmento_artifact_id, collection, point_id)
+        logger.info("[%s] upsert no Qdrant — collection=%s point_id=%s", fragment_id, collection, point_id)
         from qdrant_client.models import PointStruct
         qdrant.upsert(
             collection_name=collection,
             points=[PointStruct(id=point_id, vector=vector, payload=payload)],
         )
     except Exception as exc:
-        logger.warning("[%s] falha no Qdrant — tentativa %d: %s", fragmento_artifact_id, self.request.retries + 1, exc)
+        logger.warning("[%s] falha no Qdrant — tentativa %d: %s", fragment_id, self.request.retries + 1, exc)
         raise self.retry(exc=exc)
 
-    content["qdrant_point_id"] = point_id
-    content["qdrant_collection"] = collection
-    artifact.content = content
-    artifact.save(update_fields=["content", "updated_at"])
+    fragment.qdrant_point_id = point_id
+    fragment.qdrant_collection = collection
+    fragment.save(update_fields=["qdrant_point_id", "qdrant_collection", "updated_at"])
 
-    logger.info("[%s] embed_fragment concluído — point_id=%s collection=%s", fragmento_artifact_id, point_id, collection)
+    logger.info("[%s] embed_fragment concluído — point_id=%s collection=%s", fragment_id, point_id, collection)
     return {"status": "success", "qdrant_point_id": point_id, "collection": collection}
 
 
@@ -349,33 +293,28 @@ def embed_fragment(self, fragmento_artifact_id: str):
 @shared_task
 def scan_unprocessed_documents():
     """Varre gaps nos três estágios do pipeline e enfileira tarefas pendentes."""
-    from .models import Artifact, ArtifactLineage
+    from .models import Artifact, DocumentText, DocumentFragment
 
-    # Gap 1: documento sem texto extraído
-    extracted_ids = ArtifactLineage.objects.filter(
-        transformation="text_extraction"
-    ).values_list("parent_id", flat=True)
+    # Gap 1: documento sem DocumentText
+    processed_doc_ids = DocumentText.objects.values_list("document_id", flat=True)
     gap1 = 0
-    for art in Artifact.objects.filter(artifact_type=Artifact.Type.DOCUMENT).exclude(id__in=extracted_ids):
+    for art in Artifact.objects.filter(artifact_type=Artifact.Type.DOCUMENT).exclude(id__in=processed_doc_ids):
         if (art.content or {}).get("mhtml_path"):
             extract_text_from_mhtml.delay(str(art.id))
             gap1 += 1
 
-    # Gap 2: texto sem fragmentos
-    fragmented_ids = ArtifactLineage.objects.filter(
-        transformation="fragmentation"
-    ).values_list("parent_id", flat=True)
+    # Gap 2: DocumentText sem fragmentos
+    fragmented_ids = DocumentFragment.objects.values_list("document_text_id", flat=True).distinct()
     gap2 = 0
-    for art in Artifact.objects.filter(artifact_type=Artifact.Type.TEXT).exclude(id__in=fragmented_ids):
-        fragment_text.delay(str(art.id))
+    for dt in DocumentText.objects.exclude(id__in=fragmented_ids):
+        fragment_text.delay(str(dt.id))
         gap2 += 1
 
     # Gap 3: fragmento sem embedding no Qdrant
     gap3 = 0
-    for art in Artifact.objects.filter(artifact_type=Artifact.Type.FRAGMENT):
-        if not (art.content or {}).get("qdrant_point_id"):
-            embed_fragment.delay(str(art.id))
-            gap3 += 1
+    for frag in DocumentFragment.objects.filter(qdrant_point_id=""):
+        embed_fragment.delay(str(frag.id))
+        gap3 += 1
 
     if gap1 or gap2 or gap3:
         logger.info("scan gaps — doc→texto: %d, texto→frag: %d, frag→embed: %d", gap1, gap2, gap3)

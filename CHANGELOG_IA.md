@@ -2,6 +2,49 @@
 
 Este arquivo documenta as alterações, configurações e implementações feitas por IAs (agentes) neste repositório. O objetivo é manter um histórico unificado e transparente sobre o estado do desenvolvimento, facilitando o onboarding de novas IAs e humanos na base de código.
 
+## [29-05-2026] - Refatoração: separação de artefatos de inteligência e modelos de pipeline
+
+**Contexto e motivação:**
+- O modelo `Artifact` acumulava dois tipos que não são entidades de inteligência: `texto` (texto extraído de MHTML) e `fragmento` (chunk de RAG). Esses tipos violavam o contrato semântico do modelo — campos como `info_type` (`fato/opinião/inferência`) e `sources` independentes não fazem sentido para um chunk de texto.
+- Problema de escala: um documento de 50 páginas produzia ~150 fragmentos na tabela `artifacts_artifact`, contaminando queries sobre entidades reais (pessoas, empresas, processos) e inflando o `AuditLog` com eventos de pipeline sem valor de auditoria de negócio.
+- `ArtifactLineage` estava sendo usado para rastrear `documento → texto → fragmento`, uma cadeia de pipeline — seu propósito correto é rastrear linhagem entre artefatos de inteligência (ex: NER produzindo `empresa` a partir de `documento`).
+
+**O que foi implementado:**
+
+- **`services/portal/apps/artifacts/models.py`:**
+  - Removidos `TEXT = "texto"` e `FRAGMENT = "fragmento"` de `Artifact.Type`. O modelo agora tem exatamente os 6 tipos de inteligência da spec: `pessoa`, `empresa`, `documento`, `processo`, `endereco`, `evento`.
+  - Adicionado `DocumentText`: modelo de pipeline com relação OneToOne para `Artifact(tipo=documento)`. Campos próprios: `text`, `title`, `source_url`, `page_type`, `detection_confidence`, `detection_source`, `url_pattern_cache` (FK), `structured_data`, `extractor_version`, `char_count`, `word_count`.
+  - Adicionado `DocumentFragment`: modelo de pipeline pertencente a `DocumentText`. Campos: `text`, `fragment_index`, `total_fragments`, `qdrant_point_id`, `qdrant_collection`. Classificação e tenant derivados de `fragment.document_text.document` no momento do embedding.
+
+- **`migrations/0004_pipeline_models.py`:**
+  - `RunPython` apaga artefatos existentes do tipo `texto`/`fragmento` e seus registros de `ArtifactLineage` antes de alterar as choices.
+  - `AlterField` remove `texto` e `fragmento` das choices de `artifact_type`.
+  - `CreateModel` para `DocumentText` e `DocumentFragment`.
+
+- **`services/portal/apps/artifacts/tasks.py`** — reescrito:
+  - `extract_text_from_mhtml`: cria `DocumentText` em vez de `Artifact(type=TEXT)`. Não cria mais `ArtifactLineage`. Idempotência via `DocumentText.objects.filter(document=artifact).first()`.
+  - `fragment_text(document_text_id)`: recebe ID de `DocumentText` em vez de ID de artefato. Cria `DocumentFragment`. Não usa `ArtifactLineage`.
+  - `embed_fragment(fragment_id)`: recebe ID de `DocumentFragment`. Usa `select_related("document_text__document")` para obter tenant/classificação em uma query. Persiste `qdrant_point_id` e `qdrant_collection` direto no `DocumentFragment` em vez do `content` JSON.
+  - `scan_unprocessed_documents`: queries simplificadas usando os novos modelos diretamente.
+
+- **`services/portal/apps/artifacts/admin.py`:**
+  - Adicionados `DocumentTextAdmin` e `DocumentFragmentAdmin`.
+
+- **Specs atualizadas:**
+  - `docs/arquitetura/modelo-de-dados.md`: tipos de `Artifact` reduzidos a 6; nova seção "Modelos de Pipeline" documenta `DocumentText` e `DocumentFragment`.
+  - `docs/componentes/pipeline-rag.md`: payload do Qdrant atualizado com `fragment_id`, `document_text_id`, `document_artifact_id` (removidos nomes antigos `artifact_id`, `parent_artifact_id`).
+  - `docs/arquitetura/pipeline-transformacao.md`: diagrama de estágios corrigido; seção de modelos reescrita — `ArtifactLineage` declarado como exclusivo para linhagem de inteligência (Fase 2+, NER/correlação); cadeia de derivação documentada como `Artifact(documento) → DocumentText → DocumentFragment[N]`.
+
+**Status Atual:**
+- Modelo de dados limpo: `Artifact` representa somente entidades de inteligência. Pipeline de texto é infraestrutura separada.
+- `ArtifactLineage` preservado para uso futuro em NER e correlação entre entidades.
+- Para aplicar: `docker compose exec portal python manage.py migrate`.
+
+**Próximos Passos Sugeridos:**
+- NER (Etapa 4): extrair entidades (CPF, CNPJ, nomes, datas) de `DocumentText` e criar `Artifact(tipo=pessoa/empresa)` com `ArtifactLineage` apontando para o documento de origem — primeiro uso real do lineage entre artefatos de inteligência.
+
+---
+
 ## [24-05-2026] - Especificação da Extração Adaptativa de HTML
 
 **O que foi feito:**

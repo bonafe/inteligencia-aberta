@@ -282,6 +282,25 @@
     <div class="container">
         <div class="entries-list">
 
+            <!-- Entrada 10 -->
+            <article class="entry-card">
+                <div class="entry-header">
+                    <div class="entry-meta">
+                        <span class="entry-date">29 de maio de 2026</span>
+                        <span class="entry-sep"></span>
+                        <span class="entry-author">Bonafé & Claude Code</span>
+                    </div>
+                    <h2 class="entry-title">O fragmento não é uma pista — é pedaço de encanamento</h2>
+                </div>
+                <div class="entry-body">
+                    <p>Fizemos uma pergunta simples hoje: o que é um artefato de inteligência? A resposta que a especificação dava era: pessoa, empresa, documento, processo, endereço, evento. Entidades do mundo real, com história, com vínculos, com peso investigativo. Depois de muita implementação, a tabela real dizia outra coisa: pessoa, empresa, documento, processo, endereço, evento, <em>texto extraído</em>, <em>fragmento</em>.</p>
+                    <p>Os dois últimos não deveriam estar ali. Um "fragmento" não é uma pista — é um pedaço de texto cortado em fatias de mil caracteres para caber num vetor de embedding. Não tem autoria, não tem tipo de informação (fato? opinião? inferência?), não tem fonte independente. É encanamento. O campo <code>info_type</code> herdado do modelo de inteligência não fazia sentido nenhum num chunk de RAG. Mas estava lá, preenchido com os valores do pai, como um dado fantasma.</p>
+                    <p>O problema prático virava visível quando pensávamos em escala: um documento de cinquenta páginas produzia cento e cinquenta fragmentos na mesma tabela onde vivem as empresas investigadas e os sócios identificados. Qualquer query sobre entidades reais precisava filtrar esse ruído. O log de auditoria crescia com eventos de infraestrutura sem nenhum valor de compliance.</p>
+                    <p>A solução foi criar dois modelos separados para o pipeline: <code>DocumentText</code> e <code>DocumentFragment</code>. Eles pertencem ao documento de origem mas não são artefatos de inteligência — são infraestrutura. A tabela de artefatos voltou a ter apenas os seis tipos da especificação original. E a tabela de linhagem (<code>ArtifactLineage</code>), que estava sendo usada para rastrear documento→texto→fragmento, ficou livre para o que sempre foi pensada para fazer: registrar quando o sistema extrai uma entidade real de um documento, quando encontra que dois processos têm o mesmo sócio, quando produz inteligência a partir de dados.</p>
+                    <p><em>Às vezes o sistema mais claro não é o que tem mais código — é o que sabe o que não pertence a ele.</em></p>
+                </div>
+            </article>
+
             <!-- Entrada 9 -->
             <article class="entry-card">
                 <div class="entry-header">

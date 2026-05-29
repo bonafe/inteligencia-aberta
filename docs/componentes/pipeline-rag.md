@@ -42,18 +42,24 @@ Consulta do agente
 
 ## Metadados por Fragmento
 
+Cada fragmento é armazenado como `DocumentFragment` no PostgreSQL e como ponto vetorial no Qdrant. O payload do Qdrant referencia a cadeia de origem:
+
 ```json
 {
-  "chunk_id": "uuid",
-  "documento_id": "uuid",
-  "tenant_id": "...",
-  "classificacao": "confidencial",
-  "pagina": 3,
-  "secao": "Cláusula 4.2",
-  "texto": "...",
-  "embedding": [0.12, 0.34, ...]
+  "fragment_id": "uuid-do-fragment",
+  "document_text_id": "uuid-do-document-text",
+  "document_artifact_id": "uuid-do-artefato-documento",
+  "tenant_id": "uuid-da-organizacao",
+  "fragment_index": 3,
+  "classification_level": "confidencial",
+  "source_url": "https://...",
+  "title": "...",
+  "text_preview": "primeiros 200 caracteres...",
+  "created_at": "2026-05-20T..."
 }
 ```
+
+Nota: `classification_level` e `tenant_id` são derivados do artefato `documento` de origem — não são armazenados diretamente no `DocumentFragment`.
 
 ## Critérios de Aceitação
 
