@@ -1,6 +1,7 @@
 import email as email_lib
 import logging
 import os
+import re
 import uuid as uuid_lib
 from email import policy as email_policy
 
@@ -12,6 +13,55 @@ logger = logging.getLogger(__name__)
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
+
+_META_CHARSET_RE = re.compile(
+    rb'<meta[^>]+charset=["\']?([a-zA-Z0-9_\-]+)',
+    re.IGNORECASE,
+)
+_META_CONTENT_TYPE_RE = re.compile(
+    rb'<meta[^>]+content=["\'][^"\']*charset=([a-zA-Z0-9_\-]+)',
+    re.IGNORECASE,
+)
+
+
+def _decode_html_bytes(payload: bytes, mime_charset: str | None) -> str:
+    """Decode HTML bytes using a cascade of strategies to handle any encoding."""
+    candidates: list[str] = []
+
+    if mime_charset:
+        candidates.append(mime_charset)
+
+    # Scan raw bytes for <meta charset> before full decode
+    for pattern in (_META_CHARSET_RE, _META_CONTENT_TYPE_RE):
+        m = pattern.search(payload[:4096])
+        if m:
+            detected = m.group(1).decode("ascii", errors="ignore")
+            if detected.lower() not in [c.lower() for c in candidates]:
+                candidates.append(detected)
+            break
+
+    for enc in candidates:
+        try:
+            return payload.decode(enc)
+        except (UnicodeDecodeError, LookupError):
+            logger.debug("charset %s falhou, tentando próximo", enc)
+
+    # Explicit Western European fallbacks — covers all legacy Brazilian Portuguese sites.
+    # cp1252 is a superset of latin-1; all common PT chars (ã ç õ á é etc.) are identical
+    # in both, so this is safe even when the actual encoding is iso-8859-1.
+    # We skip charset-normalizer here because it confuses cp1252/cp1250/cp1251 siblings,
+    # producing ă instead of ã for Portuguese text.
+    for enc in ("utf-8", "cp1252", "iso-8859-1"):
+        if enc not in [c.lower() for c in candidates]:
+            try:
+                return payload.decode(enc)
+            except (UnicodeDecodeError, LookupError):
+                pass
+
+    # latin-1 decodes any byte sequence without error
+    logger.warning("charset indeterminado — usando latin-1 com replace")
+    return payload.decode("latin-1", errors="replace")
+
 
 def _split_text(text: str, chunk_size: int = 1000, overlap: int = 100) -> list[str]:
     """Divide texto em chunks com overlap, preferindo parágrafos e frases."""
@@ -92,10 +142,11 @@ def extract_text_from_mhtml(self, artifact_id: str):
     html_content = None
     for part in msg.walk():
         if part.get_content_type() == "text/html" and html_content is None:
-            charset = part.get_content_charset("utf-8") or "utf-8"
+            mime_charset = part.get_content_charset()
             payload = part.get_payload(decode=True)
             if payload:
-                html_content = payload.decode(charset, errors="replace")
+                html_content = _decode_html_bytes(payload, mime_charset)
+                logger.debug("[%s] charset resolvido — mime=%s bytes=%d", artifact_id, mime_charset, len(payload))
                 break
 
     if not html_content:
@@ -320,3 +371,29 @@ def scan_unprocessed_documents():
         logger.info("scan gaps — doc→texto: %d, texto→frag: %d, frag→embed: %d", gap1, gap2, gap3)
 
     return {"gap_extraction": gap1, "gap_fragmentation": gap2, "gap_embedding": gap3}
+
+
+# ── Reprocessamento de artefatos com encoding corrompido ──────────────────────
+
+@shared_task
+def reprocess_garbled_documents():
+    """Apaga DocumentText/fragmentos com caracteres de substituição e reextrai."""
+    from .models import DocumentText, DocumentFragment
+
+    garbled = DocumentText.objects.filter(text__contains="�")
+    count = garbled.count()
+    if not count:
+        logger.info("reprocess_garbled_documents: nenhum documento corrompido encontrado")
+        return {"requeued": 0}
+
+    artifact_ids = list(garbled.values_list("document_id", flat=True))
+
+    # Apaga fragmentos e DocumentText — deixa o catch-up reimportar
+    DocumentFragment.objects.filter(document_text__in=garbled).delete()
+    garbled.delete()
+
+    for art_id in artifact_ids:
+        extract_text_from_mhtml.delay(str(art_id))
+
+    logger.info("reprocess_garbled_documents: %d artefatos reenfileirados", count)
+    return {"requeued": count}

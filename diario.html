@@ -282,6 +282,26 @@
     <div class="container">
         <div class="entries-list">
 
+            <!-- Entrada 11 -->
+            <article class="entry-card">
+                <div class="entry-header">
+                    <div class="entry-meta">
+                        <span class="entry-date">2 de junho de 2026</span>
+                        <span class="entry-sep"></span>
+                        <span class="entry-author">Bonafé & Claude Code</span>
+                    </div>
+                    <h2 class="entry-title">O bug estava no espelho, não no arquivo</h2>
+                </div>
+                <div class="entry-body">
+                    <p>Parecia simples: páginas capturadas mostravam caracteres corrompidos. <code>Cart?o</code>. <code>Poupan?a</code>. <code>Aten??o</code>. Clássico problema de encoding — algo que a gente reconhece à primeira vista quando trabalha com conteúdo português em sistemas legados. A causa era conhecida: o código usava <code>errors='replace'</code> na decodificação do MHTML, o que silenciosamente substituía cada byte incompatível por um ponto de interrogação em vez de tentar outro caminho.</p>
+                    <p>Corrigimos o pipeline de extração. Implementamos uma cascade de estratégias: tenta o charset declarado no header MIME, depois escaneia os primeiros quatro kilobytes do HTML bruto procurando um <code>&lt;meta charset&gt;</code>, depois tenta os encodings mais comuns para sites brasileiros legados (<code>cp1252</code>, <code>iso-8859-1</code>), e só no limite absoluto cai num <code>latin-1</code> que ao menos nunca corrompe em silêncio. Subimos os containers. Zeramos tudo. O banco mostrava texto correto: <em>Último acesso</em>, <em>Sessão</em>, <em>Transações</em>. Parecia resolvido.</p>
+                    <p>Mas os caracteres corrompidos continuavam aparecendo. Em todo lugar. Zeramos de novo. Rebuilidamos. Inspecionamos o banco linha a linha. O armazenamento estava limpo. O pipeline estava certo. E a tela continuava mostrando lixo.</p>
+                    <p>O problema estava no espelho. A <code>ServeMHTMLView</code> — a view que renderiza o MHTML como HTML no browser para o preview da galeria — tinha o mesmo código antigo com <code>errors='replace'</code>, e não havia sido tocada. Enquanto consertávamos o lugar onde o dado era <em>armazenado</em>, o lugar onde ele era <em>exibido</em> continuava corrompendo tudo. O banco estava correto; o espelho estava torto.</p>
+                    <p>Uma lição que reaparece de formas diferentes ao longo do projeto: um sistema que falha em dois lugares ao mesmo tempo tende a fazer você consertar o errado primeiro. O fix no pipeline de extração estava certo — mas ficou invisível porque a corrupção na view mascarava o resultado. Só quando inspecionamos o banco diretamente e vimos o texto íntegro é que o diagnóstico virou claro.</p>
+                    <p><em>Corrija o espelho, não só o arquivo.</em></p>
+                </div>
+            </article>
+
             <!-- Entrada 10 -->
             <article class="entry-card">
                 <div class="entry-header">

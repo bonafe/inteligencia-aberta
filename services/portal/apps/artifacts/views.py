@@ -200,10 +200,11 @@ class ServeMHTMLView(View):
                 
                 # Encontra o arquivo HTML principal
                 if content_type == "text/html" and not html_part:
-                    charset = part.get_content_charset('utf-8') or 'utf-8'
+                    from .tasks import _decode_html_bytes
+                    mime_charset = part.get_content_charset()
                     payload = part.get_payload(decode=True)
                     if payload:
-                        html_part = payload.decode(charset, errors='replace')
+                        html_part = _decode_html_bytes(payload, mime_charset)
                 # O resto são assets (imagens, css, etc)
                 else:
                     payload = part.get_payload(decode=True)

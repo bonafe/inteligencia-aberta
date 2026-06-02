@@ -2,6 +2,40 @@
 
 Este arquivo documenta as alterações, configurações e implementações feitas por IAs (agentes) neste repositório. O objetivo é manter um histórico unificado e transparente sobre o estado do desenvolvimento, facilitando o onboarding de novas IAs e humanos na base de código.
 
+## [02-06-2026] - Correção de encoding no pipeline MHTML + scripts de ambiente
+
+**Contexto e motivação:**
+- Páginas capturadas com a extensão exibiam caracteres portugueses corrompidos (`Cart?o`, `Poupan?a`, `Aten??o`) na galeria e no visualizador MHTML. O problema afetava sites que declaram charset incorreto ou inconsistente nos headers MIME — padrão comum em portais bancários e governamentais brasileiros.
+- A causa raiz estava em dois lugares com o mesmo padrão: `payload.decode(charset, errors='replace')` usava apenas o charset declarado no header MIME e, ao falhar silenciosamente com `errors='replace'`, gravava U+FFFD no banco ou exibia lixo no preview.
+
+**O que foi implementado:**
+
+- **`services/portal/apps/artifacts/tasks.py`:**
+  - Adicionada função `_decode_html_bytes(payload, mime_charset)` com cascade de decodificação em quatro níveis: (1) charset do header MIME; (2) `<meta charset>` extraído por regex nos primeiros 4 KB dos bytes brutos (funciona mesmo quando o charset do MIME está errado); (3) fallbacks explícitos para Europa Ocidental — `utf-8`, `cp1252`, `iso-8859-1` (cobrem todos os sites legados brasileiros); (4) `latin-1` com `errors='replace'` como último recurso absoluto.
+  - Removida dependência de `charset-normalizer`: durante testes, a biblioteca identificava incorretamente `cp1250` (Europa Central) em vez de `cp1252` para texto português, produzindo `ă` no lugar de `ã`. Para conteúdo brasileiro, a cascade explícita é mais confiável.
+  - Task `reprocess_garbled_documents` adicionada: localiza `DocumentText` com U+FFFD, apaga seus fragmentos e re-enfileira a extração via `extract_text_from_mhtml`.
+  - Nota: worker Celery precisa ser reiniciado (`docker compose restart worker`) para registrar novas tasks adicionadas em runtime.
+
+- **`services/portal/apps/artifacts/views.py`:**
+  - `ServeMHTMLView` tinha o mesmo bug de encoding que `tasks.py`, mas não havia sido corrigido na sessão anterior — era o único lugar de fato visível para o usuário (o preview na galeria). Corrigido para reutilizar `_decode_html_bytes` importado de `tasks`.
+  - Esta foi a causa real dos caracteres corrompidos na interface: o banco armazenava o texto corretamente, mas o viewer renderizava o MHTML com `errors='replace'`.
+
+- **`scripts/subir_containers.sh` e `scripts/limpar_containers.sh` (novos):**
+  - `subir_containers.sh`: sobe com `docker-compose.override.yml` (hot-reload), aguarda o portal responder, roda `migrate` automaticamente e imprime as URLs dos serviços.
+  - `limpar_containers.sh`: pede confirmação explícita, para containers com `--remove-orphans`, apaga `./data/` (requer `sudo` por volumes Postgres pertencentes a root) e remove imagens buildadas.
+
+**Diagnóstico que enganou:**
+- A inspeção inicial do `DocumentText` no banco mostrou texto correto (`Último`, `Sessão`, `Transações`). Isso levou a suspeitar do display, não do armazenamento — o que estava certo, mas direcionou a investigação para o lugar errado inicialmente. O banco estava correto porque o `docker-compose.override.yml` monta o código como volume: a fix em `tasks.py` estava ativa. A corrupção visível vinha de `views.py`, que não havia sido atualizado.
+
+**Status Atual:**
+- Encoding robusto em toda a cadeia: extração (tasks) e visualização (views) usam a mesma lógica de decode com fallback. Sites com charset incorreto, ausente ou incompatível com o conteúdo real são tratados corretamente.
+
+**Próximos Passos Sugeridos:**
+- NER (Etapa 4): extrair entidades (CPF, CNPJ, nomes, datas) de `DocumentText` e criar `Artifact(tipo=pessoa/empresa)` com `ArtifactLineage`.
+- Adicionar `reprocess_garbled_documents` ao `CELERY_BEAT_SCHEDULE` como varredura semanal opcional.
+
+---
+
 ## [29-05-2026] - Refatoração: separação de artefatos de inteligência e modelos de pipeline
 
 **Contexto e motivação:**
