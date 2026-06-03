@@ -7,9 +7,8 @@ cd "$REPO_ROOT"
 echo "==> Subindo containers (modo desenvolvimento com hot-reload)..."
 docker compose -f docker-compose.yml -f docker-compose.override.yml up --build -d
 
-echo "==> Aguardando o portal ficar saudável..."
-until docker compose exec portal python manage.py check --deploy 2>/dev/null | grep -q "System check identified no issues" || \
-      curl -sf http://localhost:8000/health/ > /dev/null 2>&1; do
+echo "==> Aguardando o portal subir..."
+until curl -sf http://localhost:8000/ > /dev/null 2>&1; do
     sleep 2
 done
 
