@@ -2,6 +2,84 @@
 
 Este arquivo documenta as alterações, configurações e implementações feitas por IAs (agentes) neste repositório. O objetivo é manter um histórico unificado e transparente sobre o estado do desenvolvimento, facilitando o onboarding de novas IAs e humanos na base de código.
 
+## [03-06-2026] - Extração adaptativa com LLM + extensão configurável por domínio
+
+**Contexto e motivação:**
+- O extrator determinístico (`extract_financial_table`, `extract_company_profile` etc.) falha com frequência em páginas reais porque depende de heurísticas frágeis — headers de tabela com nomes não previstos, layouts incomuns, SPAs que usam `<div>` em vez de `<table>`. A análise estrutural classifica bem o tipo da página mas o extrator não consegue puxar os dados.
+- A extensão tinha apenas um botão de captura sem contexto — nenhum controle sobre classificação ou uso de LLM.
+- O cache de padrões de URL era ineficaz para SPAs (ex: internet banking do BB) onde todas as telas compartilham a mesma URL.
+
+**O que foi implementado:**
+
+### Pipeline — Extração Adaptativa com LLM (Estratégias A + B + C)
+
+- **`services/portal/apps/artifacts/extractors/skeleton.py`** (novo):
+  - `compress_html_skeleton(html)`: remove scripts/styles/SVG/framework attrs, trunca texto a 80 chars, limita output a 20 KB. Redução típica: 60–90%.
+
+- **`services/portal/apps/artifacts/extractors/llm_classifier.py`** (novo/reescrito):
+  - `llm_classify(skeleton, url)`: classifica tipo de página quando confiança estrutural < 0.75. Usa `LLM_CLASSIFIER_MODEL` (Haiku por padrão) — barato, só classifica.
+  - `llm_extract_and_schema(skeleton, url, hint)` (função principal): na primeira captura com LLM habilitado, faz tudo em uma chamada — categoriza a página em linguagem livre ("Extrato conta corrente BB março 2025"), extrai dados estruturados, gera texto narrativo para embedding, e produz schema CSS para reuso. Usa `LLM_EXTRACTOR_MODEL` (Sonnet por padrão) — qualidade justificada pelo custo único por padrão.
+  - Helper `_extract_json()`: tolera respostas com markdown code fences e texto ao redor do JSON.
+
+- **`services/portal/apps/artifacts/extractors/schema_extractor.py`** (novo):
+  - `schema_driven_extract(html, url, title, config)`: interpreta o `extractor_config` JSON com BeautifulSoup. **Sem `exec()` nem `eval()`** — o schema é dados, não código. Seletores inválidos geram warning e são pulados; extração continua para os demais campos.
+
+- **`services/portal/apps/artifacts/extractors/detector.py`** (modificado):
+  - `compute_structure_fingerprint(html)`: hash MD5 12-char de título + headings + table headers (com números removidos). Distingue telas de SPAs que compartilham URL.
+  - `detect_page_type()` atualizado: aceita `allow_external_llm`, usa fingerprint na chave de cache, ativa `llm_classify` quando confiança < 0.75, retorna `cache_obj` como 5º valor.
+
+- **`services/portal/apps/artifacts/extractors/strategies.py`** (modificado):
+  - `route()` aceita `cache_obj`: se `extractor_config` presente, usa `schema_driven_extract`; caso contrário, roteamento determinístico.
+
+- **`services/portal/apps/artifacts/tasks.py`** (modificado):
+  - Novo fluxo: se `allow_external_llm=True` e sem schema no cache → chama `llm_extract_and_schema` **em vez** do extrator determinístico. Resultado do LLM é usado imediatamente (não só na próxima captura).
+  - Schema gerado pelo LLM é gravado em `URLPatternCache.extractor_config`.
+  - Capturas seguintes: cache HIT → `schema_driven_extract` sem LLM.
+
+- **`services/portal/apps/artifacts/models.py`** (modificado):
+  - `URLPatternCache`: novo campo `structure_fingerprint` (max_length=32, default=""), `unique_together` atualizado para `(tenant, domain, path_pattern, structure_fingerprint)`.
+
+- **Migrations:**
+  - `0005_urlpatterncache_detection_source`: campo `detection_source`.
+  - `0006_urlpatterncache_structure_fingerprint`: campo `structure_fingerprint` + unique_together.
+
+- **Settings e env:**
+  - `ANTHROPIC_API_KEY`, `LLM_CLASSIFIER_MODEL` (Haiku), `LLM_EXTRACTOR_MODEL` (Sonnet) adicionados a `settings/base.py` e `.env`.
+  - `anthropic>=0.40.0` adicionado a `requirements.txt`.
+
+### Extensão do Navegador — Configuração por Domínio
+
+- **`clients/browser-extension/popup.html`** (reescrito):
+  - UI 320px com: barra de domínio + badge "configurado"/"padrão", grid de classificação 2×2 (público/interno/restrito/confidencial com cores distintas), toggle de LLM com aviso automático para dados restritos/confidenciais, seção colapsável "Identificação" com user_id e tenant_id.
+
+- **`clients/browser-extension/popup.js`** (reescrito):
+  - Lê domínio da aba ativa, carrega config do `chrome.storage.local` por chave `config_{domain}`, salva ao clicar "Salvar", passa config ao background.js na captura.
+
+- **`clients/browser-extension/background.js`** (modificado):
+  - Inclui `allow_external_llm`, `classification_level`, `user_id`, `tenant_id` no FormData enviado ao Orchestrator.
+
+- **`services/orchestrator/main.py`** (modificado):
+  - Novo param `allow_external_llm: bool = Form(False)`, repassado ao Portal.
+
+- **`services/portal/apps/artifacts/views.py`** (modificado):
+  - `ArtefatoCreateAPIView` usa `allow_external_llm` do payload. Valida contra `classification_level`: flag ignorada para `restrito`/`confidencial` (espelhando `policy_engine`).
+
+**Problemas identificados durante testes:**
+
+1. **`ImportError` em `__init__.py`**: após remover `llm_generate_schema`, o `__init__.py` ainda importava o nome antigo. Corrigido para `llm_extract_and_schema`.
+2. **LLM retornando JSON com markdown**: `llm_generate_schema` e `llm_classify` falhavam silenciosamente quando o LLM embrulhava a resposta em ` ```json ... ``` `. Corrigido com `_extract_json()`.
+
+**Limitação conhecida — não resolvida:**
+- A extração de lançamentos de extratos bancários (ex: BB) via LLM está saindo incompleta ou vazia. O esqueleto de 20 KB não cobre todos os lançamentos da tabela — o corte pode eliminar exatamente os dados mais importantes. O schema gerado pelo LLM aparenta estar correto estruturalmente, mas o `schema_driven_extract` não encontra os elementos esperados nas capturas subsequentes. Investigação pendente para a próxima sessão.
+
+**Próximos Passos:**
+- Investigar extração incompleta de lançamentos: analisar o esqueleto gerado para uma página de extrato e verificar se as linhas da tabela estão sendo cortadas.
+- Testar fingerprint de SPAs: confirmar que telas diferentes do BB geram fingerprints distintos e criam cache entries separados.
+- Considerar enviar texto plano das tabelas (sem estrutura HTML) ao LLM para páginas `tabular_*` — evita desperdício do contexto com markup irrelevante.
+- Implementar URL fragment na normalização de URL (hash routing como `/#/extrato`).
+
+---
+
 ## [02-06-2026] - Correção de encoding no pipeline MHTML + scripts de ambiente
 
 **Contexto e motivação:**

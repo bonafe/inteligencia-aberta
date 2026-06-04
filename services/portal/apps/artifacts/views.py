@@ -19,7 +19,7 @@ from minio import Minio
 from minio.error import S3Error
 
 from apps.accounts.models import Organization, User
-from .models import Artifact
+from .models import Artifact, DocumentText
 
 @method_decorator(csrf_exempt, name="dispatch")
 class ArtefatoCreateAPIView(View):
@@ -46,17 +46,28 @@ class ArtefatoCreateAPIView(View):
         org = self._resolve_org(data.get("tenant_id"), user)
         logger.info("organização resolvida — id=%s nome=%s tipo=%s", org.id, org.name, org.org_type)
 
+        # Validate allow_external_llm against classification level (mirrors policy_engine logic)
+        requested_llm = bool(data.get("allow_external_llm", False))
+        level = data.get("classification_level", Artifact.ClassificationLevel.RESTRICTED)
+        allow_llm = requested_llm and level not in (
+            Artifact.ClassificationLevel.RESTRICTED,
+            Artifact.ClassificationLevel.CONFIDENTIAL,
+        )
+
         artifact = Artifact.objects.create(
             artifact_type=data.get("artifact_type", Artifact.Type.DOCUMENT),
             content=content,
-            classification_level=data.get("classification_level", Artifact.ClassificationLevel.RESTRICTED),
+            classification_level=level,
             tenant=org,
-            allow_external_llm=False,
+            allow_external_llm=allow_llm,
             classified_by=user,
             info_type=data.get("info_type", Artifact.InfoType.FACT),
             sources=data.get("sources", []),
         )
-        logger.info("artefato criado — id=%s tipo=%s classificacao=%s", artifact.id, artifact.artifact_type, artifact.classification_level)
+        logger.info(
+            "artefato criado — id=%s tipo=%s classificacao=%s allow_external_llm=%s",
+            artifact.id, artifact.artifact_type, artifact.classification_level, artifact.allow_external_llm,
+        )
 
         return JsonResponse({"artifact_id": str(artifact.id)}, status=201)
 
@@ -234,3 +245,25 @@ class ServeMHTMLView(View):
         except Exception as e:
             print(f"Erro ao processar MHTML: {e}")
             raise Http404("Erro ao converter MHTML para visualização.")
+
+
+class ArtifactContentView(View):
+    """Retorna texto extraído e dados estruturados de um artefato (usado via AJAX pelo visualizador)."""
+
+    def get(self, request, artifact_id):
+        artifact = get_object_or_404(Artifact, id=artifact_id)
+        try:
+            doc_text = artifact.extracted_text
+        except DocumentText.DoesNotExist:
+            raise Http404("Texto ainda não extraído para este artefato.")
+
+        return JsonResponse({
+            "page_type": doc_text.page_type,
+            "detection_confidence": doc_text.detection_confidence,
+            "detection_source": doc_text.detection_source,
+            "char_count": doc_text.char_count,
+            "word_count": doc_text.word_count,
+            "extractor_version": doc_text.extractor_version,
+            "text": doc_text.text,
+            "structured_data": doc_text.structured_data,
+        })

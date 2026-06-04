@@ -68,7 +68,8 @@ async def capture_mhtml(
     timestamp: str = Form(...),
     user_id: str | None = Form(None),
     tenant_id: str | None = Form(None),
-    classification_level: str = Form("restrito")
+    classification_level: str = Form("restrito"),
+    allow_external_llm: bool = Form(False),
 ):
     try:
         # Lê o conteúdo do arquivo
@@ -102,6 +103,7 @@ async def capture_mhtml(
                         "mhtml_path": object_name,
                     },
                     "classification_level": classification_level,
+                    "allow_external_llm": allow_external_llm,
                     "tenant_id": tenant_id,
                     "user_id": user_id,
                     "info_type": "fato",

@@ -1,3 +1,4 @@
+import hashlib
 import logging
 import re
 from urllib.parse import urlparse
@@ -16,6 +17,9 @@ _DATE_BR_RE = re.compile(r"\d{2}/\d{2}/\d{4}")
 _DATE_ISO2_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
 _PROCESS_CNJ_RE = re.compile(r"\d{7}-\d{2}\.\d{4}\.\d\.\d{2}\.\d{4}")
 _CNPJ_RE = re.compile(r"\d{2}\.\d{3}\.\d{3}/\d{4}-\d{2}")
+_NUMBERS_RE = re.compile(r"\d[\d.,/-]*")
+
+_LLM_CONFIDENCE_THRESHOLD = 0.75
 
 
 def normalize_url(url: str) -> tuple[str, str]:
@@ -45,6 +49,52 @@ def normalize_url(url: str) -> tuple[str, str]:
         return "", ""
 
 
+def compute_structure_fingerprint(html: str) -> str:
+    """Compute a stable structural fingerprint from HTML content.
+
+    Used as a secondary cache dimension alongside domain+path_pattern so that
+    SPAs (e.g. bank portals where every screen shares the same URL) get separate
+    cache entries per screen layout.
+
+    Built from: page title, first two headings, and table headers — all with
+    numbers stripped so the fingerprint stays stable across different dates/accounts.
+    Returns a 12-char hex string, or "" on failure.
+    """
+    try:
+        from bs4 import BeautifulSoup
+        soup = BeautifulSoup(html, "html.parser")
+        markers = []
+
+        title_tag = soup.find("title")
+        if title_tag:
+            normalized = _NUMBERS_RE.sub("*", title_tag.get_text(strip=True)).lower()[:60]
+            if normalized:
+                markers.append(f"title:{normalized}")
+
+        for tag in soup.find_all(["h1", "h2"])[:2]:
+            text = _NUMBERS_RE.sub("*", tag.get_text(strip=True)).lower()[:40]
+            if text:
+                markers.append(f"h:{text}")
+
+        for table in soup.find_all("table")[:4]:
+            first_row = table.find("tr")
+            if not first_row:
+                continue
+            cells = first_row.find_all(["th", "td"])[:8]
+            headers = tuple(c.get_text(strip=True).lower()[:20] for c in cells)
+            if any(headers):
+                markers.append("th:" + ",".join(headers))
+
+        if not markers:
+            return ""
+
+        combined = "|".join(markers)
+        return hashlib.md5(combined.encode()).hexdigest()[:12]
+    except Exception:
+        logger.debug("compute_structure_fingerprint falhou")
+        return ""
+
+
 def analyze_html(html: str) -> dict:
     try:
         from bs4 import BeautifulSoup
@@ -56,7 +106,6 @@ def analyze_html(html: str) -> dict:
         table_text = " ".join(t.get_text(" ", strip=True) for t in tables)
         table_char_count = len(table_text)
 
-        # Remove tables to measure prose separately
         soup_prose = BeautifulSoup(html, "html.parser")
         for t in soup_prose.find_all("table"):
             t.decompose()
@@ -130,22 +179,56 @@ def classify(metrics: dict) -> tuple[str, float]:
 
 
 def detect_page_type(
-    html: str, url: str, tenant_id
-) -> tuple[str, float, str, str | None]:
-    """Returns (page_type, confidence, detection_source, cache_id)."""
+    html: str,
+    url: str,
+    tenant_id,
+    allow_external_llm: bool = False,
+):
+    """Detect the page type using a three-layer strategy.
+
+    Returns (page_type, confidence, detection_source, cache_id, cache_obj).
+
+    Layer 1 — URLPatternCache hit (confidence ≥ 0.9, not needs_review).
+    Layer 2 — Deterministic structural analysis.
+    Layer 3 — LLM classification via compressed skeleton (Estratégias A + B),
+               only when confidence < 0.75 and allow_external_llm is True.
+    """
     from django.db import models as django_models
     from apps.artifacts.models import URLPatternCache
 
     domain, path_pattern = normalize_url(url)
-    logger.info("URL normalizada — domain=%s path_pattern=%s", domain, path_pattern)
+    structure_fingerprint = compute_structure_fingerprint(html)
+    logger.info(
+        "URL normalizada — domain=%s path_pattern=%s fingerprint=%s",
+        domain, path_pattern, structure_fingerprint,
+    )
 
     cache_obj = None
     cache_id = None
 
     if domain:
+        # Look up by exact fingerprint first; fall back to entries without fingerprint
+        # (old data or pages where fingerprint could not be computed).
         cache_obj = URLPatternCache.objects.filter(
-            tenant_id=tenant_id, domain=domain, path_pattern=path_pattern
+            tenant_id=tenant_id,
+            domain=domain,
+            path_pattern=path_pattern,
+            structure_fingerprint=structure_fingerprint,
         ).first()
+
+        if cache_obj is None and structure_fingerprint:
+            cache_obj = URLPatternCache.objects.filter(
+                tenant_id=tenant_id,
+                domain=domain,
+                path_pattern=path_pattern,
+                structure_fingerprint="",
+            ).first()
+            if cache_obj:
+                logger.info("cache encontrado sem fingerprint — atualizando para %s", structure_fingerprint)
+                URLPatternCache.objects.filter(id=cache_obj.id).update(
+                    structure_fingerprint=structure_fingerprint
+                )
+                cache_obj.structure_fingerprint = structure_fingerprint
 
         if cache_obj:
             cache_id = str(cache_obj.id)
@@ -157,7 +240,8 @@ def detect_page_type(
                 URLPatternCache.objects.filter(id=cache_obj.id).update(
                     hit_count=django_models.F("hit_count") + 1
                 )
-                return cache_obj.page_type, cache_obj.confidence, "cache", cache_id
+                cache_obj.refresh_from_db(fields=["hit_count"])
+                return cache_obj.page_type, cache_obj.confidence, "cache", cache_id, cache_obj
             else:
                 logger.info(
                     "cache encontrado mas não confiável — confidence=%.2f needs_review=%s → análise estrutural",
@@ -166,6 +250,7 @@ def detect_page_type(
         else:
             logger.info("cache MISS — rodando análise estrutural")
 
+    # Layer 2: structural analysis
     metrics = analyze_html(html)
     logger.info(
         "métricas HTML — table_ratio=%.2f tables=%d rows=%d monetary=%d dates=%d cnj=%d cnpj=%d article=%s main=%s paragraphs=%d",
@@ -176,8 +261,34 @@ def detect_page_type(
     )
 
     page_type, confidence = classify(metrics)
-    logger.info("classificado como '%s' (confidence=%.2f)", page_type, confidence)
+    detection_source = "structural_analysis"
+    logger.info("análise estrutural — page_type=%s confidence=%.2f", page_type, confidence)
 
+    # Layer 3: LLM classification (Estratégias A + B) when structural confidence is low
+    if allow_external_llm and (confidence < _LLM_CONFIDENCE_THRESHOLD or page_type == "desconhecido"):
+        logger.info(
+            "ativando LLM (confidence=%.2f < %.2f ou desconhecido) — comprimindo esqueleto",
+            confidence, _LLM_CONFIDENCE_THRESHOLD,
+        )
+        try:
+            from .skeleton import compress_html_skeleton
+            from .llm_classifier import llm_classify
+
+            skeleton = compress_html_skeleton(html)
+            llm_type, llm_confidence, _ = llm_classify(skeleton, url)
+
+            if llm_type != "desconhecido" or llm_confidence > confidence:
+                page_type = llm_type
+                confidence = llm_confidence
+                detection_source = "llm_classification"
+                logger.info(
+                    "LLM sobrepôs análise estrutural — page_type=%s confidence=%.2f",
+                    page_type, confidence,
+                )
+        except Exception:
+            logger.exception("LLM classification falhou — mantendo resultado estrutural")
+
+    # Update or create URLPatternCache
     if domain and path_pattern:
         if cache_obj is not None:
             if cache_obj.page_type != page_type:
@@ -190,29 +301,41 @@ def detect_page_type(
                     cache_obj.page_type, page_type, cache_obj.divergence_count, domain, path_pattern,
                 )
                 if cache_obj.divergence_count >= 3:
-                    URLPatternCache.objects.filter(id=cache_obj.id).update(needs_review=True)
+                    URLPatternCache.objects.filter(id=cache_obj.id).update(
+                        needs_review=True,
+                        extractor_config={},
+                    )
                     logger.warning(
-                        "cache marcado needs_review=True — %s%s (3 divergências acumuladas)",
+                        "cache marcado needs_review=True e extractor_config zerado — %s%s",
                         domain, path_pattern,
                     )
             else:
                 URLPatternCache.objects.filter(id=cache_obj.id).update(
                     hit_count=django_models.F("hit_count") + 1,
                     confidence=confidence,
+                    detection_source=detection_source,
                 )
-                logger.info("cache atualizado — hit_count incrementado para %s%s", domain, path_pattern)
+                cache_obj.confidence = confidence
+                cache_obj.detection_source = detection_source
+                logger.info("cache atualizado — %s%s", domain, path_pattern)
         else:
             try:
                 new_cache = URLPatternCache.objects.create(
                     tenant_id=tenant_id,
                     domain=domain,
                     path_pattern=path_pattern,
+                    structure_fingerprint=structure_fingerprint,
                     page_type=page_type,
                     confidence=confidence,
+                    detection_source=detection_source,
                 )
                 cache_id = str(new_cache.id)
-                logger.info("cache criado — id=%s domain=%s path=%s type=%s", cache_id, domain, path_pattern, page_type)
+                cache_obj = new_cache
+                logger.info(
+                    "cache criado — id=%s domain=%s path=%s type=%s source=%s",
+                    cache_id, domain, path_pattern, page_type, detection_source,
+                )
             except Exception:
                 logger.exception("URLPatternCache create failed")
 
-    return page_type, confidence, "structural_analysis", cache_id
+    return page_type, confidence, detection_source, cache_id, cache_obj

@@ -1,51 +1,290 @@
 <!DOCTYPE html>
-<html>
+<html lang="pt-BR">
 <head>
   <meta charset="utf-8">
-  <title>Capturar Página</title>
+  <title>Inteligência Aberta</title>
   <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
     body {
-      width: 250px;
-      padding: 15px;
+      width: 320px;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
-    }
-    button {
-      width: 100%;
-      padding: 10px;
-      background-color: #0d6efd;
-      color: white;
-      border: none;
-      border-radius: 4px;
-      cursor: pointer;
       font-size: 14px;
-      font-weight: bold;
+      color: #212529;
+      background: #fff;
     }
-    button:hover {
-      background-color: #0b5ed7;
+
+    /* ── Header ── */
+    .header {
+      background: #0d1b2a;
+      color: #fff;
+      padding: 11px 16px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
     }
-    button:disabled {
-      background-color: #6c757d;
-      cursor: not-allowed;
+    .header-icon { font-size: 16px; }
+    .header-title { font-size: 14px; font-weight: 600; letter-spacing: 0.2px; }
+
+    /* ── Domain bar ── */
+    .domain-bar {
+      background: #f8f9fa;
+      border-bottom: 1px solid #e9ecef;
+      padding: 7px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
     }
-    #status {
-      margin-top: 10px;
+    .domain-text {
+      font-size: 12px;
+      color: #495057;
+      font-family: "SF Mono", "Fira Code", Consolas, monospace;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .badge {
+      font-size: 11px;
+      padding: 2px 8px;
+      border-radius: 100px;
+      font-weight: 500;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+    .badge-configured { background: #d1e7dd; color: #0f5132; }
+    .badge-default    { background: #e2e3e5; color: #41464b; }
+
+    /* ── Sections ── */
+    .section {
+      padding: 12px 16px;
+      border-bottom: 1px solid #f0f0f0;
+    }
+    .section-label {
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.7px;
+      color: #6c757d;
+      margin-bottom: 8px;
+    }
+
+    /* ── Classification grid ── */
+    .level-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 5px;
+    }
+    .level-btn {
+      padding: 7px 4px;
+      border: 1.5px solid #dee2e6;
+      background: #fff;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 500;
+      color: #495057;
+      text-align: center;
+      transition: all .15s;
+    }
+    .level-btn:hover:not(.active):not(:disabled) { background: #f1f3f5; }
+    .level-btn.active {
+      border-color: #0d6efd;
+      background: #0d6efd;
+      color: #fff;
+    }
+    .level-btn.level-restricted.active  { background: #dc3545; border-color: #dc3545; }
+    .level-btn.level-confidential.active{ background: #6f42c1; border-color: #6f42c1; }
+
+    /* ── LLM toggle row ── */
+    .toggle-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    .toggle-text { flex: 1; }
+    .toggle-title { font-size: 13px; font-weight: 500; color: #212529; }
+    .toggle-sub   { font-size: 11px; color: #6c757d; margin-top: 2px; line-height: 1.4; }
+
+    .toggle {
+      position: relative;
+      display: inline-block;
+      width: 38px;
+      height: 22px;
+      flex-shrink: 0;
+    }
+    .toggle input { opacity: 0; width: 0; height: 0; }
+    .toggle-slider {
+      position: absolute;
+      cursor: pointer;
+      inset: 0;
+      background: #ced4da;
+      border-radius: 22px;
+      transition: .2s;
+    }
+    .toggle-slider::before {
+      content: "";
+      position: absolute;
+      height: 16px; width: 16px;
+      left: 3px; bottom: 3px;
+      background: #fff;
+      border-radius: 50%;
+      transition: .2s;
+      box-shadow: 0 1px 3px rgba(0,0,0,.2);
+    }
+    input:checked + .toggle-slider { background: #0d6efd; }
+    input:checked + .toggle-slider::before { transform: translateX(16px); }
+    input:disabled + .toggle-slider { opacity: 0.45; cursor: not-allowed; }
+
+    .llm-warning {
+      margin-top: 6px;
+      font-size: 11px;
+      color: #856404;
+      background: #fff3cd;
+      border-radius: 4px;
+      padding: 4px 8px;
+      display: none;
+    }
+    .llm-warning.visible { display: block; }
+
+    /* ── Collapsible (Identificação) ── */
+    .collapsible-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      cursor: pointer;
+      user-select: none;
+    }
+    .collapsible-header .section-label { margin-bottom: 0; }
+    .chevron {
+      font-size: 10px;
+      color: #6c757d;
+      transition: transform .2s;
+    }
+    .chevron.open { transform: rotate(180deg); }
+    .collapsible-body { display: none; margin-top: 10px; }
+    .collapsible-body.open { display: block; }
+    .field-row { margin-bottom: 8px; }
+    .field-row:last-child { margin-bottom: 0; }
+    .field-label {
+      font-size: 11px;
+      color: #6c757d;
+      margin-bottom: 3px;
+      display: block;
+    }
+    .field-input {
+      width: 100%;
+      padding: 5px 8px;
+      border: 1px solid #dee2e6;
+      border-radius: 5px;
+      font-size: 12px;
+      font-family: "SF Mono", Consolas, monospace;
+      color: #212529;
+      background: #fff;
+    }
+    .field-input:focus {
+      outline: none;
+      border-color: #86b7fe;
+      box-shadow: 0 0 0 2px rgba(13,110,253,.15);
+    }
+
+    /* ── Actions ── */
+    .actions { padding: 12px 16px; display: flex; flex-direction: column; gap: 7px; }
+    .btn {
+      width: 100%;
+      padding: 9px;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 500;
+      transition: background .15s;
+    }
+    .btn-primary  { background: #0d6efd; color: #fff; }
+    .btn-primary:hover:not(:disabled) { background: #0b5ed7; }
+    .btn-primary:disabled { background: #6c757d; cursor: not-allowed; }
+    .btn-secondary {
+      background: #fff;
+      color: #0d6efd;
+      border: 1.5px solid #0d6efd;
+    }
+    .btn-secondary:hover { background: #f0f5ff; }
+
+    /* ── Status ── */
+    .status {
+      padding: 0 16px 12px;
       font-size: 13px;
       text-align: center;
       display: none;
     }
-    .title {
-      font-size: 16px;
-      font-weight: bold;
-      text-align: center;
-      margin-bottom: 15px;
-      color: #333;
-    }
+    .status.success { color: #0f5132; display: block; }
+    .status.error   { color: #842029; display: block; }
+    .status.info    { color: #055160; display: block; }
   </style>
 </head>
 <body>
-  <div class="title">Inteligência Aberta</div>
-  <button id="captureBtn">Capturar e Enviar</button>
-  <div id="status"></div>
+
+  <div class="header">
+    <span class="header-icon">🔍</span>
+    <span class="header-title">Inteligência Aberta</span>
+  </div>
+
+  <div class="domain-bar">
+    <span class="domain-text" id="domain">carregando…</span>
+    <span class="badge badge-default" id="badge">padrão</span>
+  </div>
+
+  <div class="section">
+    <div class="section-label">Classificação</div>
+    <div class="level-grid">
+      <button class="level-btn" id="level_publico"       data-level="publico">Público</button>
+      <button class="level-btn" id="level_interno"       data-level="interno">Interno</button>
+      <button class="level-btn level-restricted"   id="level_restrito"      data-level="restrito">Restrito</button>
+      <button class="level-btn level-confidential" id="level_confidencial"  data-level="confidencial">Confidencial</button>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="toggle-row">
+      <div class="toggle-text">
+        <div class="toggle-title">Análise Inteligente (LLM)</div>
+        <div class="toggle-sub">Usa IA para páginas não reconhecidas</div>
+      </div>
+      <label class="toggle">
+        <input type="checkbox" id="llm_toggle">
+        <span class="toggle-slider"></span>
+      </label>
+    </div>
+    <div class="llm-warning" id="llm_warning">
+      ⚠️ LLM não será usado para dados restritos ou confidenciais.
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="collapsible-header" id="advanced-header">
+      <span class="section-label">Identificação</span>
+      <span class="chevron" id="chevron">▼</span>
+    </div>
+    <div class="collapsible-body" id="advanced-body">
+      <div class="field-row">
+        <label class="field-label" for="user_id">ID do usuário (UUID)</label>
+        <input class="field-input" type="text" id="user_id" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
+      </div>
+      <div class="field-row">
+        <label class="field-label" for="tenant_id">ID da organização (UUID)</label>
+        <input class="field-input" type="text" id="tenant_id" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
+      </div>
+    </div>
+  </div>
+
+  <div class="actions">
+    <button class="btn btn-secondary" id="saveBtn">Salvar para este domínio</button>
+    <button class="btn btn-primary"   id="captureBtn">Capturar e Enviar</button>
+  </div>
+
+  <div class="status" id="status"></div>
+
   <script src="popup.js"></script>
 </body>
 </html>

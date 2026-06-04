@@ -1,45 +1,128 @@
-# Especificação: Visualizador de Artefatos (MHTML)
+# Especificação: Visualizador de Artefatos
 
 ## 1. Objetivo
-Criar uma interface web no **Portal (Django)** focada em exibir os artefatos de inteligência do tipo `documento` (especificamente as páginas web MHTML capturadas pela extensão). O objetivo é prover uma experiência rica onde o usuário consiga navegar rapidamente pelo histórico de capturas (thumbnails) e visualizar a "foto" da página preservada offline no próprio navegador, juntamente com seus metadados.
+
+Interface web no **Portal (Django)** para navegar e inspecionar artefatos do tipo `documento` (páginas MHTML capturadas pela extensão). O usuário visualiza a página preservada offline, o texto puro extraído pelo pipeline e os dados estruturados (JSON) gerados pelos extratores, tudo no mesmo espaço sem reload de página.
 
 ## 2. Layout e Experiência do Usuário (UI/UX)
-A tela (chamada de *Galeria de Artefatos* ou *Visualizador de Capturas*) terá a seguinte disposição:
 
-*   **Header / Seletor (Topo):**
-    *   Um carrossel ou lista horizontal com mini-cards representando os artefatos capturados.
-    *   Cada card exibirá o título da página, a URL resumida e a data/hora da captura.
-    *   Ao clicar em um card, a página não recarrega inteira, mas atualiza o quadro principal via JavaScript.
+A tela (*Galeria de Artefatos* / *Visualizador de Capturas*) tem a seguinte disposição:
 
-*   **Painel de Metadados (Abaixo do seletor):**
-    *   Exibe as informações do artefato selecionado: URL Original completa, Timestamp Exato, Nível de Classificação (Público, Restrito, etc) e ID do Artefato.
-    *   **Ação Primária:** Um botão "Ver em Tela Cheia", que abre a página salva em uma nova aba do navegador para visualização expandida.
+### Header / Carrossel (Topo)
 
-*   **Quadro de Visualização (Main Frame):**
-    *   Um `<iframe>` estilizado que renderiza o arquivo HTML estático.
-    *   **Segurança (Sandbox):** O iframe utilizará o atributo `sandbox=""` (restrito). Isso é vital porque a página capturada pode conter scripts maliciosos, popups indesejados ou tentar abrir aplicativos externos (ex: `xdg-open` no Linux ou `whatsapp://`). O sandbox garante que a página congele em formato puramente visual, desativando o JavaScript e blindando o nosso Portal contra *Cross-Site Scripting* (XSS) e comportamentos invasivos.
+- Lista horizontal com mini-cards de artefatos capturados.
+- Cada card: título, URL resumida, data/hora.
+- Clique no card atualiza o quadro principal via JavaScript (sem reload).
+
+### Painel de Metadados (Lateral esquerda)
+
+- URL original, timestamp, nível de classificação, ID do artefato.
+- Page type detectado e confiança (ex: `tabular_generico — 80%`).
+- Contagem de palavras e caracteres (quando texto disponível).
+- Botão "Abrir em Tela Cheia" para o MHTML em nova aba.
+
+### Quadro Principal com Abas (Direita)
+
+Três abas controladas por JS vanilla:
+
+| Aba | Conteúdo | Disponível quando |
+|-----|----------|-------------------|
+| **MHTML** | `<iframe>` com a página renderizada | Sempre (é o artefato base) |
+| **Texto** | Texto puro extraído em `<pre>` rolável | `DocumentText` existe para o artefato |
+| **Dados Estruturados** | Árvore JSON interativa (colapsável) | `structured_data` não é nulo |
+
+- Abas sem dados ficam desabilitadas visualmente (não clicáveis).
+- Conteúdo de texto e JSON é carregado via AJAX sob demanda ao trocar de aba (evita serializar megabytes de texto no HTML inicial).
+
+### Componente JSON Viewer
+
+Renderizador vanilla JS embutido no template (sem dependência externa):
+
+- Árvore colapsável: objetos e arrays exibem `▶ {3 keys}` quando colapsados.
+- Colorização por tipo: strings em verde, números em laranja, booleanos em roxo, null em vermelho.
+- Botão "Copiar JSON" que copia o JSON bruto para o clipboard.
+- Indentação visual por nível de aninhamento.
 
 ## 3. Arquitetura Backend (Django)
 
-Para suportar essa interface, precisamos adicionar os seguintes componentes no app de Artefatos do Portal (`services/portal/apps/artifacts`):
+### Views
 
-1.  **View de Galeria (`ArtifactGalleryView`)**:
-    *   Consulta a tabela `artifacts_artifact` filtrando apenas artefatos do tipo `documento` e cujo campo `content` contenha o caminho do MHTML (`mhtml_path`).
-    *   Renderiza o template HTML `gallery.html`.
+**`ArtifactGalleryView`** — sem mudanças estruturais.  
+- Consulta `Artifact` tipo `documento` com `mhtml_path`.
+- Renderiza `gallery.html`.
 
-2.  **Endpoint Proxy do MinIO (`ServeMHTMLView`)**:
-    *   **Problema:** O arquivo MHTML está no MinIO, cujo acesso direto pode requerer autenticação ou URLs pré-assinadas.
-    *   **Solução:** Criar uma view no Django (`/artifacts/<uuid>/mhtml`) que se conecta ao MinIO (usando a lib `minio`), baixa o arquivo em memória, e o retorna em um `HttpResponse` ou `StreamingHttpResponse` com o cabeçalho `Content-Type: multipart/related`.
-    *   Isso garante que o `<iframe>` no frontend aponte para o próprio Django, mantendo a autenticação e a segurança de acesso (Policy Engine) do portal.
+**`ArtifactContentView`** (nova) — endpoint AJAX `GET /artifacts/<uuid>/content/`.  
+- Busca `DocumentText` via `artifact.extracted_text` (OneToOne).
+- Retorna `JsonResponse` com os campos abaixo; 404 se não existir.
 
-## 4. Arquitetura Frontend (CSS Vanilla & JS)
+```json
+{
+  "page_type": "tabular_generico",
+  "detection_confidence": 0.80,
+  "detection_source": "structural_analysis",
+  "char_count": 4200,
+  "word_count": 680,
+  "extractor_version": "1.0",
+  "text": "...",
+  "structured_data": { ... }
+}
+```
 
-*   **Estilização:** Será utilizado **Vanilla CSS** focado em estética "Dark Mode" premium, com efeitos de glassmorphism, cores vibrantes (escala de azuis/verdes para ambiente investigativo) e micro-interações (hover nos cards).
-*   **Comportamento (Vanilla JS):** O clique em um thumbnail atualizará o atributo `src` do `iframe` e o texto dos elementos de metadados dinamicamente na DOM, criando a sensação de uma Single Page Application leve, sem necessidade de re-renderizar a tela inteira.
+**`ServeMHTMLView`** — sem mudanças.  
+- Proxy MinIO → HTML auto-contido com recursos em base64.
+- Requer `@xframe_options_sameorigin` (servido em iframe).
 
-## 5. Próximos Passos de Implementação
-- [ ] Adicionar o pacote `minio` no `requirements.txt` do Portal (Django).
-- [ ] Implementar a lógica de Proxy MHTML (`views.py`) no app `artifacts`.
-- [ ] Criar a View e Template da Galeria (`gallery.html`).
-- [ ] Mapear as URLs no `urls.py`.
-- [ ] Estilizar com CSS avançado e dinâmico.
+### URLs
+
+```
+GET /artifacts/gallery/                  → ArtifactGalleryView
+GET /artifacts/<uuid>/mhtml/             → ServeMHTMLView
+GET /artifacts/<uuid>/content/           → ArtifactContentView  ← novo
+POST /artifacts/api/v1/artefatos/        → ArtefatoCreateAPIView
+GET /artifacts/busca/                    → BuscaSemanticaView
+```
+
+## 4. Arquitetura Frontend
+
+- **CSS:** Vanilla Dark Mode. Abas usam estado `active` / `disabled` via classes.
+- **JS:** Vanilla. Três responsabilidades:
+  1. `selectArtifact()` — troca o artefato ativo, reseta estado das abas.
+  2. `switchTab()` — troca a aba visível; dispara fetch AJAX se texto/JSON ainda não foram carregados para o artefato atual.
+  3. `renderJsonTree()` — renderizador recursivo de árvore JSON colapsável.
+- Segurança do iframe: `sandbox=""` (sem JS, sem forms, sem popups).
+
+## 5. Modelo de Dados Relevante
+
+```
+Artifact (tipo=documento)
+  └── DocumentText (OneToOne via extracted_text)
+        ├── text            TextField
+        ├── page_type       CharField  (tabular_generico, artigo, processo_judicial, …)
+        ├── detection_confidence  FloatField
+        ├── structured_data JSONField (nullable)
+        ├── char_count      IntegerField
+        └── word_count      IntegerField
+```
+
+## 6. Tipos de Página e Estrutura do JSON
+
+Gerados pelos extratores em `services/portal/apps/artifacts/extractors/strategies.py`:
+
+| page_type | Chaves em structured_data |
+|-----------|--------------------------|
+| `tabular_financeiro` | `transacoes[]` (data, descricao, valor, tipo) |
+| `tabular_generico` | `tabelas[]` (headers[], rows[][]) |
+| `processo_judicial` | `numero_cnj`, `partes{}`, `movimentacoes[]` |
+| `perfil_pessoa_juridica` | `cnpj`, `campos{}` |
+| `artigo`, `documento_juridico`, `misto`, `desconhecido` | `null` (só texto) |
+
+## 7. Checklist de Implementação
+
+- [x] `ArtifactGalleryView` e `ServeMHTMLView` implementados
+- [x] Template `gallery.html` com iframe MHTML
+- [ ] `ArtifactContentView` (endpoint AJAX `/artifacts/<uuid>/content/`)
+- [ ] URL mapeada para `ArtifactContentView`
+- [ ] Abas no template (MHTML / Texto / Dados Estruturados)
+- [ ] AJAX fetch de conteúdo ao trocar aba
+- [ ] Renderizador JSON colapsável (vanilla JS inline)
+- [ ] Metadados expandidos no painel lateral (page_type, word_count)

@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Visualizador de Capturas - Inteligência Aberta</title>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <style>
         :root {
             --bg-body: #0d1117;
@@ -15,13 +15,17 @@
             --accent: #58a6ff;
             --hover: #1f2428;
             --radius: 8px;
+
+            /* JSON colors */
+            --json-string: #7ee787;
+            --json-number: #ffa657;
+            --json-bool: #d2a8ff;
+            --json-null: #ff7b72;
+            --json-key: #79c0ff;
+            --json-bracket: #8b949e;
         }
-        
-        * {
-            box-sizing: border-box;
-            margin: 0;
-            padding: 0;
-        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
 
         body {
             font-family: 'Inter', sans-serif;
@@ -33,7 +37,7 @@
             overflow: hidden;
         }
 
-        /* Top Bar */
+        /* Header */
         header {
             padding: 1rem 2rem;
             border-bottom: 1px solid var(--border);
@@ -43,11 +47,7 @@
             background-color: var(--bg-panel);
             flex-shrink: 0;
         }
-        
-        header h1 {
-            font-size: 1.2rem;
-            font-weight: 600;
-        }
+        header h1 { font-size: 1.2rem; font-weight: 600; }
 
         /* Carousel */
         .carousel-container {
@@ -59,10 +59,7 @@
             background-color: var(--bg-panel);
             flex-shrink: 0;
         }
-        
-        .carousel-container::-webkit-scrollbar {
-            height: 8px;
-        }
+        .carousel-container::-webkit-scrollbar { height: 8px; }
         .carousel-container::-webkit-scrollbar-thumb {
             background-color: var(--border);
             border-radius: 4px;
@@ -81,12 +78,10 @@
             flex-direction: column;
             gap: 0.5rem;
         }
-        
         .card:hover, .card.active {
             border-color: var(--accent);
             background-color: var(--hover);
         }
-
         .card-title {
             font-weight: 600;
             font-size: 0.95rem;
@@ -95,7 +90,6 @@
             text-overflow: ellipsis;
             color: white;
         }
-        
         .card-meta {
             font-size: 0.8rem;
             color: var(--text-muted);
@@ -122,28 +116,30 @@
             gap: 1.5rem;
             overflow-y: auto;
         }
-
         .metadata-section h3 {
-            font-size: 0.85rem;
+            font-size: 0.75rem;
             text-transform: uppercase;
             color: var(--text-muted);
             margin-bottom: 0.5rem;
             letter-spacing: 0.5px;
         }
-
         .metadata-value {
             font-size: 0.9rem;
             word-break: break-all;
         }
-        
-        .metadata-value a {
-            color: var(--accent);
-            text-decoration: none;
+        .metadata-value a { color: var(--accent); text-decoration: none; }
+        .metadata-value a:hover { text-decoration: underline; }
+        .metadata-badge {
+            display: inline-block;
+            font-size: 0.75rem;
+            font-family: 'JetBrains Mono', monospace;
+            background-color: var(--hover);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            padding: 0.15rem 0.5rem;
+            color: var(--json-number);
         }
-
-        .metadata-value a:hover {
-            text-decoration: underline;
-        }
+        .metadata-muted { color: var(--text-muted); font-size: 0.82rem; }
 
         .btn-fullscreen {
             margin-top: auto;
@@ -159,11 +155,7 @@
             display: block;
             transition: background-color 0.2s;
         }
-
-        .btn-fullscreen:hover {
-            background-color: #79c0ff;
-        }
-
+        .btn-fullscreen:hover { background-color: #79c0ff; }
         .btn-fullscreen.disabled {
             background-color: var(--border);
             color: var(--text-muted);
@@ -171,19 +163,61 @@
             pointer-events: none;
         }
 
-        /* Right IFrame Area */
-        .iframe-container {
+        /* Right Content Area */
+        .content-area {
             flex: 1;
-            background-color: #fff; /* White background is better for external web pages */
-            position: relative;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
         }
 
+        /* Tabs */
+        .tab-bar {
+            display: flex;
+            gap: 0;
+            border-bottom: 1px solid var(--border);
+            background-color: var(--bg-panel);
+            flex-shrink: 0;
+        }
+        .tab-btn {
+            padding: 0.75rem 1.5rem;
+            font-size: 0.9rem;
+            font-weight: 500;
+            color: var(--text-muted);
+            background: none;
+            border: none;
+            border-bottom: 2px solid transparent;
+            cursor: pointer;
+            transition: all 0.15s;
+            font-family: inherit;
+        }
+        .tab-btn:hover:not(.disabled) { color: var(--text-main); }
+        .tab-btn.active {
+            color: var(--accent);
+            border-bottom-color: var(--accent);
+        }
+        .tab-btn.disabled {
+            opacity: 0.35;
+            cursor: not-allowed;
+        }
+
+        /* Tab Panels */
+        .tab-panel { display: none; flex: 1; overflow: hidden; }
+        .tab-panel.active { display: flex; flex-direction: column; }
+
+        /* MHTML iframe */
+        .iframe-container {
+            flex: 1;
+            background-color: #fff;
+            position: relative;
+        }
         .iframe-container iframe {
             width: 100%;
             height: 100%;
             border: none;
         }
-        
+
+        /* Empty / Loading states */
         .empty-state {
             position: absolute;
             inset: 0;
@@ -194,88 +228,456 @@
             color: var(--text-muted);
             font-size: 1.1rem;
         }
+        .loading-msg {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--text-muted);
+        }
+
+        /* Text tab */
+        .text-panel-inner {
+            flex: 1;
+            overflow: auto;
+            padding: 1.5rem 2rem;
+            background-color: var(--bg-body);
+        }
+        .text-content {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.82rem;
+            line-height: 1.7;
+            color: var(--text-main);
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+
+        /* JSON tab */
+        .json-panel-inner {
+            flex: 1;
+            overflow: auto;
+            padding: 1.5rem 2rem;
+            background-color: var(--bg-body);
+        }
+        .json-toolbar {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            margin-bottom: 1rem;
+        }
+        .json-toolbar-title {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            font-family: 'JetBrains Mono', monospace;
+        }
+        .btn-copy {
+            font-size: 0.78rem;
+            padding: 0.3rem 0.75rem;
+            background: var(--hover);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            color: var(--text-muted);
+            cursor: pointer;
+            font-family: inherit;
+            transition: color 0.15s, border-color 0.15s;
+        }
+        .btn-copy:hover { color: var(--text-main); border-color: var(--accent); }
+        .btn-copy.copied { color: var(--json-string); border-color: var(--json-string); }
+
+        /* JSON tree */
+        .json-tree {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.82rem;
+            line-height: 1.8;
+        }
+        .jt-key { color: var(--json-key); }
+        .jt-str { color: var(--json-string); }
+        .jt-num { color: var(--json-number); }
+        .jt-bool { color: var(--json-bool); }
+        .jt-null { color: var(--json-null); }
+        .jt-bracket { color: var(--json-bracket); }
+        .jt-node { display: block; }
+        .jt-collapsible > .jt-toggle {
+            cursor: pointer;
+            user-select: none;
+        }
+        .jt-toggle::before {
+            content: '▾';
+            display: inline-block;
+            width: 1em;
+            transition: transform 0.15s;
+            color: var(--text-muted);
+        }
+        .jt-collapsible.collapsed > .jt-toggle::before { transform: rotate(-90deg); }
+        .jt-children { padding-left: 1.5rem; }
+        .jt-collapsible.collapsed > .jt-children { display: none; }
+        .jt-summary { color: var(--text-muted); font-style: italic; }
     </style>
 </head>
 <body>
 
-    <header>
-        <h1>Inteligência Aberta — Visualizador de MHTMLs</h1>
-    </header>
+<header>
+    <h1>Inteligência Aberta — Visualizador de Capturas</h1>
+</header>
 
-    <div class="carousel-container" id="carousel">
-        {% for artifact in artifacts %}
-            <div class="card" 
-                 onclick="selectArtifact(this, '{{ artifact.id }}', '{{ artifact.content.url|escapejs }}', '{{ artifact.content.capture_timestamp }}', '{{ artifact.get_classification_level_display }}')"
-                 data-id="{{ artifact.id }}">
-                <div class="card-title">{{ artifact.content.title|default:"Sem Título" }}</div>
-                <div class="card-meta">
-                    <span title="{{ artifact.content.url }}">🔗 {{ artifact.content.url|truncatechars:35 }}</span>
-                    <span>🕒 {{ artifact.content.capture_timestamp|slice:":10" }}</span>
+<div class="carousel-container" id="carousel">
+    {% for artifact in artifacts %}
+        <div class="card"
+             onclick="selectArtifact(this, '{{ artifact.id }}', '{{ artifact.content.url|escapejs }}', '{{ artifact.content.capture_timestamp }}', '{{ artifact.get_classification_level_display }}')"
+             data-id="{{ artifact.id }}">
+            <div class="card-title">{{ artifact.content.title|default:"Sem Título" }}</div>
+            <div class="card-meta">
+                <span title="{{ artifact.content.url }}">🔗 {{ artifact.content.url|truncatechars:35 }}</span>
+                <span>🕒 {{ artifact.content.capture_timestamp|slice:":10" }}</span>
+            </div>
+        </div>
+    {% empty %}
+        <div style="color: var(--text-muted); font-size: 0.9rem; padding: 1rem;">
+            Nenhuma captura MHTML encontrada. Use a extensão para capturar páginas.
+        </div>
+    {% endfor %}
+</div>
+
+<div class="workspace">
+
+    <!-- Metadata Panel -->
+    <div class="metadata-panel">
+        <div class="metadata-section">
+            <h3>ID do Artefato</h3>
+            <div class="metadata-value" id="meta-id">-</div>
+        </div>
+        <div class="metadata-section">
+            <h3>URL Original</h3>
+            <div class="metadata-value" id="meta-url">-</div>
+        </div>
+        <div class="metadata-section">
+            <h3>Data da Captura</h3>
+            <div class="metadata-value" id="meta-date">-</div>
+        </div>
+        <div class="metadata-section">
+            <h3>Classificação</h3>
+            <div class="metadata-value" id="meta-class">-</div>
+        </div>
+        <div class="metadata-section" id="meta-extraction-section" style="display:none">
+            <h3>Extração</h3>
+            <div class="metadata-value">
+                <span id="meta-page-type" class="metadata-badge">-</span>
+                <span id="meta-confidence" class="metadata-muted" style="margin-left:.4rem"></span>
+            </div>
+            <div class="metadata-muted" style="margin-top:.4rem" id="meta-counts"></div>
+        </div>
+
+        <a href="#" id="btn-fullscreen" class="btn-fullscreen disabled" target="_blank">Abrir MHTML em Tela Cheia</a>
+    </div>
+
+    <!-- Content Area with Tabs -->
+    <div class="content-area">
+
+        <div class="tab-bar">
+            <button class="tab-btn active" id="tab-mhtml" onclick="switchTab('mhtml')">MHTML</button>
+            <button class="tab-btn disabled" id="tab-texto" onclick="switchTab('texto')">Texto</button>
+            <button class="tab-btn disabled" id="tab-json" onclick="switchTab('json')">Dados Estruturados</button>
+        </div>
+
+        <!-- MHTML Panel -->
+        <div class="tab-panel active" id="panel-mhtml">
+            <div class="iframe-container">
+                <div class="empty-state" id="empty-state">Selecione uma captura no topo para visualizar</div>
+                <iframe id="viewer" src="" style="display:none" sandbox=""></iframe>
+            </div>
+        </div>
+
+        <!-- Texto Panel -->
+        <div class="tab-panel" id="panel-texto">
+            <div class="text-panel-inner">
+                <div class="loading-msg" id="text-loading" style="display:none">Carregando texto…</div>
+                <pre class="text-content" id="text-content" style="display:none"></pre>
+            </div>
+        </div>
+
+        <!-- JSON Panel -->
+        <div class="tab-panel" id="panel-json">
+            <div class="json-panel-inner">
+                <div class="loading-msg" id="json-loading" style="display:none">Carregando dados…</div>
+                <div id="json-content" style="display:none">
+                    <div class="json-toolbar">
+                        <span class="json-toolbar-title" id="json-type-label"></span>
+                        <button class="btn-copy" id="btn-copy-json" onclick="copyJson()">Copiar JSON</button>
+                    </div>
+                    <div class="json-tree" id="json-tree"></div>
                 </div>
             </div>
-        {% empty %}
-            <div style="color: var(--text-muted); font-size: 0.9rem; padding: 1rem;">Nenhuma captura MHTML encontrada no banco. Use a extensão para capturar páginas.</div>
-        {% endfor %}
-    </div>
-
-    <div class="workspace">
-        <div class="metadata-panel">
-            <div class="metadata-section">
-                <h3>ID do Artefato</h3>
-                <div class="metadata-value" id="meta-id">-</div>
-            </div>
-            <div class="metadata-section">
-                <h3>URL Original</h3>
-                <div class="metadata-value" id="meta-url">-</div>
-            </div>
-            <div class="metadata-section">
-                <h3>Data da Captura</h3>
-                <div class="metadata-value" id="meta-date">-</div>
-            </div>
-            <div class="metadata-section">
-                <h3>Classificação</h3>
-                <div class="metadata-value" id="meta-class">-</div>
-            </div>
-
-            <a href="#" id="btn-fullscreen" class="btn-fullscreen disabled" target="_blank">Abrir em Tela Cheia</a>
         </div>
-        
-        <div class="iframe-container">
-            <div class="empty-state" id="empty-state">Selecione uma captura no topo para visualizar offline</div>
-            <iframe id="viewer" src="" style="display: none;" sandbox=""></iframe>
-        </div>
+
     </div>
+</div>
 
-    <script>
-        function selectArtifact(element, id, url, date, classification) {
-            // Remove active from all cards
-            document.querySelectorAll('.card').forEach(c => c.classList.remove('active'));
-            // Add active to clicked
-            element.classList.add('active');
+<script>
+    // ─── State ───────────────────────────────────────────────────────────────
+    let currentArtifactId = null;
+    let currentTab = 'mhtml';
+    // Cache: keyed by artifact_id → {text, structured_data, page_type, ...} or null if 404
+    const contentCache = {};
+    let rawJsonForCopy = null;
 
-            // Update Metadata
-            document.getElementById('meta-id').innerText = id;
-            document.getElementById('meta-url').innerHTML = `<a href="${url}" target="_blank">${url}</a>`;
-            
-            try {
-                document.getElementById('meta-date').innerText = new Date(date).toLocaleString('pt-BR');
-            } catch(e) {
-                document.getElementById('meta-date').innerText = date;
-            }
-            
-            document.getElementById('meta-class').innerText = classification;
+    // ─── Artifact Selection ───────────────────────────────────────────────────
+    function selectArtifact(element, id, url, date, classification) {
+        document.querySelectorAll('.card').forEach(c => c.classList.remove('active'));
+        element.classList.add('active');
 
-            // Update Fullscreen button and Iframe source
-            const mhtmlUrl = `/artifacts/${id}/mhtml/`;
-            const btnFullscreen = document.getElementById('btn-fullscreen');
-            btnFullscreen.href = mhtmlUrl;
-            btnFullscreen.classList.remove('disabled');
+        currentArtifactId = id;
 
-            document.getElementById('empty-state').style.display = 'none';
-            const viewer = document.getElementById('viewer');
-            viewer.src = mhtmlUrl;
-            viewer.style.display = 'block';
+        // Reset content cache load for this artifact (keep cache entry if already loaded)
+        rawJsonForCopy = null;
+        document.getElementById('text-content').style.display = 'none';
+        document.getElementById('text-content').textContent = '';
+        document.getElementById('json-content').style.display = 'none';
+        document.getElementById('json-tree').innerHTML = '';
+        document.getElementById('meta-extraction-section').style.display = 'none';
+
+        // Disable content tabs until we know what's available
+        setTabState('tab-texto', false);
+        setTabState('tab-json', false);
+
+        // Metadata
+        document.getElementById('meta-id').textContent = id;
+        document.getElementById('meta-url').innerHTML = `<a href="${url}" target="_blank">${url}</a>`;
+        try {
+            document.getElementById('meta-date').textContent = new Date(date).toLocaleString('pt-BR');
+        } catch(e) {
+            document.getElementById('meta-date').textContent = date;
         }
-    </script>
+        document.getElementById('meta-class').textContent = classification;
+
+        // MHTML iframe
+        const mhtmlUrl = `/artifacts/${id}/mhtml/`;
+        const btnFullscreen = document.getElementById('btn-fullscreen');
+        btnFullscreen.href = mhtmlUrl;
+        btnFullscreen.classList.remove('disabled');
+
+        document.getElementById('empty-state').style.display = 'none';
+        const viewer = document.getElementById('viewer');
+        viewer.src = mhtmlUrl;
+        viewer.style.display = 'block';
+
+        // Switch to MHTML tab on new selection
+        switchTab('mhtml');
+
+        // Pre-fetch content in background to enable tabs when ready
+        fetchContent(id);
+    }
+
+    // ─── Tab Switching ────────────────────────────────────────────────────────
+    function switchTab(tab) {
+        if (document.getElementById(`tab-${tab}`).classList.contains('disabled')) return;
+
+        currentTab = tab;
+        ['mhtml', 'texto', 'json'].forEach(t => {
+            document.getElementById(`tab-${t}`).classList.toggle('active', t === tab);
+            document.getElementById(`panel-${t}`).classList.toggle('active', t === tab);
+        });
+
+        // Populate panels from cache if content is already loaded
+        if (tab !== 'mhtml' && currentArtifactId && contentCache[currentArtifactId]) {
+            renderContent(contentCache[currentArtifactId]);
+        }
+    }
+
+    function setTabState(tabId, enabled) {
+        const btn = document.getElementById(tabId);
+        btn.classList.toggle('disabled', !enabled);
+    }
+
+    // ─── Content Fetch ────────────────────────────────────────────────────────
+    function fetchContent(artifactId) {
+        // 404s are NOT cached — always retry so a server reload doesn't strand the user
+        if (contentCache[artifactId]) {
+            applyTabStates(contentCache[artifactId]);
+            if (currentTab !== 'mhtml') renderContent(contentCache[artifactId]);
+            return;
+        }
+
+        fetch(`/artifacts/${artifactId}/content/`)
+            .then(r => r.ok ? r.json() : null)
+            .then(data => {
+                if (data) contentCache[artifactId] = data;
+
+                // Only update UI if this artifact is still selected
+                if (currentArtifactId !== artifactId) return;
+
+                if (!data) return;
+
+                applyTabStates(data);
+                updateExtractionMeta(data);
+
+                if (currentTab !== 'mhtml') renderContent(data);
+            })
+            .catch(() => { /* silently ignore network errors */ });
+    }
+
+    function applyTabStates(data) {
+        setTabState('tab-texto', !!data.text);
+        setTabState('tab-json', !!data.structured_data);
+    }
+
+    function updateExtractionMeta(data) {
+        if (!data.page_type) return;
+        document.getElementById('meta-extraction-section').style.display = '';
+        document.getElementById('meta-page-type').textContent = data.page_type;
+        if (data.detection_confidence != null) {
+            document.getElementById('meta-confidence').textContent =
+                `${Math.round(data.detection_confidence * 100)}%`;
+        }
+        const parts = [];
+        if (data.word_count) parts.push(`${data.word_count.toLocaleString('pt-BR')} palavras`);
+        if (data.char_count) parts.push(`${data.char_count.toLocaleString('pt-BR')} chars`);
+        document.getElementById('meta-counts').textContent = parts.join(' · ');
+    }
+
+    function renderContent(data) {
+        if (currentTab === 'texto' && data.text) {
+            const el = document.getElementById('text-content');
+            el.textContent = data.text;
+            el.style.display = 'block';
+        }
+        if (currentTab === 'json' && data.structured_data) {
+            rawJsonForCopy = data.structured_data;
+            document.getElementById('json-type-label').textContent =
+                `${data.page_type || ''}${data.detection_confidence != null ? ' · ' + Math.round(data.detection_confidence * 100) + '%' : ''}`;
+            const tree = document.getElementById('json-tree');
+            tree.innerHTML = '';
+            tree.appendChild(renderJsonNode(data.structured_data));
+            document.getElementById('json-content').style.display = 'block';
+        }
+    }
+
+    // ─── JSON Copy ────────────────────────────────────────────────────────────
+    function copyJson() {
+        if (!rawJsonForCopy) return;
+        navigator.clipboard.writeText(JSON.stringify(rawJsonForCopy, null, 2)).then(() => {
+            const btn = document.getElementById('btn-copy-json');
+            btn.textContent = 'Copiado!';
+            btn.classList.add('copied');
+            setTimeout(() => { btn.textContent = 'Copiar JSON'; btn.classList.remove('copied'); }, 1800);
+        });
+    }
+
+    // ─── JSON Tree Renderer ───────────────────────────────────────────────────
+    function renderJsonNode(value, key) {
+        if (Array.isArray(value)) return renderArray(value, key);
+        if (value !== null && typeof value === 'object') return renderObject(value, key);
+        return renderScalar(value, key);
+    }
+
+    function renderScalar(value, key) {
+        const span = document.createElement('span');
+        span.className = 'jt-node';
+
+        if (key !== undefined) {
+            const keySpan = document.createElement('span');
+            keySpan.className = 'jt-key';
+            keySpan.textContent = `"${key}": `;
+            span.appendChild(keySpan);
+        }
+
+        const valSpan = document.createElement('span');
+        if (value === null) {
+            valSpan.className = 'jt-null';
+            valSpan.textContent = 'null';
+        } else if (typeof value === 'boolean') {
+            valSpan.className = 'jt-bool';
+            valSpan.textContent = String(value);
+        } else if (typeof value === 'number') {
+            valSpan.className = 'jt-num';
+            valSpan.textContent = String(value);
+        } else {
+            valSpan.className = 'jt-str';
+            valSpan.textContent = `"${String(value)}"`;
+        }
+        span.appendChild(valSpan);
+        return span;
+    }
+
+    function renderObject(obj, key) {
+        const keys = Object.keys(obj);
+        const wrapper = document.createElement('div');
+        wrapper.className = 'jt-collapsible jt-node';
+
+        const toggle = document.createElement('span');
+        toggle.className = 'jt-toggle';
+        toggle.onclick = () => wrapper.classList.toggle('collapsed');
+
+        if (key !== undefined) {
+            const keySpan = document.createElement('span');
+            keySpan.className = 'jt-key';
+            keySpan.textContent = `"${key}": `;
+            toggle.appendChild(keySpan);
+        }
+
+        const openBracket = document.createElement('span');
+        openBracket.className = 'jt-bracket';
+        openBracket.textContent = '{';
+        toggle.appendChild(openBracket);
+
+        const summary = document.createElement('span');
+        summary.className = 'jt-summary';
+        summary.textContent = ` ${keys.length} chave${keys.length !== 1 ? 's' : ''} `;
+        toggle.appendChild(summary);
+
+        wrapper.appendChild(toggle);
+
+        const children = document.createElement('div');
+        children.className = 'jt-children';
+        keys.forEach(k => children.appendChild(renderJsonNode(obj[k], k)));
+        wrapper.appendChild(children);
+
+        const close = document.createElement('span');
+        close.className = 'jt-bracket';
+        close.textContent = '}';
+        wrapper.appendChild(close);
+
+        return wrapper;
+    }
+
+    function renderArray(arr, key) {
+        const wrapper = document.createElement('div');
+        wrapper.className = 'jt-collapsible jt-node';
+
+        const toggle = document.createElement('span');
+        toggle.className = 'jt-toggle';
+        toggle.onclick = () => wrapper.classList.toggle('collapsed');
+
+        if (key !== undefined) {
+            const keySpan = document.createElement('span');
+            keySpan.className = 'jt-key';
+            keySpan.textContent = `"${key}": `;
+            toggle.appendChild(keySpan);
+        }
+
+        const openBracket = document.createElement('span');
+        openBracket.className = 'jt-bracket';
+        openBracket.textContent = '[';
+        toggle.appendChild(openBracket);
+
+        const summary = document.createElement('span');
+        summary.className = 'jt-summary';
+        summary.textContent = ` ${arr.length} item${arr.length !== 1 ? 's' : ''} `;
+        toggle.appendChild(summary);
+
+        wrapper.appendChild(toggle);
+
+        const children = document.createElement('div');
+        children.className = 'jt-children';
+        arr.forEach((item, i) => children.appendChild(renderJsonNode(item, i)));
+        wrapper.appendChild(children);
+
+        const close = document.createElement('span');
+        close.className = 'jt-bracket';
+        close.textContent = ']';
+        wrapper.appendChild(close);
+
+        return wrapper;
+    }
+</script>
 </body>
 </html>

@@ -160,17 +160,68 @@ def extract_text_from_mhtml(self, artifact_id: str):
     url = content.get("url", "")
     title = content.get("title", "")
 
-    logger.info("[%s] detectando tipo de página — url=%s", artifact_id, url)
-    page_type, confidence, detection_source, cache_id = detect_page_type(
-        html_content, url, artifact.tenant_id
+    logger.info("[%s] detectando tipo de página — url=%s allow_external_llm=%s", artifact_id, url, artifact.allow_external_llm)
+    page_type, confidence, detection_source, cache_id, cache_obj = detect_page_type(
+        html_content, url, artifact.tenant_id,
+        allow_external_llm=artifact.allow_external_llm,
     )
     logger.info(
         "[%s] tipo detectado — page_type=%s confidence=%.2f source=%s cache_id=%s",
         artifact_id, page_type, confidence, detection_source, cache_id,
     )
 
-    logger.info("[%s] extraindo conteúdo com extrator=%s", artifact_id, page_type)
-    extracted = route(page_type, html_content, url, title)
+    # Estratégia A+B+C unificada: na primeira captura com LLM habilitado, o LLM faz tudo —
+    # entende a página, extrai os dados e gera o schema — em vez de usar o extrator determinístico.
+    # O resultado do LLM é usado imediatamente (não só na próxima captura).
+    # Fallback para route() se o LLM falhar ou não estiver disponível.
+    first_capture_with_llm = (
+        artifact.allow_external_llm
+        and cache_obj is not None
+        and not cache_obj.extractor_config
+    )
+
+    extracted = None
+
+    if first_capture_with_llm:
+        logger.info("[%s] primeira captura com LLM — extraindo e gerando schema", artifact_id)
+        try:
+            from .extractors.skeleton import compress_html_skeleton
+            from .extractors.llm_classifier import llm_extract_and_schema
+            from .models import URLPatternCache
+
+            skeleton = compress_html_skeleton(html_content)
+            llm_result = llm_extract_and_schema(skeleton, url, page_type_hint=page_type)
+
+            if llm_result and llm_result.get("text"):
+                extracted = {
+                    "text": llm_result["text"],
+                    "structured_data": llm_result.get("structured_data"),
+                    "extractor_version": "llm_direct:1.0",
+                }
+                # Refine page_type if LLM disagrees with structural analysis
+                if llm_result.get("page_type") and llm_result["page_type"] != "desconhecido":
+                    page_type = llm_result["page_type"]
+
+                schema = llm_result.get("schema") or {}
+                if schema:
+                    URLPatternCache.objects.filter(id=cache_obj.id).update(
+                        extractor_config=schema,
+                        page_type=page_type,
+                    )
+                    logger.info(
+                        "[%s] schema gravado — categoria='%s' campos=%d tabelas=%d",
+                        artifact_id, schema.get("categoria", ""),
+                        len(schema.get("fields", {})), len(schema.get("tables", [])),
+                    )
+            else:
+                logger.warning("[%s] LLM não produziu texto — fallback para extrator determinístico", artifact_id)
+        except Exception:
+            logger.exception("[%s] llm_extract_and_schema falhou — fallback para extrator determinístico", artifact_id)
+
+    if extracted is None:
+        logger.info("[%s] extraindo com extrator=%s", artifact_id, page_type)
+        extracted = route(page_type, html_content, url, title, cache_obj=cache_obj)
+
     text = extracted["text"]
 
     if not text:

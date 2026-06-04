@@ -282,6 +282,27 @@
     <div class="container">
         <div class="entries-list">
 
+            <!-- Entrada 12 -->
+            <article class="entry-card">
+                <div class="entry-header">
+                    <div class="entry-meta">
+                        <span class="entry-date">3 de junho de 2026</span>
+                        <span class="entry-sep"></span>
+                        <span class="entry-author">Bonafé & Claude Code</span>
+                    </div>
+                    <h2 class="entry-title">O LLM sabe o que é a página. Mas ainda não consegue ler o extrato.</h2>
+                </div>
+                <div class="entry-body">
+                    <p>A ideia parecia elegante: em vez de tentar escrever um parser para cada banco — cada um com seu layout proprietário, suas classes CSS inventadas, suas tabelas dentro de divs dentro de spans — por que não perguntar ao LLM o que é aquela página e pedir para ele extrair os dados? O LLM vê tudo, entende contexto, não precisa de heurísticas frágeis.</p>
+                    <p>Implementamos isso hoje. O fluxo ficou limpo: na primeira vez que o investigador captura uma página, o sistema comprime o HTML para um esqueleto estrutural (retira scripts, estilos, atributos de framework, textos longos), manda para o Sonnet com um prompt que pede para ele categorizar, extrair, narrar e ainda gerar seletores CSS para reuso. Nas capturas seguintes, usa os seletores salvos — zero chamadas ao LLM. O custo é pago uma vez.</p>
+                    <p>A extensão também ganhou uma interface de configuração. Cada domínio pode ter seu próprio nível de classificação e sua própria decisão sobre usar LLM externo ou não — salvo localmente, carregado automaticamente quando você abre o popup naquele site. Parecia o tipo de detalhe pequeno que faz a diferença no uso real.</p>
+                    <p>E aí vieram os primeiros testes com o extrato do Banco do Brasil. O LLM identificou corretamente que era um extrato de conta corrente. Gerou uma categoria descritiva. Retornou campos como período e número de conta. Mas os lançamentos — as transações, que são o coração do documento — saíram vazios ou incompletos.</p>
+                    <p>O problema provavelmente está no corte. O esqueleto HTML é limitado a 20 KB para não estourar o contexto do modelo. Uma página de extrato com três meses de movimentação pode ter centenas de linhas de tabela. O corte em 20 KB pode estar eliminando exatamente a parte que importa, deixando o LLM com o cabeçalho da tabela mas sem nenhuma linha de dados para extrair.</p>
+                    <p>Não resolvemos isso ainda. Encerramos o dia sabendo o que funciona (a arquitetura, o cache, o schema reutilizável, a extensão) e sabendo onde está o buraco (a compressão que pode estar descartando os dados ao tentar economizar tokens). A próxima sessão vai começar por aí: olhar para o esqueleto real que está sendo enviado e verificar se os lançamentos chegam até o LLM.</p>
+                    <p><em>Às vezes o sistema não erra porque é burro. Erra porque a janela que você abriu para ele não mostra o que ele precisava ver.</em></p>
+                </div>
+            </article>
+
             <!-- Entrada 11 -->
             <article class="entry-card">
                 <div class="entry-header">

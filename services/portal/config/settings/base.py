@@ -108,6 +108,10 @@ EMBEDDING_DIM = int(os.environ.get("EMBEDDING_DIM", "384"))
 FRAGMENT_CHUNK_SIZE = int(os.environ.get("FRAGMENT_CHUNK_SIZE", "1000"))
 FRAGMENT_OVERLAP = int(os.environ.get("FRAGMENT_OVERLAP", "100"))
 
+ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
+LLM_CLASSIFIER_MODEL = os.environ.get("LLM_CLASSIFIER_MODEL", "claude-haiku-4-5-20251001")
+LLM_EXTRACTOR_MODEL = os.environ.get("LLM_EXTRACTOR_MODEL", "claude-sonnet-4-6")
+
 CELERY_BEAT_SCHEDULE = {
     "scan-unprocessed-documents": {
         "task": "apps.artifacts.tasks.scan_unprocessed_documents",

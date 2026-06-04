@@ -28,35 +28,225 @@ Aprende com capturas anteriores: padrões de URL já classificados são armazena
 ```
 extract_text_from_mhtml(artifact_id)
     │
-    ├─ busca MHTML no MinIO                         [existente]
-    ├─ extrai HTML do MHTML                         [existente]
+    ├─ busca MHTML no MinIO                                 [existente]
+    ├─ extrai HTML do MHTML                                 [existente]
     │
-    ├─ detect_page_type(html, url, tenant)          [NOVO]
+    ├─ detect_page_type(html, url, tenant, allow_external_llm)
     │       │
-    │       ├─ 1. lookup URLPatternCache
-    │       │       └─ hit (confiança ≥ 0.9) → usa tipo cacheado, pula análise
+    │       ├─ 1. compute_structure_fingerprint(html)       [Estratégia SPA]
+    │       │       └─ hash(título + headings + table headers) → 12-char hex
     │       │
-    │       └─ 2. miss → analyze_html_structure(html)
-    │               └─ classifica → atualiza / cria URLPatternCache
+    │       ├─ 2. lookup URLPatternCache
+    │       │       └─ chave: (tenant, domain, path_pattern, structure_fingerprint)
+    │       │       ├─ hit (confiança ≥ 0.9) → usa tipo cacheado, pula análise
+    │       │       └─ hit (confiança < 0.9 ou needs_review) → segue para análise
+    │       │
+    │       ├─ 3. Análise estrutural determinística
+    │       │       └─ classify(metrics) → (page_type, confidence)
+    │       │
+    │       └─ 4. [SE allow_external_llm E confidence < 0.75 OU desconhecido]
+    │               ├─ compress_html_skeleton(html)         [Estratégia A]
+    │               └─ llm_classify(skeleton, url)          [Estratégia B — Haiku]
+    │                       └─ sobrepõe page_type + confidence se melhor
     │
-    ├─ route_to_extractor(page_type, html)          [NOVO]
-    │       ├─ artigo              → _extract_article()
-    │       ├─ tabular_financeiro  → _extract_financial_table()
-    │       ├─ tabular_generico    → _extract_generic_table()
-    │       ├─ processo_judicial   → _extract_judicial_process()
-    │       ├─ perfil_pessoa_juridica → _extract_company_profile()
-    │       ├─ documento_juridico  → _extract_legal_document()
-    │       ├─ misto               → _extract_mixed()
-    │       └─ desconhecido        → _extract_fallback()
+    ├─ [SE allow_external_llm E cache sem extractor_config] → 1ª captura com LLM
+    │       ├─ compress_html_skeleton(html)                 [Estratégia A]
+    │       ├─ llm_extract_and_schema(skeleton, url, hint)  [Estratégia C — Sonnet]
+    │       │       └─ retorna: categoria + page_type + text + structured_data + schema
+    │       ├─ usa text + structured_data como resultado da extração (imediato)
+    │       └─ grava schema em URLPatternCache.extractor_config
     │
-    ├─ cria Artifact(tipo=TEXT) com structured_data [existente + campos novos]
-    ├─ cria ArtifactLineage(transformation="text_extraction")
-    └─ dispara fragment_text.delay(child.id)        [existente]
+    ├─ [ELSE] route_to_extractor(page_type, cache_obj)
+    │       ├─ cache_obj.extractor_config presente?
+    │       │       └─ SIM → schema_driven_extract(html, config)   [capturas 2+]
+    │       └─ NÃO → extrator determinístico por tipo (fallback)
+    │               ├─ tabular_financeiro  → extract_financial_table
+    │               ├─ tabular_generico    → extract_generic_table
+    │               ├─ processo_judicial   → extract_judicial_process
+    │               ├─ perfil_pessoa_juridica → extract_company_profile
+    │               ├─ documento_juridico  → extract_legal_document
+    │               ├─ misto               → extract_mixed
+    │               └─ artigo / desconhecido → extract_fallback (trafilatura)
+    │
+    ├─ cria DocumentText com page_type, structured_data, extractor_version
+    └─ dispara fragment_text.delay(doc_text.id)
 ```
 
 ---
 
-## Algoritmo de Detecção Estrutural
+## Estratégia A — Compressão de Esqueleto HTML
+
+Antes de qualquer chamada ao LLM, o HTML é comprimido para um **esqueleto estrutural**. Isso reduz tipicamente 60–90% do tamanho sem perder as informações relevantes para classificação e definição de seletores.
+
+### O que é removido
+
+| Elemento | Motivo |
+|----------|--------|
+| `<script>`, `<style>`, `<link>`, `<meta>` | Não contribuem para estrutura semântica |
+| `<svg>`, `<canvas>`, `<noscript>`, `<iframe>` | Ruído sem valor para classificação |
+| Comentários HTML | Sem valor semântico |
+| Atributos de estilo (`style=`, `onclick=`, `data-v-*`) | Ruído de framework |
+
+### O que é preservado
+
+- Hierarquia de tags intacta
+- Atributos estruturais: `class`, `id`, `name`, `data-campo`, `aria-label`, `href` (apenas domínio)
+- Texto dos nós: truncado a **80 caracteres** — o suficiente para reconhecer labels, headers e valores de exemplo
+
+### Resultado esperado
+
+```
+Entrada : 450 KB de HTML (página de extrato bancário)
+Saída   : ~12 KB de esqueleto estrutural
+```
+
+O esqueleto é o único input enviado ao LLM. O HTML original nunca é transmitido a serviços externos.
+
+---
+
+## Estratégia B — Classificação por LLM
+
+Ativada quando a análise estrutural determinística produz `confidence < 0.75` ou `page_type == "desconhecido"`.
+
+### Restrições de política
+
+A chamada ao LLM externo **só ocorre** se:
+- `policy_engine.check()` retornar `allow_external_llm: true` para o tenant e o nível de classificação do artefato.
+- Páginas classificadas como `restrito` ou `confidencial` nunca acionam LLM externo — usam `desconhecido` + fallback.
+
+### Input
+
+```
+URL completa (sem query string)
+Domínio normalizado
+Esqueleto HTML comprimido (Estratégia A)
+Lista dos tipos de página suportados + descrições
+```
+
+### Output esperado do LLM
+
+```json
+{
+  "page_type": "perfil_pessoa_juridica",
+  "confidence": 0.88,
+  "reasoning": "Página contém CNPJ no título, tabela de duas colunas com label/valor típica de ficha cadastral e seção de sócios.",
+  "hints": {
+    "primary_selector": "table.dados-cadastrais",
+    "key_labels": ["CNPJ", "Razão Social", "Situação"]
+  }
+}
+```
+
+O campo `hints` é opcional — o LLM o inclui quando consegue identificar seletores ou padrões estruturais relevantes para a Estratégia C.
+
+### Cache e custo
+
+- A chamada ao LLM ocorre **uma única vez por padrão de URL por tenant**.
+- Após gravar no `URLPatternCache` com `detection_source="llm_classification"`, capturas seguintes do mesmo padrão usam o cache diretamente.
+- Custo por chamada: ~1.500–4.000 tokens (esqueleto típico + prompt + resposta).
+- Modelo recomendado: modelo de menor custo da família disponível (ex: `claude-haiku-4-5`).
+
+---
+
+## Estratégia C — Extração + Schema Unificados (primeira captura)
+
+Na **primeira captura** de um padrão URL novo com `allow_external_llm=True`, o LLM faz tudo em uma única chamada: categoriza a página, extrai os dados estruturados, gera o texto para embedding e produz o schema de seletores CSS para reuso.
+
+Isso é fundamental: o extrator determinístico não roda na primeira captura quando LLM está habilitado — o LLM substitui completamente a extração, não só complementa.
+
+### Modelo usado
+
+`LLM_EXTRACTOR_MODEL` (padrão: `claude-sonnet-4-6`) — modelo de maior qualidade, justificado pelo fato de que o custo é amortizado em todas as capturas seguintes do mesmo padrão.
+
+### Input
+
+```
+URL da página
+Dica de page_type da análise estrutural (não vinculante)
+Esqueleto HTML comprimido (Estratégia A, máx. 20 KB)
+```
+
+### Output esperado
+
+```json
+{
+  "categoria": "Extrato de conta corrente do Banco do Brasil, março 2025",
+  "page_type": "tabular_financeiro",
+  "text": "Extrato Banco do Brasil — Conta 12345-6. Período 01/03/2025 a 31/03/2025. Transação em 01/03/2025: PIX recebido João Silva — crédito R$ 500,00. Saldo R$ 1.500,00. ...",
+  "structured_data": {
+    "conta": "12345-6",
+    "periodo": {"inicio": "2025-03-01", "fim": "2025-03-31"},
+    "transacoes": [
+      {"data": "2025-03-01", "descricao": "PIX recebido João Silva", "valor": 500.00, "saldo": 1500.00}
+    ]
+  },
+  "schema": {
+    "version": "1.0",
+    "generated_by": "llm",
+    "model": "claude-sonnet-4-6",
+    "categoria": "Extrato de conta corrente do Banco do Brasil, março 2025",
+    "generated_at": "2025-06-03T14:00:00Z",
+    "fields": {
+      "conta": {"selector": ".numero-conta", "transform": "text"}
+    },
+    "tables": [
+      {
+        "selector": "table.lancamentos",
+        "columns": {
+          "data":      {"index": 0, "transform": "date_br"},
+          "descricao": {"index": 1, "transform": "text"},
+          "valor":     {"index": 2, "transform": "brl_float"},
+          "saldo":     {"index": 3, "transform": "brl_float"}
+        }
+      }
+    ]
+  }
+}
+```
+
+### Transforms disponíveis
+
+| Transform | Comportamento |
+|-----------|---------------|
+| `text` | `element.get_text(strip=True)` |
+| `brl_float` | Parse de valor monetário BR → float (ex: `R$ 1.234,56` → `1234.56`) |
+| `date_br` | Normaliza `dd/mm/yyyy` → `yyyy-mm-dd` |
+| `attr:href` | Extrai atributo `href` do elemento |
+
+### Extrator genérico (`schema_driven_extract`)
+
+Interpreta o schema usando BeautifulSoup em capturas subsequentes. **Não usa `exec()` nem `eval()`** — o schema é dados, não código. Se um seletor falhar, o campo é omitido com warning; a extração continua.
+
+### Ciclo de vida
+
+```
+1ª captura (LLM habilitado, sem schema)
+    → llm_extract_and_schema() extrai dados + gera schema
+    → resultado usado imediatamente (text + structured_data)
+    → schema gravado em URLPatternCache.extractor_config
+
+2ª+ capturas (LLM habilitado ou não)
+    → cache HIT → schema_driven_extract() — zero chamadas ao LLM
+
+divergência estrutural → divergence_count incrementado
+≥ 3 divergências      → needs_review=True; extractor_config zerado; volta à 1ª captura
+
+1ª captura (LLM desabilitado ou falha do LLM)
+    → extrator determinístico como fallback
+```
+
+### Limitação conhecida (2026-06-03)
+
+O esqueleto HTML é truncado em 20 KB. Extratos bancários com muitos lançamentos têm as transações espalhadas pelo HTML — o corte pode deixar de fora a maioria dos dados da tabela, fazendo o LLM gerar um schema correto mas sem conseguir extrair os dados da captura atual (que é baseada no conteúdo visível no esqueleto).
+
+**Próximos passos para investigar:**
+- Verificar se o problema é de truncamento (aumentar limite ou usar outra estratégia de compressão que preserve linhas de tabela)
+- Verificar se o LLM está ignorando dados presentes no esqueleto (problema de prompt)
+- Considerar enviar o texto plano das tabelas em vez do esqueleto HTML para páginas com `tabular_*`
+
+---
+
+## Algoritmo de Detecção Estrutural (existente)
 
 ### Métricas coletadas do HTML (via BeautifulSoup)
 
@@ -67,7 +257,7 @@ extract_text_from_mhtml(artifact_id)
 | `table_char_count` | Caracteres dentro de células de tabela |
 | `text_char_count` | Caracteres em `<p>`, `<li>`, `<article>`, `<section>` fora de tabelas |
 | `table_ratio` | `table_char_count / (table_char_count + text_char_count)` |
-| `monetary_count` | Matches de `R\$\s*[\d.,]+` ou colunas com padrão de valor monetário |
+| `monetary_count` | Matches de `R\$\s*[\d.,]+` |
 | `date_count` | Matches de `\d{2}/\d{2}/\d{4}` ou variantes ISO |
 | `process_number_count` | Matches do padrão CNJ: `\d{7}-\d{2}\.\d{4}\.\d\.\d{2}\.\d{4}` |
 | `cnpj_count` | Matches de `\d{2}\.\d{3}\.\d{3}/\d{4}-\d{2}` |
@@ -103,22 +293,15 @@ extract_text_from_mhtml(artifact_id)
        → desconhecido (confiança: 0.50)
 ```
 
-Cada regra produz um `confidence` score. O score pode ser refinado conforme o cache acumula confirmações.
-
 ---
 
 ## Cache de Padrões de URL
 
 ### Normalização de URL
 
-Antes de consultar ou gravar o cache, a URL é normalizada para extrair um padrão reutilizável:
-
-1. Strip de protocolo (`https://`), query string (`?...`) e fragment (`#...`)
+1. Strip de protocolo, query string e fragment
 2. Segmentos do path que parecem IDs são substituídos por `*`:
-   - UUIDs: `550e8400-e29b-41d4-a716-446655440000` → `*`
-   - Números puros: `/conta/12345678` → `/conta/*`
-   - Datas: `/extrato/2024-03-15` → `/extrato/*`
-   - Hashes: `/doc/abc1234def` → `/doc/*`
+   - UUIDs, números puros (≥3 dígitos), datas ISO
 3. Resultado: `domínio/path/normalizado/*`
 
 **Exemplos:**
@@ -131,202 +314,153 @@ Antes de consultar ou gravar o cache, a URL é normalizada para extrair um padr�
 
 ### Comportamento do cache
 
-- **Hit (confiança ≥ 0.9):** usa tipo armazenado, incrementa `hit_count`, pula análise estrutural.
-- **Hit (confiança < 0.9):** usa tipo armazenado mas ainda roda análise estrutural para confirmar.
-- **Miss:** roda análise estrutural completa, cria registro de cache com confiança da detecção.
-- **Divergência:** se a análise detecta tipo diferente do cache:
-  - Incrementa `divergence_count` no cache.
-  - Se `divergence_count ≥ 3`: marca o padrão como `needs_review`, usa tipo recém-detectado. Isso sinaliza que a página provavelmente mudou de estrutura (nova versão do banco, por exemplo).
-  - Caso contrário: mantém tipo cacheado, registra divergência.
+| Situação | Ação |
+|----------|------|
+| Hit, confidence ≥ 0.9, `needs_review=False` | Retorna tipo cacheado; incrementa `hit_count`; pula análise |
+| Hit, confidence < 0.9 ou `needs_review=True` | Roda análise estrutural para confirmar; compara |
+| Miss | Análise estrutural → se confidence < 0.75, aciona B+C → cria registro |
+| Divergência (tipo diferente do cache) | Incrementa `divergence_count` |
+| `divergence_count ≥ 3` | `needs_review=True`; schema invalidado (`extractor_config={}`) |
 
 O cache é **isolado por tenant**: organização A nunca acessa o cache da organização B.
 
 ---
 
-## Extratores por Tipo
-
-### `artigo`
-- **Lib:** trafilatura (comportamento atual, sem mudanças)
-- **Output text:** texto narrativo limpo
-- **structured_data:** `null`
-
-### `tabular_financeiro`
-- **Lib:** BeautifulSoup + detecção de colunas por heurística de header
-- **Lógica:**
-  1. Encontra todas as `<table>` do documento
-  2. Para cada tabela, tenta mapear colunas para: data, descrição, valor, saldo
-  3. Converte cada linha em registro `{data, descricao, valor, saldo}`
-  4. Infere sinal de valor (débito/crédito) por cor, símbolo ou coluna separada
-- **Output text:** texto narrativo gerado a partir das transações, apropriado para embedding:
-  `"Transação em 15/03/2024: Pix enviado para João Silva — débito R$ 150,00. Saldo R$ 2.340,50."`
-- **structured_data:**
-  ```json
-  {
-    "tipo": "tabular_financeiro",
-    "periodo": {"inicio": "2024-03-01", "fim": "2024-03-31"},
-    "transacoes": [
-      {"data": "2024-03-15", "descricao": "Pix enviado para João Silva", "valor": -150.00, "saldo": 2340.50}
-    ]
-  }
-  ```
-
-### `tabular_generico`
-- **Lib:** BeautifulSoup
-- **Lógica:** extrai todas as tabelas com cabeçalhos preservados como arrays de objetos
-- **Output text:** serialização legível de cada tabela
-- **structured_data:**
-  ```json
-  {
-    "tipo": "tabular_generico",
-    "tabelas": [
-      {"cabecalho": ["Col A", "Col B"], "linhas": [["val1", "val2"]]}
-    ]
-  }
-  ```
-
-### `processo_judicial`
-- **Lib:** BeautifulSoup + regex para padrão CNJ
-- **Lógica:**
-  1. Extrai número do processo (padrão CNJ obrigatório)
-  2. Extrai partes (polo ativo, polo passivo) por labels conhecidos
-  3. Extrai classe, assunto, juízo, distribuição
-  4. Extrai movimentações (lista de `{data, descricao}`)
-  5. Extrai documentos anexos se listados
-- **Output text:** narrativa do processo para embedding
-- **structured_data:**
-  ```json
-  {
-    "tipo": "processo_judicial",
-    "numero_cnj": "0001234-56.2024.8.26.0001",
-    "classe": "Ação de Cobrança",
-    "assunto": "Contratos Bancários",
-    "partes": {
-      "polo_ativo": ["Banco XYZ S.A."],
-      "polo_passivo": ["José da Silva"]
-    },
-    "movimentacoes": [
-      {"data": "2024-03-10", "descricao": "Petição inicial protocolada"}
-    ]
-  }
-  ```
-
-### `perfil_pessoa_juridica`
-- **Lib:** BeautifulSoup
-- **Lógica:** varre pares label/valor em `<table>` ou `<dl>` típicos de fichas cadastrais
-- **Output text:** texto descritivo da empresa
-- **structured_data:**
-  ```json
-  {
-    "tipo": "perfil_pessoa_juridica",
-    "cnpj": "12.345.678/0001-90",
-    "razao_social": "Empresa Exemplo S.A.",
-    "situacao": "Ativa",
-    "data_abertura": "2001-05-14",
-    "atividade_principal": "...",
-    "socios": []
-  }
-  ```
-
-### `documento_juridico`
-- **Lib:** trafilatura com `favor_recall=True` + detecção de seções por numeração
-- **Output text:** texto integral com seções identificadas
-- **structured_data:** `{"tipo": "documento_juridico", "secoes": ["1. ...", "2. ..."]}`
-
-### `misto`
-- **Lib:** trafilatura (prosa) + BeautifulSoup (tabelas), resultados combinados
-- **Output text:** prosa + serialização das tabelas
-- **structured_data:** `{"tipo": "misto", "tabelas": [...]}`
-
-### `desconhecido`
-- **Lib:** trafilatura com `favor_recall=True` (comportamento atual de fallback)
-- **Output text:** melhor extração possível
-- **structured_data:** `null`
-
----
-
 ## Modelo de Dados
 
-### Novo modelo: `URLPatternCache`
+### `URLPatternCache`
 
 ```python
 class URLPatternCache(models.Model):
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    tenant = models.ForeignKey("accounts.Organization", on_delete=models.CASCADE,
-                               related_name="url_pattern_caches")
-    domain = models.CharField(max_length=255, db_index=True)
-    path_pattern = models.CharField(max_length=1024)
-    page_type = models.CharField(max_length=50)
-    extractor_config = models.JSONField(default=dict)
-    confidence = models.FloatField()
-    hit_count = models.PositiveIntegerField(default=1)
-    divergence_count = models.PositiveIntegerField(default=0)
-    needs_review = models.BooleanField(default=False)
-    last_seen_at = models.DateTimeField(auto_now=True)
-    created_at = models.DateTimeField(auto_now_add=True)
+    id                   = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    tenant               = models.ForeignKey("accounts.Organization", on_delete=models.CASCADE,
+                                             related_name="url_pattern_caches")
+    domain               = models.CharField(max_length=255, db_index=True)
+    path_pattern         = models.CharField(max_length=1024)
+    structure_fingerprint = models.CharField(max_length=32, default="")
+    # hash(título + headings + table headers com números removidos)
+    # distingue telas de SPAs que compartilham a mesma URL (ex: internet banking)
+    page_type            = models.CharField(max_length=50)
+    confidence           = models.FloatField()
+    detection_source     = models.CharField(max_length=30, default="structural_analysis")
+    # "structural_analysis" | "llm_classification"
+    extractor_config     = models.JSONField(default=dict)
+    # vazio → usa extrator determinístico ou LLM direto; preenchido → schema_driven_extract
+    # inclui: version, fields, tables, categoria, generated_by, model, generated_at
+    hit_count            = models.PositiveIntegerField(default=1)
+    divergence_count     = models.PositiveIntegerField(default=0)
+    needs_review         = models.BooleanField(default=False)
+    last_seen_at         = models.DateTimeField(auto_now=True)
+    created_at           = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        unique_together = [("tenant", "domain", "path_pattern")]
+        unique_together = [("tenant", "domain", "path_pattern", "structure_fingerprint")]
         indexes = [Index(fields=["tenant", "domain"])]
 ```
 
-### Campos novos no `content` do Artifact TEXT filho
+### Campos do `content` do Artifact TEXT filho
 
 ```json
 {
   "text": "...",
   "page_type": "tabular_financeiro",
   "detection_confidence": 0.90,
-  "detection_source": "cache | structural_analysis",
+  "detection_source": "cache | structural_analysis | llm_classification",
   "url_pattern_cache_id": "uuid-do-cache",
-  "extractor_version": "financial_table:1.0",
+  "extractor_version": "schema_driven:1.0 | financial_table:1.0 | ...",
   "structured_data": { ... },
   "char_count": 1234,
   "word_count": 234
 }
 ```
 
-### Campo novo no `processor` do ArtifactLineage
+---
 
-```
-"extractor:{page_type}:{versão}"
-# Exemplo: "extractor:tabular_financeiro:1.0"
-# Antes: "trafilatura:0.9.46"
-```
+## Extratores por Tipo (determinísticos)
+
+Usados quando `extractor_config` está vazio — ou seja, nas primeiras capturas de padrões novos e em tipos com alta confiança estrutural.
+
+### `artigo`
+- **Lib:** trafilatura — comportamento atual preservado
+- **structured_data:** `null`
+
+### `tabular_financeiro`
+- **Lib:** BeautifulSoup + heurística de mapeamento de colunas por header
+- **Output text:** narrativa de transações para embedding
+- **structured_data:**
+  ```json
+  {"tipo": "tabular_financeiro", "transacoes": [{"data": "...", "descricao": "...", "valor": -150.0, "saldo": 2340.5}]}
+  ```
+
+### `tabular_generico`
+- **Lib:** BeautifulSoup
+- **structured_data:** `{"tipo": "tabular_generico", "tabelas": [{"cabecalho": [...], "linhas": [...]}]}`
+
+### `processo_judicial`
+- **Lib:** BeautifulSoup + regex CNJ
+- **structured_data:**
+  ```json
+  {"tipo": "processo_judicial", "numero_cnj": "...", "classe": "...", "assunto": "...", "partes": {...}, "movimentacoes": [...]}
+  ```
+
+### `perfil_pessoa_juridica`
+- **Lib:** BeautifulSoup — varre `<dl>` e tabelas 2-colunas
+- **structured_data:** `{"tipo": "perfil_pessoa_juridica", "cnpj": "...", "campos": {...}}`
+
+### `documento_juridico`
+- **Lib:** trafilatura com `favor_recall=True`
+- **structured_data:** `{"tipo": "documento_juridico"}`
+
+### `misto`
+- **Lib:** trafilatura (prosa) + BeautifulSoup (tabelas)
+- **structured_data:** `{"tipo": "misto", "tabelas": [...]}`
+
+### `desconhecido`
+- **Lib:** trafilatura com `favor_recall=True`
+- **structured_data:** `null`
 
 ---
 
 ## Observabilidade
 
-Campos que devem ser logados a cada extração:
+Campos logados a cada extração:
 
 - `page_type` detectado
-- `detection_source` (cache ou análise)
+- `detection_source` (`cache`, `structural_analysis`, `llm_classification`)
 - `detection_confidence`
 - `extractor_version`
+- `skeleton_size_kb` (quando Estratégia A é ativada)
+- `llm_model` (quando Estratégia B é ativada)
+- `schema_driven` (bool — se Estratégia C foi usada)
 - `divergence` (se houve divergência com cache)
-- `structured_data_keys` (quais campos foram extraídos)
+- `structured_data_keys`
 - Tempo de extração em ms
 
 ---
 
 ## Evolução Futura
 
-- **Confirmação humana:** interface no admin Django para revisar padrões marcados como `needs_review` e corrigi-los manualmente.
-- **Extratores por tribunal específico:** TJSP, TJRJ, STJ, TRF possuem layouts diferentes — extratores dedicados por `domain` quando `page_type == processo_judicial`.
-- **Extrator bancário por banco:** cada banco tem estrutura de tabela diferente — `extractor_config` no cache pode armazenar os seletores CSS corretos por `domain`.
-- **Detecção assistida por LLM:** para páginas `desconhecido` ou com baixa confiança, enviar amostra do HTML para LLM (somente se `allow_external_llm` e `classification_level` permitirem) para sugerir tipo e seletores.
+- **Confirmação humana:** interface no admin Django para revisar padrões marcados como `needs_review`, corrigir `page_type` e editar `extractor_config` manualmente.
+- **Extratores por tribunal específico:** TJSP, TJRJ, STJ, TRF têm layouts diferentes — extratores dedicados por `domain` quando `page_type == processo_judicial`, complementando o schema da Estratégia C.
+- **Extrator bancário por banco:** cada banco tem estrutura de tabela diferente — `extractor_config` no cache armazena seletores CSS por `domain`, gerados pela Estratégia C.
 
 ---
 
 ## Critérios de Aceitação
 
-- [ ] Extrato bancário (BB, Itaú, Nubank) detectado como `tabular_financeiro` na primeira captura sem configuração manual.
+- [ ] Extrato bancário detectado como `tabular_financeiro` na primeira captura sem configuração manual.
 - [ ] `structured_data` com lista de transações gerado corretamente para página financeira.
-- [ ] Processo judicial do TJSP detectado como `processo_judicial` com `numero_cnj` extraído corretamente.
+- [ ] Processo judicial do TJSP detectado como `processo_judicial` com `numero_cnj` extraído.
 - [ ] Artigo de notícia detectado como `artigo`, comportamento atual preservado sem regressão.
 - [ ] Segunda captura do mesmo padrão de URL usa `detection_source: cache` e não roda análise estrutural.
-- [ ] Mudança de layout da página (divergência) registrada em `divergence_count`; após 3 divergências, `needs_review = true`.
+- [ ] Página com `confidence < 0.75` aciona compressão de esqueleto (A) e classificação por LLM (B).
+- [ ] Página classificada como `restrito` ou `confidencial` **não** aciona LLM externo.
+- [ ] Esqueleto HTML enviado ao LLM tem no máximo 20 KB (independente do tamanho original).
+- [ ] `extractor_config` é gerado e gravado na primeira extração pós-classificação por LLM (C).
+- [ ] Segunda captura usa `schema_driven_extract` sem nova chamada ao LLM.
+- [ ] Seletor inválido no schema produz warning sem interromper extração dos demais campos.
+- [ ] Mudança de layout (divergência) registrada em `divergence_count`; após 3 divergências, `needs_review=True` e `extractor_config` é zerado.
 - [ ] Cache isolado por tenant: organização A não acessa registros da organização B.
 - [ ] Página não reconhecida usa `desconhecido` sem lançar exceção.
-- [ ] `ArtifactLineage.processor` identifica o extrator e sua versão (ex: `extractor:tabular_financeiro:1.0`).
+- [ ] `ArtifactLineage.processor` identifica o extrator e sua versão.
 - [ ] Todos os campos de observabilidade logados a cada extração.

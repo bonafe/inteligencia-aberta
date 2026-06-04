@@ -392,7 +392,13 @@ _ROUTER = {
 }
 
 
-def route(page_type: str, html: str, url: str, title: str) -> dict:
+def route(page_type: str, html: str, url: str, title: str, cache_obj=None) -> dict:
+    # Estratégia C: use schema-driven extractor when extractor_config is available
+    if cache_obj is not None and cache_obj.extractor_config:
+        from .schema_extractor import schema_driven_extract
+        logger.info("route — page_type=%s → schema_driven_extract", page_type)
+        return schema_driven_extract(html, url, title, cache_obj.extractor_config)
+
     extractor = _ROUTER.get(page_type, extract_fallback)
     logger.info("route — page_type=%s → %s", page_type, extractor.__name__)
     return extractor(html, url, title)

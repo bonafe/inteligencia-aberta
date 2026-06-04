@@ -178,9 +178,11 @@ class URLPatternCache(models.Model):
     )
     domain = models.CharField(max_length=255)
     path_pattern = models.CharField(max_length=1024)
+    structure_fingerprint = models.CharField(max_length=32, default="")
     page_type = models.CharField(max_length=50)
-    extractor_config = models.JSONField(default=dict)
     confidence = models.FloatField()
+    detection_source = models.CharField(max_length=30, default="structural_analysis")
+    extractor_config = models.JSONField(default=dict)
     hit_count = models.PositiveIntegerField(default=1)
     divergence_count = models.PositiveIntegerField(default=0)
     needs_review = models.BooleanField(default=False)
@@ -189,7 +191,7 @@ class URLPatternCache(models.Model):
 
     class Meta:
         db_table = "artifacts_url_pattern_cache"
-        unique_together = [("tenant", "domain", "path_pattern")]
+        unique_together = [("tenant", "domain", "path_pattern", "structure_fingerprint")]
         indexes = [Index(fields=["tenant", "domain"])]
 
     def __str__(self):
