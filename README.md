@@ -263,6 +263,67 @@ docker compose exec portal python manage.py createsuperuser
 
 ---
 
+## Testando o fluxo completo: extensão + visualizador OSINT
+
+A forma mais rápida de ver o sistema funcionando de ponta a ponta é usar a extensão do Chrome para capturar uma página real e depois inspecionar o resultado no visualizador Django.
+
+### 1. Instale a extensão no Chrome
+
+> A extensão está em `clients/browser-extension/` e é carregada em modo desenvolvedor — nenhum build necessário.
+
+1. Abra o Chrome e acesse `chrome://extensions`.
+2. Ative o interruptor **Modo do desenvolvedor** (canto superior direito).
+3. Clique em **Carregar sem compactação** (*Load unpacked*).
+4. Selecione a pasta `clients/browser-extension/` dentro do repositório.
+5. O ícone 🔍 **Inteligência Aberta** aparecerá na barra de extensões.
+
+> **Atenção:** Deixe os containers rodando (`docker compose up`) antes de capturar — a extensão envia para `localhost:8001`.
+
+### 2. Capture uma página
+
+1. Navegue até qualquer página pública (ex.: um portal de transparência, notícia ou site de empresa).
+2. Clique no ícone da extensão na barra de ferramentas.
+3. No popup, configure a captura:
+
+   | Campo | O que fazer para o teste |
+   |---|---|
+   | **Classificação** | Selecione **Público** |
+   | **Análise Inteligente (LLM)** | Deixe ativado para páginas não estruturadas |
+   | **Identificação** (opcional) | Expanda e preencha seu UUID de usuário/organização — ou deixe em branco para usar o padrão |
+
+4. Clique em **Capturar e Enviar**.
+5. Aguarde a mensagem `✅ Capturado com sucesso!`.
+
+O que acontece nos bastidores:
+```
+Extensão → POST orchestrator:8001/api/v1/capture/mhtml
+  → MinIO (MHTML bruto armazenado)
+  → POST portal:8000/artifacts/api/v1/artefatos/
+  → Celery worker: extração de texto
+  → Artifact(tipo=texto) criado + linhagem registrada
+```
+
+### 3. Veja o resultado no visualizador OSINT
+
+Acesse a galeria de capturas:
+
+**[http://localhost:8000/artifacts/gallery/](http://localhost:8000/artifacts/gallery/)**
+
+Você verá o artefato recém-capturado com:
+- URL de origem e domínio
+- Classificação de segurança aplicada
+- Texto extraído do MHTML
+- Linhagem (artefato pai → filho gerado pela extração)
+- Metadados de auditoria (quem capturou, quando, qual processador)
+
+Para inspecionar detalhes completos no admin Django:
+
+**[http://localhost:8000/admin/artifacts/](http://localhost:8000/admin/artifacts/)**
+
+> Se ainda não criou um superusuário: `docker compose exec portal python manage.py createsuperuser`
+
+---
+
 ## Documentação
 
 A especificação arquitetural completa do projeto está disponível em [`docs/especificacao.md`](docs/especificacao.md).
