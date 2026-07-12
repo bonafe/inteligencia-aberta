@@ -260,7 +260,7 @@ Provedor de LLM registrado para a organização. Define onde a inferência acont
 | `provider_type` | enum | `external` \| `local` |
 | `endpoint_url` | string (nullable) | Obrigatório para `local`; omitido para externos padronizados |
 | `api_key_encrypted` | string (nullable) | Obrigatório para `external`; cifrado em repouso |
-| `model_name` | string(255) | Ex: `claude-sonnet-4-6`, `llama3.2:latest` |
+| `model_name` | string(255) | Ex: `claude-sonnet-5`, `llama3.2:latest` |
 | `allowed_classifications` | JSONField (lista) | Níveis que podem ser enviados a este provedor |
 | `is_active` | boolean | Provedor inativo não é oferecido ao Orquestrador |
 | `created_at` | datetime | |
@@ -275,7 +275,7 @@ Provedor de LLM registrado para a organização. Define onde a inferência acont
 
 | name | provider_type | model_name | allowed_classifications |
 |---|---|---|---|
-| Claude Sonnet | external | claude-sonnet-4-6 | `["publico", "interno"]` |
+| Claude Sonnet | external | claude-sonnet-5 | `["publico", "interno"]` |
 | Ollama RFB | local | llama3.2:latest | `["publico", "interno", "restrito", "confidencial"]` |
 
 ---

@@ -185,6 +185,9 @@ class URLPatternCache(models.Model):
     extractor_config = models.JSONField(default=dict)
     hit_count = models.PositiveIntegerField(default=1)
     divergence_count = models.PositiveIntegerField(default=0)
+    # Capturas consecutivas em que o schema de seletores não casou com nada —
+    # sinal mais direto de que a estrutura da página mudou sob o schema.
+    schema_failure_count = models.PositiveIntegerField(default=0)
     needs_review = models.BooleanField(default=False)
     last_seen_at = models.DateTimeField(auto_now=True)
     created_at = models.DateTimeField(auto_now_add=True)

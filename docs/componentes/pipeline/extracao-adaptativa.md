@@ -6,6 +6,27 @@ Detectar automaticamente o tipo de conteúdo de uma página capturada como MHTML
 
 Aprende com capturas anteriores: padrões de URL já classificados são armazenados por tenant e reutilizados nas capturas seguintes, evitando reprocessamento e acelerando o pipeline.
 
+### Princípio: texto de busca sempre via trafilatura (2026-07-12)
+
+O campo `text` do `DocumentText` — usado para fragmentação e busca semântica — é
+**sempre** produzido por `extract_narrative_text()` (trafilatura), rodando uma
+única vez sobre o HTML bruto, **independente** de `page_type`, de
+`allow_external_llm` ou de qual caminho de extração estruturada rodou.
+
+Toda a classificação adaptativa (análise estrutural, classificação por LLM,
+extração+schema por LLM, extratores determinísticos por tipo,
+`schema_driven_extract`) existe **apenas** para produzir `structured_data`.
+Nenhum desses caminhos gera mais o texto usado para embedding.
+
+Motivação: extratores heurísticos por tipo de página e respostas de LLM são
+frágeis o suficiente para falhar silenciosamente em produzir texto completo
+(ex.: um artigo classificado corretamente como `artigo`, mas cujo LLM de
+primeira captura devolveu um resumo truncado ou incompleto). trafilatura é uma
+biblioteca madura, testada especificamente para extração de prosa a partir de
+HTML — usá-la como fonte única do texto de busca dá resiliência ao pipeline:
+mesmo que a extração estruturada falhe completamente, o documento continua
+pesquisável.
+
 ---
 
 ## Tipos de Página Suportados
@@ -31,6 +52,10 @@ extract_text_from_mhtml(artifact_id)
     ├─ busca MHTML no MinIO                                 [existente]
     ├─ extrai HTML do MHTML                                 [existente]
     │
+    ├─ extract_narrative_text(html)                          [SEMPRE — trafilatura]
+    │       └─ campo "text" do DocumentText — independente de page_type/LLM
+    │       └─ sem texto → ignora artefato (nada abaixo roda)
+    │
     ├─ detect_page_type(html, url, tenant, allow_external_llm)
     │       │
     │       ├─ 1. compute_structure_fingerprint(html)       [Estratégia SPA]
@@ -52,11 +77,11 @@ extract_text_from_mhtml(artifact_id)
     ├─ [SE allow_external_llm E cache sem extractor_config] → 1ª captura com LLM
     │       ├─ compress_html_skeleton(html)                 [Estratégia A]
     │       ├─ llm_extract_and_schema(skeleton, url, hint)  [Estratégia C — Sonnet]
-    │       │       └─ retorna: categoria + page_type + text + structured_data + schema
-    │       ├─ usa text + structured_data como resultado da extração (imediato)
+    │       │       └─ retorna: categoria + page_type + structured_data + schema (sem texto)
+    │       ├─ usa structured_data como resultado da extração (imediato)
     │       └─ grava schema em URLPatternCache.extractor_config
     │
-    ├─ [ELSE] route_to_extractor(page_type, cache_obj)
+    ├─ [ELSE ou LLM não produziu structured_data] route_to_extractor(page_type, cache_obj)
     │       ├─ cache_obj.extractor_config presente?
     │       │       └─ SIM → schema_driven_extract(html, config)   [capturas 2+]
     │       └─ NÃO → extrator determinístico por tipo (fallback)
@@ -66,9 +91,11 @@ extract_text_from_mhtml(artifact_id)
     │               ├─ perfil_pessoa_juridica → extract_company_profile
     │               ├─ documento_juridico  → extract_legal_document
     │               ├─ misto               → extract_mixed
-    │               └─ artigo / desconhecido → extract_fallback (trafilatura)
+    │               └─ artigo / desconhecido → extract_fallback (sem structured_data)
+    │       (todos os caminhos acima só alimentam structured_data + extractor_version —
+    │        o texto já foi definido no passo extract_narrative_text, no topo)
     │
-    ├─ cria DocumentText com page_type, structured_data, extractor_version
+    ├─ cria DocumentText com text (trafilatura), page_type, structured_data, extractor_version
     └─ dispara fragment_text.delay(doc_text.id)
 ```
 
@@ -150,13 +177,13 @@ O campo `hints` é opcional — o LLM o inclui quando consegue identificar selet
 
 ## Estratégia C — Extração + Schema Unificados (primeira captura)
 
-Na **primeira captura** de um padrão URL novo com `allow_external_llm=True`, o LLM faz tudo em uma única chamada: categoriza a página, extrai os dados estruturados, gera o texto para embedding e produz o schema de seletores CSS para reuso.
+Na **primeira captura** de um padrão URL novo com `allow_external_llm=True`, o LLM faz tudo em uma única chamada: categoriza a página, extrai os dados estruturados e produz o schema de seletores CSS para reuso.
 
-Isso é fundamental: o extrator determinístico não roda na primeira captura quando LLM está habilitado — o LLM substitui completamente a extração, não só complementa.
+Isso é fundamental: o extrator determinístico não roda na primeira captura quando LLM está habilitado e retorna `structured_data` — o LLM substitui completamente a extração estruturada, não só complementa. **O LLM não gera texto de busca** — esse campo é sempre produzido separadamente por `extract_narrative_text()` (trafilatura), como descrito em "Princípio: texto de busca sempre via trafilatura" no topo deste documento. Isso limita o dano de uma resposta de LLM malformada ou incompleta: mesmo que `structured_data` saia vazio ou o schema seja inválido, o texto pesquisável do documento nunca depende do LLM.
 
 ### Modelo usado
 
-`LLM_EXTRACTOR_MODEL` (padrão: `claude-sonnet-4-6`) — modelo de maior qualidade, justificado pelo fato de que o custo é amortizado em todas as capturas seguintes do mesmo padrão.
+`LLM_EXTRACTOR_MODEL` (padrão: `claude-sonnet-5`) — modelo de maior qualidade, justificado pelo fato de que o custo é amortizado em todas as capturas seguintes do mesmo padrão.
 
 ### Input
 
@@ -172,7 +199,6 @@ Esqueleto HTML comprimido (Estratégia A, máx. 20 KB)
 {
   "categoria": "Extrato de conta corrente do Banco do Brasil, março 2025",
   "page_type": "tabular_financeiro",
-  "text": "Extrato Banco do Brasil — Conta 12345-6. Período 01/03/2025 a 31/03/2025. Transação em 01/03/2025: PIX recebido João Silva — crédito R$ 500,00. Saldo R$ 1.500,00. ...",
   "structured_data": {
     "conta": "12345-6",
     "periodo": {"inicio": "2025-03-01", "fim": "2025-03-31"},
@@ -183,7 +209,7 @@ Esqueleto HTML comprimido (Estratégia A, máx. 20 KB)
   "schema": {
     "version": "1.0",
     "generated_by": "llm",
-    "model": "claude-sonnet-4-6",
+    "model": "claude-sonnet-5",
     "categoria": "Extrato de conta corrente do Banco do Brasil, março 2025",
     "generated_at": "2025-06-03T14:00:00Z",
     "fields": {
@@ -221,28 +247,46 @@ Interpreta o schema usando BeautifulSoup em capturas subsequentes. **Não usa `e
 
 ```
 1ª captura (LLM habilitado, sem schema)
-    → llm_extract_and_schema() extrai dados + gera schema
-    → resultado usado imediatamente (text + structured_data)
-    → schema gravado em URLPatternCache.extractor_config
+    → llm_extract_and_schema() extrai structured_data + gera schema (sem texto)
+    → structured_data usado imediatamente; texto já veio de extract_narrative_text
+    → schema VALIDADO contra o próprio HTML da captura
+        → válido   → gravado em URLPatternCache.extractor_config
+                     (schema_failure_count=0, needs_review=False)
+        → inválido → NÃO gravado; próxima captura tenta regenerar
 
 2ª+ capturas (LLM habilitado ou não)
     → cache HIT → schema_driven_extract() — zero chamadas ao LLM
+    → sucesso (extractor_version schema_driven:*) → schema_failure_count zerado
+    → falha (caiu no fallback) → schema_failure_count incrementado
 
-divergência estrutural → divergence_count incrementado
-≥ 3 divergências      → needs_review=True; extractor_config zerado; volta à 1ª captura
+≥ 2 falhas consecutivas do schema
+    → extractor_config zerado; needs_review=True
+    → próxima captura com LLM regenera o schema (custo pago uma vez)
+    → schema regenerado e validado limpa needs_review (ciclo autônomo)
+
+divergência estrutural (page_type) → divergence_count incrementado
+≥ 3 divergências → needs_review=True; extractor_config zerado; volta à 1ª captura
 
 1ª captura (LLM desabilitado ou falha do LLM)
     → extrator determinístico como fallback
 ```
 
-### Limitação conhecida (2026-06-03)
+O contador de falhas do schema (`schema_failure_count`) é o detector mais fiel de
+mudança de estrutura: o `structure_fingerprint` mede o conteúdo visível (título,
+headings, headers de tabela), mas os seletores dependem de classes e IDs — que
+mudam de forma independente (ex: rebuild do frontend com CSS hasheado). Testar se
+os seletores ainda extraem dados é testar exatamente a pergunta que importa.
 
-O esqueleto HTML é truncado em 20 KB. Extratos bancários com muitos lançamentos têm as transações espalhadas pelo HTML — o corte pode deixar de fora a maioria dos dados da tabela, fazendo o LLM gerar um schema correto mas sem conseguir extrair os dados da captura atual (que é baseada no conteúdo visível no esqueleto).
+### Limitações resolvidas (2026-07-02)
 
-**Próximos passos para investigar:**
-- Verificar se o problema é de truncamento (aumentar limite ou usar outra estratégia de compressão que preserve linhas de tabela)
-- Verificar se o LLM está ignorando dados presentes no esqueleto (problema de prompt)
-- Considerar enviar o texto plano das tabelas em vez do esqueleto HTML para páginas com `tabular_*`
+Duas limitações registradas em 2026-06-03 foram corrigidas:
+
+1. **Truncamento do esqueleto**: o corte de 20 KB era um slice cego de bytes que
+   podia cortar a tabela de lançamentos no meio de uma linha. Agora tabelas com
+   mais de 40 linhas são amostradas (20 do início + 15 do fim + marcador de
+   omissão) antes da serialização, e o corte final recua até a última tag completa.
+2. **Schema sem validação**: o schema gerado pelo LLM era gravado sem teste.
+   Agora é validado contra o próprio HTML da captura antes de ser gravado.
 
 ---
 
@@ -321,6 +365,10 @@ O esqueleto HTML é truncado em 20 KB. Extratos bancários com muitos lançament
 | Miss | Análise estrutural → se confidence < 0.75, aciona B+C → cria registro |
 | Divergência (tipo diferente do cache) | Incrementa `divergence_count` |
 | `divergence_count ≥ 3` | `needs_review=True`; schema invalidado (`extractor_config={}`) |
+| Schema não extraiu dados (caiu no fallback) | Incrementa `schema_failure_count` |
+| Schema extraiu dados | Zera `schema_failure_count` |
+| `schema_failure_count ≥ 2` | `needs_review=True`; schema invalidado (`extractor_config={}`); próxima captura com LLM regenera |
+| Schema regenerado e validado com sucesso | Zera contadores; limpa `needs_review` (ciclo autônomo) |
 
 O cache é **isolado por tenant**: organização A nunca acessa o cache da organização B.
 
@@ -349,6 +397,9 @@ class URLPatternCache(models.Model):
     # inclui: version, fields, tables, categoria, generated_by, model, generated_at
     hit_count            = models.PositiveIntegerField(default=1)
     divergence_count     = models.PositiveIntegerField(default=0)
+    schema_failure_count = models.PositiveIntegerField(default=0)
+    # capturas consecutivas em que os seletores do schema não extraíram nada;
+    # ≥ 2 → extractor_config zerado + needs_review (regenera via LLM na próxima)
     needs_review         = models.BooleanField(default=False)
     last_seen_at         = models.DateTimeField(auto_now=True)
     created_at           = models.DateTimeField(auto_now_add=True)
@@ -378,15 +429,13 @@ class URLPatternCache(models.Model):
 
 ## Extratores por Tipo (determinísticos)
 
-Usados quando `extractor_config` está vazio — ou seja, nas primeiras capturas de padrões novos e em tipos com alta confiança estrutural.
+Usados quando `extractor_config` está vazio — ou seja, nas primeiras capturas de padrões novos e em tipos com alta confiança estrutural. **Produzem apenas `structured_data`** — o campo `text` do `DocumentText` nunca vem daqui; é sempre `extract_narrative_text()` (trafilatura), calculado uma única vez antes da detecção de tipo (ver "Princípio: texto de busca sempre via trafilatura").
 
 ### `artigo`
-- **Lib:** trafilatura — comportamento atual preservado
-- **structured_data:** `null`
+- **structured_data:** `null` (não há extração estruturada específica para prosa)
 
 ### `tabular_financeiro`
 - **Lib:** BeautifulSoup + heurística de mapeamento de colunas por header
-- **Output text:** narrativa de transações para embedding
 - **structured_data:**
   ```json
   {"tipo": "tabular_financeiro", "transacoes": [{"data": "...", "descricao": "...", "valor": -150.0, "saldo": 2340.5}]}
@@ -408,15 +457,13 @@ Usados quando `extractor_config` está vazio — ou seja, nas primeiras capturas
 - **structured_data:** `{"tipo": "perfil_pessoa_juridica", "cnpj": "...", "campos": {...}}`
 
 ### `documento_juridico`
-- **Lib:** trafilatura com `favor_recall=True`
-- **structured_data:** `{"tipo": "documento_juridico"}`
+- **structured_data:** `{"tipo": "documento_juridico"}` (marcador de classificação — sem extração de campos)
 
 ### `misto`
-- **Lib:** trafilatura (prosa) + BeautifulSoup (tabelas)
+- **Lib:** BeautifulSoup (tabelas)
 - **structured_data:** `{"tipo": "misto", "tabelas": [...]}`
 
 ### `desconhecido`
-- **Lib:** trafilatura com `favor_recall=True`
 - **structured_data:** `null`
 
 ---
@@ -464,3 +511,6 @@ Campos logados a cada extração:
 - [ ] Página não reconhecida usa `desconhecido` sem lançar exceção.
 - [ ] `ArtifactLineage.processor` identifica o extrator e sua versão.
 - [ ] Todos os campos de observabilidade logados a cada extração.
+- [ ] `DocumentText.text` é sempre produzido por `extract_narrative_text()` (trafilatura), inclusive quando `page_type` é `tabular_financeiro`, `processo_judicial` ou quando a extração roda via LLM (Estratégia C).
+- [ ] `llm_extract_and_schema()` não retorna mais campo `text`; resposta do LLM sem `structured_data` não impede a criação do `DocumentText` (o texto já foi extraído antes).
+- [ ] Falha total do extrator estruturado (LLM indisponível, schema inválido, extrator determinístico sem dados) resulta em `structured_data=null`, mas nunca em `DocumentText.text` vazio se a página tiver conteúdo extraível por trafilatura.

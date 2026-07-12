@@ -92,6 +92,68 @@ def _split_text(text: str, chunk_size: int = 1000, overlap: int = 100) -> list[s
     return chunks
 
 
+# ── Saúde do schema de seletores (URLPatternCache) ───────────────────────────
+
+SCHEMA_FAILURE_THRESHOLD = 2
+
+
+def _schema_reproduces_data(schema: dict, html: str, url: str, title: str, artifact_id) -> bool:
+    """Valida um schema recém-gerado pelo LLM contra o próprio HTML da captura.
+
+    Se os seletores não extraem nada agora, não vão extrair nas capturas
+    seguintes — melhor não gravar e deixar a próxima captura regenerar.
+    """
+    try:
+        from .extractors.schema_extractor import schema_driven_extract
+        result = schema_driven_extract(html, url, title, schema)
+        return result.get("extractor_version", "").startswith("schema_driven:")
+    except Exception:
+        logger.exception("[%s] validação de schema falhou — schema não será gravado", artifact_id)
+        return False
+
+
+def _update_schema_health(cache_obj, extracted: dict, artifact_id) -> None:
+    """Realimenta o URLPatternCache com o resultado real do schema de seletores.
+
+    O extractor_version do resultado é o sinal: se não começa com
+    "schema_driven:", o schema_driven_extract caiu no fallback — os seletores
+    não casaram com o HTML. Após SCHEMA_FAILURE_THRESHOLD falhas consecutivas,
+    o schema é descartado e a entrada marcada para revisão; a captura seguinte
+    (com LLM habilitado) regenera o schema pagando o custo uma única vez.
+    Um sucesso zera o contador.
+    """
+    from django.db import models as django_models
+    from .models import URLPatternCache
+
+    schema_worked = extracted.get("extractor_version", "").startswith("schema_driven:")
+
+    if schema_worked:
+        if cache_obj.schema_failure_count:
+            URLPatternCache.objects.filter(id=cache_obj.id).update(schema_failure_count=0)
+        return
+
+    URLPatternCache.objects.filter(id=cache_obj.id).update(
+        schema_failure_count=django_models.F("schema_failure_count") + 1
+    )
+    cache_obj.refresh_from_db(fields=["schema_failure_count"])
+    logger.warning(
+        "[%s] schema não extraiu dados — schema_failure_count=%d (%s%s)",
+        artifact_id, cache_obj.schema_failure_count,
+        cache_obj.domain, cache_obj.path_pattern,
+    )
+
+    if cache_obj.schema_failure_count >= SCHEMA_FAILURE_THRESHOLD:
+        URLPatternCache.objects.filter(id=cache_obj.id).update(
+            extractor_config={},
+            needs_review=True,
+        )
+        logger.warning(
+            "[%s] schema invalidado após %d falhas consecutivas — needs_review=True, "
+            "será regenerado na próxima captura com LLM",
+            artifact_id, cache_obj.schema_failure_count,
+        )
+
+
 # ── Etapa 1: extração de texto ────────────────────────────────────────────────
 
 @shared_task(bind=True, max_retries=3, default_retry_delay=60)
@@ -155,7 +217,18 @@ def extract_text_from_mhtml(self, artifact_id: str):
 
     logger.info("[%s] HTML extraído do MHTML — %d chars", artifact_id, len(html_content))
 
-    from .extractors import detect_page_type, route
+    from .extractors import detect_page_type, route, extract_narrative_text
+
+    # Texto de busca: SEMPRE via trafilatura, independente de page_type ou de LLM.
+    # Roda antes de qualquer detecção/classificação — se a página não tem prosa
+    # extraível, não vale a pena gastar chamadas de LLM tentando classificá-la.
+    text = extract_narrative_text(html_content)
+
+    if not text:
+        logger.info("[%s] trafilatura não produziu conteúdo — ignorado", artifact_id)
+        return {"status": "skipped", "reason": "trafilatura não produziu conteúdo"}
+
+    logger.info("[%s] texto extraído via trafilatura — %d chars", artifact_id, len(text))
 
     url = content.get("url", "")
     title = content.get("title", "")
@@ -171,9 +244,11 @@ def extract_text_from_mhtml(self, artifact_id: str):
     )
 
     # Estratégia A+B+C unificada: na primeira captura com LLM habilitado, o LLM faz tudo —
-    # entende a página, extrai os dados e gera o schema — em vez de usar o extrator determinístico.
-    # O resultado do LLM é usado imediatamente (não só na próxima captura).
-    # Fallback para route() se o LLM falhar ou não estiver disponível.
+    # entende a página, extrai os dados estruturados e gera o schema — em vez de usar o
+    # extrator determinístico. O LLM nunca produz o texto de busca (já extraído acima);
+    # sua responsabilidade é só structured_data + schema. Resultado usado imediatamente
+    # (não só na próxima captura). Fallback para route() se o LLM falhar, não estiver
+    # disponível, ou não encontrar nenhum dado estruturado.
     first_capture_with_llm = (
         artifact.allow_external_llm
         and cache_obj is not None
@@ -183,7 +258,7 @@ def extract_text_from_mhtml(self, artifact_id: str):
     extracted = None
 
     if first_capture_with_llm:
-        logger.info("[%s] primeira captura com LLM — extraindo e gerando schema", artifact_id)
+        logger.info("[%s] primeira captura com LLM — extraindo dados e gerando schema", artifact_id)
         try:
             from .extractors.skeleton import compress_html_skeleton
             from .extractors.llm_classifier import llm_extract_and_schema
@@ -192,10 +267,9 @@ def extract_text_from_mhtml(self, artifact_id: str):
             skeleton = compress_html_skeleton(html_content)
             llm_result = llm_extract_and_schema(skeleton, url, page_type_hint=page_type)
 
-            if llm_result and llm_result.get("text"):
+            if llm_result and llm_result.get("structured_data"):
                 extracted = {
-                    "text": llm_result["text"],
-                    "structured_data": llm_result.get("structured_data"),
+                    "structured_data": llm_result["structured_data"],
                     "extractor_version": "llm_direct:1.0",
                 }
                 # Refine page_type if LLM disagrees with structural analysis
@@ -203,30 +277,37 @@ def extract_text_from_mhtml(self, artifact_id: str):
                     page_type = llm_result["page_type"]
 
                 schema = llm_result.get("schema") or {}
-                if schema:
+                if schema and _schema_reproduces_data(schema, html_content, url, title, artifact_id):
                     URLPatternCache.objects.filter(id=cache_obj.id).update(
                         extractor_config=schema,
                         page_type=page_type,
+                        schema_failure_count=0,
+                        needs_review=False,
                     )
                     logger.info(
-                        "[%s] schema gravado — categoria='%s' campos=%d tabelas=%d",
+                        "[%s] schema validado e gravado — categoria='%s' campos=%d tabelas=%d",
                         artifact_id, schema.get("categoria", ""),
                         len(schema.get("fields", {})), len(schema.get("tables", [])),
                     )
+                elif schema:
+                    logger.warning(
+                        "[%s] schema gerado pelo LLM não reproduz dados no próprio HTML — "
+                        "não gravado; esta captura usa o structured_data direto do LLM",
+                        artifact_id,
+                    )
             else:
-                logger.warning("[%s] LLM não produziu texto — fallback para extrator determinístico", artifact_id)
+                logger.warning("[%s] LLM não produziu dados estruturados — fallback para extrator determinístico", artifact_id)
         except Exception:
             logger.exception("[%s] llm_extract_and_schema falhou — fallback para extrator determinístico", artifact_id)
 
     if extracted is None:
-        logger.info("[%s] extraindo com extrator=%s", artifact_id, page_type)
+        logger.info("[%s] extraindo structured_data com extrator=%s", artifact_id, page_type)
         extracted = route(page_type, html_content, url, title, cache_obj=cache_obj)
 
-    text = extracted["text"]
-
-    if not text:
-        logger.info("[%s] extrator não produziu conteúdo — ignorado", artifact_id)
-        return {"status": "skipped", "reason": "extrator não produziu conteúdo"}
+        # Realimentação do cache: se havia schema mas o resultado não veio dele,
+        # os seletores não casaram — a estrutura da página provavelmente mudou.
+        if cache_obj is not None and cache_obj.extractor_config:
+            _update_schema_health(cache_obj, extracted, artifact_id)
 
     logger.info(
         "[%s] extração concluída — chars=%d words=%d structured_data=%s extractor=%s",

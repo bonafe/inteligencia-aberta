@@ -77,19 +77,17 @@ Sua tarefa, em ordem:
 2. EXTRAIR — Extraia todos os dados estruturados visíveis. Para listas longas, limite a 100 itens.
    Use nomes de campo em português. Estruture conforme o conteúdo — não há formato fixo.
 
-3. TEXTO — Gere um texto narrativo completo em português para busca semântica.
-   Um investigador deve encontrar este documento pesquisando qualquer dado nele:
-   nomes, CPF/CNPJ, valores, datas, números de processo, endereços, etc.
-   Seja exaustivo — inclua tudo que for relevante.
+3. SCHEMA — Gere seletores CSS para automatizar esta extração em capturas futuras com a mesma estrutura.
 
-4. SCHEMA — Gere seletores CSS para automatizar esta extração em capturas futuras com a mesma estrutura.
+Você NÃO precisa gerar texto narrativo para busca — o sistema sempre extrai o texto
+de busca da página com trafilatura, de forma independente da sua resposta. Foque
+inteiramente em extrair dados estruturados corretos e um schema reutilizável.
 
 RETORNE APENAS O JSON ABAIXO. Nada antes, nada depois, sem markdown.
 
 {
   "categoria": "<descrição específica em uma frase>",
   "page_type": "<artigo|tabular_financeiro|tabular_generico|processo_judicial|perfil_pessoa_juridica|documento_juridico|misto|desconhecido>",
-  "text": "<texto narrativo completo em português — seja exaustivo>",
   "structured_data": {
     "<campo_em_portugues>": "<valor ou lista ou objeto aninhado conforme o conteúdo>"
   },
@@ -127,12 +125,12 @@ def _get_client():
 
 
 def _classifier_model() -> str:
-    return getattr(settings, "LLM_CLASSIFIER_MODEL", "claude-haiku-4-5-20251001")
+    return getattr(settings, "LLM_CLASSIFIER_MODEL", "claude-haiku-4-5")
 
 
 def _extractor_model() -> str:
     # Extraction needs higher quality — default to Sonnet (one-time cost per URL pattern)
-    return getattr(settings, "LLM_EXTRACTOR_MODEL", "claude-sonnet-4-6")
+    return getattr(settings, "LLM_EXTRACTOR_MODEL", "claude-sonnet-5")
 
 
 # ── Funções públicas ──────────────────────────────────────────────────────────
@@ -181,10 +179,13 @@ def llm_classify(skeleton: str, url: str) -> tuple[str, float, dict]:
 
 
 def llm_extract_and_schema(skeleton: str, url: str, page_type_hint: str = "") -> dict:
-    """First-capture extraction: understand the page, extract data, generate schema.
+    """First-capture extraction: understand the page, extract structured data, generate schema.
 
     This replaces the deterministic extractor on first capture when allow_external_llm=True.
-    Returns a dict with keys: categoria, page_type, text, structured_data, schema.
+    Returns a dict with keys: categoria, page_type, structured_data, schema. Never returns
+    "text" — the search text always comes from extract_narrative_text() (trafilatura), run
+    independently of this call, so a partial or malformed LLM response never degrades the
+    text used for embedding/search.
     Returns {} on any error (caller falls back to deterministic extractor).
 
     Uses the higher-quality extractor model (default: Sonnet) since this is a one-time
@@ -217,7 +218,6 @@ def llm_extract_and_schema(skeleton: str, url: str, page_type_hint: str = "") ->
         if page_type not in _PAGE_TYPES:
             page_type = page_type_hint or "desconhecido"
 
-        text = data.get("text", "")
         structured_data = data.get("structured_data") or {}
         schema = data.get("schema") or {}
 
@@ -228,16 +228,15 @@ def llm_extract_and_schema(skeleton: str, url: str, page_type_hint: str = "") ->
             schema["generated_at"] = datetime.now(timezone.utc).isoformat()
 
         logger.info(
-            "llm_extract_and_schema — categoria='%s' page_type=%s text_chars=%d "
+            "llm_extract_and_schema — categoria='%s' page_type=%s "
             "structured_keys=%d schema_fields=%d schema_tables=%d",
-            categoria, page_type, len(text),
+            categoria, page_type,
             len(structured_data), len(schema.get("fields", {})), len(schema.get("tables", [])),
         )
 
         return {
             "categoria": categoria,
             "page_type": page_type,
-            "text": text,
             "structured_data": structured_data or None,
             "schema": schema,
         }

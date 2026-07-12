@@ -55,18 +55,29 @@ def _parse_brl(s: str) -> float | None:
         return None
 
 
-def _fmt_brl(v: float) -> str:
-    return f"R$ {abs(v):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+# ── Texto de busca — sempre trafilatura ──────────────────────────────────────
+#
+# Fonte única do campo "text" do DocumentText, independente de page_type ou de
+# qual caminho de extração estruturada rodou (LLM, schema-driven, extrator
+# determinístico). trafilatura é uma lib madura e testada especificamente para
+# extração de prosa; heurísticas por tipo de página e respostas de LLM são
+# frágeis demais para essa responsabilidade — ficam restritas a structured_data.
+
+def extract_narrative_text(html: str) -> str:
+    import trafilatura
+    text = trafilatura.extract(html, include_comments=False, include_tables=True)
+    if not text:
+        text = trafilatura.extract(html, include_comments=False, include_tables=True, favor_recall=True)
+    return text or ""
 
 
-# ── Extratores ─────────────────────────────────────────────────────────────
+# ── Extratores — produzem apenas structured_data ─────────────────────────────
 
 def extract_financial_table(html: str, url: str, title: str) -> dict:
     try:
         from bs4 import BeautifulSoup
         soup = BeautifulSoup(html, "html.parser")
         transactions = []
-        text_lines = []
 
         for table in soup.find_all("table"):
             rows = table.find_all("tr")
@@ -115,19 +126,10 @@ def extract_financial_table(html: str, url: str, title: str) -> dict:
                     tx["saldo"] = balance
                 transactions.append(tx)
 
-                sinal = "débito" if value is not None and value < 0 else "crédito"
-                val_fmt = _fmt_brl(value) if value is not None else val_str
-                line = f"Transação em {date_val}: {desc_val} — {sinal} {val_fmt}"
-                if balance is not None:
-                    line += f". Saldo {_fmt_brl(balance)}"
-                text_lines.append(line)
-
-        text = "\n".join(text_lines)
-        if not text:
+        if not transactions:
             return extract_fallback(html, url, title)
 
         return {
-            "text": text,
             "structured_data": {
                 "tipo": "tabular_financeiro",
                 "transacoes": transactions,
@@ -145,7 +147,6 @@ def extract_generic_table(html: str, url: str, title: str) -> dict:
         from bs4 import BeautifulSoup
         soup = BeautifulSoup(html, "html.parser")
         tables_data = []
-        text_parts = []
 
         for table in soup.find_all("table"):
             rows = table.find_all("tr")
@@ -159,15 +160,11 @@ def extract_generic_table(html: str, url: str, title: str) -> dict:
             data_rows = [r for r in data_rows if any(r)]
             if headers or data_rows:
                 tables_data.append({"cabecalho": headers, "linhas": data_rows})
-                text_parts.append(" | ".join(headers))
-                text_parts.extend(" | ".join(r) for r in data_rows)
 
-        text = "\n".join(text_parts)
-        if not text:
+        if not tables_data:
             return extract_fallback(html, url, title)
 
         return {
-            "text": text,
             "structured_data": {"tipo": "tabular_generico", "tabelas": tables_data},
             "extractor_version": f"generic_table:{EXTRACTOR_VERSION}",
         }
@@ -230,26 +227,14 @@ def extract_judicial_process(html: str, url: str, title: str) -> dict:
                 if d and desc:
                     movimentacoes.append({"data": d, "descricao": desc})
 
-        text_parts = []
-        if numero_cnj:
-            text_parts.append(f"Processo nº {numero_cnj}")
-        if classe:
-            text_parts.append(f"Classe: {classe}")
-        if assunto:
-            text_parts.append(f"Assunto: {assunto}")
-        if parties["polo_ativo"]:
-            text_parts.append(f"Polo ativo: {', '.join(parties['polo_ativo'])}")
-        if parties["polo_passivo"]:
-            text_parts.append(f"Polo passivo: {', '.join(parties['polo_passivo'])}")
-        for mov in movimentacoes[:50]:
-            text_parts.append(f"Movimentação em {mov['data']}: {mov['descricao']}")
-
-        text = "\n".join(text_parts)
-        if not text:
+        has_data = bool(
+            numero_cnj or classe or assunto
+            or parties["polo_ativo"] or parties["polo_passivo"] or movimentacoes
+        )
+        if not has_data:
             return extract_fallback(html, url, title)
 
         return {
-            "text": text,
             "structured_data": {
                 "tipo": "processo_judicial",
                 "numero_cnj": numero_cnj,
@@ -291,18 +276,10 @@ def extract_company_profile(html: str, url: str, title: str) -> dict:
         cnpjs = _CNPJ_RE.findall(all_text)
         cnpj = cnpjs[0] if cnpjs else None
 
-        text_parts = []
-        if cnpj:
-            text_parts.append(f"CNPJ: {cnpj}")
-        for key, val in list(fields.items())[:30]:
-            text_parts.append(f"{key.title()}: {val}")
-
-        text = "\n".join(text_parts)
-        if not text:
+        if not fields and not cnpj:
             return extract_fallback(html, url, title)
 
         return {
-            "text": text,
             "structured_data": {
                 "tipo": "perfil_pessoa_juridica",
                 "cnpj": cnpj,
@@ -316,10 +293,8 @@ def extract_company_profile(html: str, url: str, title: str) -> dict:
 
 
 def extract_legal_document(html: str, url: str, title: str) -> dict:
-    import trafilatura
-    text = trafilatura.extract(html, include_comments=False, include_tables=False, favor_recall=True)
+    # Prosa formal sem campos estruturáveis — só um marcador de classificação.
     return {
-        "text": text or "",
         "structured_data": {"tipo": "documento_juridico"},
         "extractor_version": f"legal_document:{EXTRACTOR_VERSION}",
     }
@@ -327,14 +302,10 @@ def extract_legal_document(html: str, url: str, title: str) -> dict:
 
 def extract_mixed(html: str, url: str, title: str) -> dict:
     try:
-        import trafilatura
         from bs4 import BeautifulSoup
-
-        prose = trafilatura.extract(html, include_comments=False, include_tables=False) or ""
 
         soup = BeautifulSoup(html, "html.parser")
         tables_data = []
-        table_lines = []
         for table in soup.find_all("table"):
             rows = table.find_all("tr")
             if not rows:
@@ -346,19 +317,12 @@ def extract_mixed(html: str, url: str, title: str) -> dict:
                 if any(td.get_text(strip=True) for td in r.find_all(["td", "th"]))
             ]
             tables_data.append({"cabecalho": headers, "linhas": data_rows})
-            table_lines.append(" | ".join(headers))
-            table_lines.extend(" | ".join(r) for r in data_rows)
 
-        text = prose
-        if table_lines:
-            text = (prose + "\n\n" + "\n".join(table_lines)).strip()
-
-        if not text:
+        if not tables_data:
             return extract_fallback(html, url, title)
 
         return {
-            "text": text,
-            "structured_data": {"tipo": "misto", "tabelas": tables_data} if tables_data else None,
+            "structured_data": {"tipo": "misto", "tabelas": tables_data},
             "extractor_version": f"mixed:{EXTRACTOR_VERSION}",
         }
     except Exception:
@@ -367,12 +331,10 @@ def extract_mixed(html: str, url: str, title: str) -> dict:
 
 
 def extract_fallback(html: str, url: str, title: str) -> dict:
-    import trafilatura
-    text = trafilatura.extract(html, include_comments=False, include_tables=True)
-    if not text:
-        text = trafilatura.extract(html, include_comments=False, include_tables=True, favor_recall=True)
+    # Sem extração estruturada — artigo/desconhecido, ou quando um extrator
+    # especializado não encontrou nada. O texto de busca vem sempre de
+    # extract_narrative_text(), chamado uma única vez em tasks.py.
     return {
-        "text": text or "",
         "structured_data": None,
         "extractor_version": f"fallback:{EXTRACTOR_VERSION}",
     }

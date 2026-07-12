@@ -2,6 +2,132 @@
 
 Este arquivo documenta as alterações, configurações e implementações feitas por IAs (agentes) neste repositório. O objetivo é manter um histórico unificado e transparente sobre o estado do desenvolvimento, facilitando o onboarding de novas IAs e humanos na base de código.
 
+## [12-07-2026] - Script de subida reinicia worker/beat automaticamente + diagnóstico de 400 na extensão
+
+**Contexto e motivação:**
+- Depois de fechar a mudança de "texto sempre via trafilatura" (entrada abaixo, mesma data), surgiu a pergunta natural: `scripts/subir_containers.sh` já garante que o código novo rode? A resposta não era óbvia. O `docker-compose.override.yml` faz bind-mount de `./services/portal:/app` em cinco serviços (`portal`, `orchestrator`, `mcp`, `worker`, `beat`), mas só `portal` (`runserver`) e `orchestrator`/`mcp` (`uvicorn --reload`) de fato observam o filesystem e recarregam sozinhos. O comando do `worker` é só `celery -A config worker -l info` — sem nenhuma flag de observação — e o do `beat` é análogo. Os módulos Python de um processo Celery são importados uma vez na inicialização e ficam em memória até o processo reiniciar.
+- Agravante: rodar `subir_containers.sh` de novo com `--build` não garante o restart desses dois serviços. O `docker compose up` só recria um container se a imagem resultante tiver hash diferente da que está rodando; como o código de negócio vem inteiro do bind-mount em dev (não é copiado para a imagem), editar só um `.py` não muda a imagem, e o `worker` continua de pé rodando a versão antiga de `tasks.py`/`extractors/*` mesmo com o arquivo já atualizado no disco.
+
+**O que foi implementado:**
+- **`scripts/subir_containers.sh`:** adicionado passo `docker compose -f docker-compose.yml -f docker-compose.override.yml restart worker beat` logo após `manage.py migrate`. Toda subida do ambiente agora garante que os processos Celery carreguem o código atual, sem depender de o `--build` ter gerado uma imagem com hash diferente.
+
+**Diagnóstico registrado (sem alteração de código — ação pendente):**
+- Investigado erro reportado pela extensão Chrome: `API retornou 500: {"detail":"Salvo no MinIO, mas erro ao registrar no Portal: Client error '400 Bad Request' for url 'http://portal:8000/artifacts/api/v1/artefatos/'"}`.
+- Causa raiz confirmada (consulta direta ao banco + comparação de bytes do erro nos logs do `portal`): a tabela `accounts_user` está vazia (0 usuários) neste ambiente. Em `services/portal/apps/artifacts/views.py:74-77`, `ArtefatoCreateAPIView._resolve_user()` recebe `user_id=None` (a extensão só envia esse campo se preenchido manualmente na seção "Identificação" do popup, vazia por padrão) e cai no fallback `User.objects.order_by("date_joined").first()`, que retorna `None` por falta de registros — disparando o 400 `{"error": "Nenhum usuário encontrado"}` em `views.py:41-43`. Não é um bug de código: é o passo `docker compose exec portal python manage.py createsuperuser` (já documentado no `CLAUDE.md`) que ainda não foi executado neste ambiente.
+- Sem mismatch de payload entre orchestrator/extensão/portal — todos os nomes de campo e valores de choice batem.
+
+**Testes realizados:**
+- `bash -n scripts/subir_containers.sh` limpo.
+- Diagnóstico do 400 confirmado com `docker compose exec portal python manage.py shell` (`User.objects.count()` → 0) e comparação de tamanho em bytes do JSON de erro (`43` bytes) com o log real do `portal` (`"POST ... 400 43"`).
+
+**Status Atual:**
+- Script de subida agora é resiliente a mudanças em código executado pelo Celery. O 400 da extensão segue pendente de correção operacional — não requer mudança de código.
+
+**Próximos Passos Sugeridos:**
+- Rodar `docker compose exec portal python manage.py createsuperuser` neste ambiente e refazer a captura pela extensão para confirmar que o 400 desaparece.
+
+---
+
+## [12-07-2026] - Texto de busca sempre via trafilatura; LLM e extratores por tipo restritos a structured_data
+
+**Contexto e motivação:**
+- Relato de uso real: páginas classificadas como `artigo` (o tipo mais simples do pipeline) ocasionalmente salvavam texto incompleto. Diferente da falha de 03-06-2026/02-07-2026 (esqueleto HTML truncando a tabela de lançamentos antes de chegar ao LLM), aqui a causa era outra: com `allow_external_llm=True`, a primeira captura de qualquer padrão de URL passava pela Estratégia C, e o LLM — além de extrair `structured_data` e gerar o schema — também era responsável por gerar o `text` completo usado para embedding. Para páginas de prosa, isso equivale a pedir a um modelo de linguagem para transcrever um texto inteiro sem resumir, o que é uma tarefa contra a natureza do modelo e falha de forma imprevisível (resumos parciais, truncamento).
+- Decisão de arquitetura: o texto usado para busca semântica nunca deveria depender do componente menos previsível do pipeline (LLM) nem de heurísticas por tipo de página. trafilatura já era usada como fallback para `artigo`/`desconhecido` e dentro de vários extratores — a mudança foi promovê-la a fonte única e obrigatória do campo `text`, rodando uma única vez por artefato, antes de qualquer detecção de tipo ou chamada de LLM. Toda a classificação adaptativa (análise estrutural, classificação por LLM, extração+schema por LLM, extratores determinísticos, `schema_driven_extract`) passa a existir só para preencher `structured_data`.
+
+**O que foi implementado:**
+
+- **`services/portal/apps/artifacts/extractors/strategies.py`:**
+  - `extract_narrative_text(html)` (novo): chamada única de trafilatura (`include_tables=True`, com fallback `favor_recall=True`) — fonte única do campo `text`.
+  - `extract_financial_table`, `extract_generic_table`, `extract_judicial_process`, `extract_company_profile`, `extract_mixed`: removida a geração heurística de texto narrativo (linhas "Transação em...", "Campo: valor" etc.); cada função agora decide sucesso/fallback pela presença de dados estruturados (transações, tabelas, campos) e retorna só `structured_data` + `extractor_version`.
+  - `extract_legal_document`: simplificado para um marcador `{"tipo": "documento_juridico"}` sem chamada própria a trafilatura (duplicada — já roda uma vez em `tasks.py`).
+  - `extract_fallback`: não chama mais trafilatura; retorna `{"structured_data": None, "extractor_version": "fallback:1.0"}` — o texto já foi resolvido antes, centralmente.
+  - `_fmt_brl` removida (só era usada na geração de texto heurístico descontinuada).
+
+- **`services/portal/apps/artifacts/extractors/schema_extractor.py`:**
+  - `schema_driven_extract`: parou de concatenar campos/linhas em texto; sucesso/fallback agora decidido diretamente por `extracted_fields`/`extracted_tables` não vazios. Retorna só `structured_data` + `extractor_version`. O sinal usado por `_update_schema_health()` (prefixo `schema_driven:` vs `fallback:`) não muda.
+
+- **`services/portal/apps/artifacts/extractors/llm_classifier.py`:**
+  - Prompt `_EXTRACT_SYSTEM`: removido o passo "3. TEXTO" e o campo `"text"` do JSON esperado; adicionada instrução explícita de que o LLM não precisa gerar texto de busca (trafilatura cobre isso independentemente da resposta).
+  - `llm_extract_and_schema()`: não lê nem retorna mais `"text"`; retorna `categoria`, `page_type`, `structured_data`, `schema`.
+
+- **`services/portal/apps/artifacts/extractors/__init__.py`:** exporta `extract_narrative_text`.
+
+- **`services/portal/apps/artifacts/tasks.py` (`extract_text_from_mhtml`):**
+  - `text = extract_narrative_text(html_content)` roda logo após decodificar o HTML do MHTML, antes de `detect_page_type` — se trafilatura não extrai nada, o artefato é ignorado sem gastar chamadas de LLM em classificação.
+  - Bloco de primeira captura com LLM: condição de sucesso trocada de `llm_result.get("text")` para `llm_result.get("structured_data")`; `extracted` passa a conter só `structured_data` + `extractor_version`.
+  - `DocumentText.text` é preenchido com o texto extraído no topo da função, não mais com `extracted["text"]`.
+
+- **Spec atualizada** (`docs/componentes/pipeline/extracao-adaptativa.md`): nova seção "Princípio: texto de busca sempre via trafilatura"; diagrama de fluxo, descrição da Estratégia C, tabela de extratores por tipo e critérios de aceitação atualizados para refletir que `text` é sempre trafilatura e todo o resto produz apenas `structured_data`.
+
+**Testes realizados:**
+- `python -m py_compile` limpo em `strategies.py`, `schema_extractor.py`, `llm_classifier.py`, `extractors/__init__.py` e `tasks.py`.
+- Revisão de código: grep confirmando que nenhum consumidor restante lê `extracted["text"]` ou `llm_result.get("text")`; `_ROUTER`, `route()` e o sinal de saúde do schema (`_update_schema_health`) permanecem funcionalmente idênticos, já que dependiam de `extractor_version`, não de `text`.
+- Não testado ainda ponta-a-ponta com captura real (containers não subidos nesta sessão) — validar próxima vez que uma página `artigo` com `allow_external_llm=True` for capturada, conferindo que `DocumentText.text` bate com o artigo completo mesmo quando `structured_data` vem do LLM.
+
+**Status Atual:**
+- O texto de busca do pipeline não depende mais de LLM, de extratores heurísticos por tipo de página, nem de schema gerado dinamicamente — é sempre trafilatura, calculado uma vez por artefato. `structured_data` continua vindo do caminho adaptativo (LLM na primeira captura, schema-driven nas seguintes, extrator determinístico como fallback), mas uma falha ali nunca mais deixa o documento sem texto pesquisável.
+
+**Próximos Passos Sugeridos:**
+- Validar ponta-a-ponta com captura real de um artigo de notícia com `allow_external_llm=True`: confirmar que o texto salvo é o artigo completo (trafilatura) e que `structured_data`/schema continuam sendo gerados pelo LLM normalmente.
+- Retomar a decisão de design registrada em 29-05-2026 sobre roteamento pós-extração por `page_type` — ainda pendente.
+
+---
+
+## [02-07-2026] - Correção do truncamento cego do esqueleto HTML + atualização de modelos LLM
+
+**Contexto e motivação:**
+- Limitação registrada na sessão de 03-06-2026: a extração de lançamentos de extratos bancários via LLM saía incompleta ou vazia. Investigação confirmou a causa raiz em `extractors/skeleton.py`: o corte de 20 KB era um truncamento cego em bytes (`encoded[:MAX_SKELETON_BYTES]`), que cortava a tabela de lançamentos no meio de uma `<tr>` qualquer — o LLM recebia o cabeçalho da tabela e só as primeiras linhas que coubessem antes do corte, nunca a tabela completa.
+- Os IDs de modelo configurados (`claude-haiku-4-5-20251001`, `claude-sonnet-4-6`) estavam desatualizados frente à geração atual (Haiku 4.5 sem sufixo de data, Sonnet 5 com preço promocional até 31-08-2026).
+
+**O que foi implementado:**
+
+- **`services/portal/apps/artifacts/extractors/skeleton.py`:**
+  - `_sample_table_rows(soup)` (novo): antes da serialização final, tabelas com mais de 40 `<tr>` são reduzidas a uma amostra representativa — 20 linhas do início + 15 do fim, com um marcador `"… N linhas omitidas …"` no meio. Nunca corta uma linha ao meio; remove linhas inteiras. Isso garante que uma tabela grande (ex: extrato com centenas de transações) não consuma o orçamento inteiro de 20 KB e "morra" no meio, e que o LLM sempre veja tanto o formato da tabela quanto as transações mais recentes.
+  - `_safe_byte_truncate(text, max_bytes)` (novo): substitui o truncamento cego. Usado apenas como última rede de segurança se, mesmo após a amostragem de tabelas, o esqueleto ainda ultrapassar 20 KB (ex: muito texto não-tabular). Corta no último `>` completo dentro do orçamento — nunca deixa uma tag ou atributo pela metade.
+  - `compress_html_skeleton()`: chama `_sample_table_rows` antes de serializar; usa `_safe_byte_truncate` no lugar do slice de bytes cru.
+
+- **Modelos LLM atualizados** (`services/portal/config/settings/base.py`, `extractors/llm_classifier.py`, `.env`, `.env.example`, `docs/componentes/pipeline/extracao-adaptativa.md`, `docs/componentes/interfaces/web.md`):
+  - `LLM_CLASSIFIER_MODEL`: `claude-haiku-4-5-20251001` → `claude-haiku-4-5`
+  - `LLM_EXTRACTOR_MODEL`: `claude-sonnet-4-6` → `claude-sonnet-5`
+  - A divisão de custo permanece a mesma (Haiku para classificação barata quando a confiança estrutural é baixa; Sonnet para a extração+schema de primeira captura, cujo custo é amortizado nas capturas seguintes via `schema_driven_extract`).
+
+**Testes realizados:**
+- Simulação de extrato com 300 lançamentos (28,9 KB de HTML bruto): esqueleto final caiu para 3,5 KB, preservando a primeira e a última transação e o marcador de omissão — bem dentro do limite de 20 KB, sem cortar nenhuma linha ao meio.
+- Caso extremo com ~3000 `<div>`s não-tabulares (182 KB): `_safe_byte_truncate` respeitou o limite de 20 KB e nunca deixou uma tag aberta pendurada no final.
+- Tabela pequena (abaixo do limiar de 40 linhas): passa intacta, sem amostragem.
+- `python -m py_compile` limpo nos três arquivos Python alterados.
+
+### Ciclo de realimentação do schema de seletores (mesma sessão)
+
+**Contexto e motivação:**
+- Auditoria do mecanismo de "a página ainda tem a mesma estrutura?" revelou que a detecção de mudança de layout tinha um buraco: `schema_driven_extract` caía silenciosamente no trafilatura quando os seletores não casavam, sem nenhum sinal de volta ao `URLPatternCache`. O `divergence_count` não cobria esse caso porque (a) cache hits confiantes (confidence ≥ 0.9) retornam cedo sem rodar análise estrutural, e (b) divergência compara `page_type`, não saúde dos seletores. O `structure_fingerprint` também não ajuda: mede conteúdo visível (título/headings/headers), enquanto seletores dependem de classes/IDs — um rebuild de frontend com CSS hasheado quebra todos os seletores sem alterar o fingerprint.
+- Além disso, o schema gerado pelo LLM era gravado sem validação — um seletor inventado só era descoberto (silenciosamente) na captura seguinte.
+
+**O que foi implementado:**
+
+- **`models.py` + migration `0007`:** novo campo `URLPatternCache.schema_failure_count` (PositiveIntegerField, default 0) — capturas consecutivas em que o schema não extraiu nada.
+
+- **`tasks.py`:**
+  - `_schema_reproduces_data()` (novo): valida o schema recém-gerado pelo LLM rodando `schema_driven_extract` contra o próprio HTML da captura. Se os seletores não reproduzem dados agora, não vão funcionar depois — o schema **não é gravado** (a captura atual usa o resultado direto do LLM; a próxima tenta regenerar).
+  - `_update_schema_health()` (novo): chamado após `route()` quando havia schema no cache. O sinal é o `extractor_version` do resultado — `schema_driven:*` = sucesso (zera o contador); qualquer outro = os seletores caíram no fallback (incrementa). Após `SCHEMA_FAILURE_THRESHOLD` (2) falhas consecutivas: `extractor_config` zerado + `needs_review=True` → a próxima captura com LLM regenera o schema pagando o custo uma única vez.
+  - Gravação de schema validado agora também zera `schema_failure_count` e limpa `needs_review` — o ciclo é autônomo (falha → invalida → regenera → valida → saudável), sem depender de revisão humana (que ainda não tem interface).
+
+- **Spec atualizada** (`docs/componentes/pipeline/extracao-adaptativa.md`): ciclo de vida do schema reescrito com o loop de realimentação; tabela de comportamento do cache ganhou 4 linhas; seção "Limitação conhecida (2026-06-03)" substituída por "Limitações resolvidas (2026-07-02)".
+
+**Testes realizados:**
+- Sinal validado em isolamento: schema com seletores válidos → `extractor_version=schema_driven:1.0` (campos + 2 linhas de tabela extraídos); schema com seletores inexistentes (simulando rebuild de frontend) → `fallback:1.0`. O prefixo distingue os dois caminhos de forma confiável.
+- `py_compile` limpo em `tasks.py`, `models.py` e na migration.
+- Lógica de contador/invalidação depende do ORM — validação ponta-a-ponta pendente com containers de pé (`docker compose exec portal python manage.py migrate` necessário para aplicar a migration 0007).
+
+**Status Atual:**
+- As duas limitações registradas em 03-06-2026 (truncamento do esqueleto; schema correto mas sem dados) estão corrigidas. O sistema agora detecta mudança de estrutura pelo teste mais fiel possível — "os seletores ainda extraem dados?" — sem nenhuma chamada de LLM na verificação. Não testado ainda contra uma captura real do internet banking do BB.
+
+**Próximos Passos Sugeridos:**
+- Subir containers, aplicar migration 0007 e validar ponta-a-ponta com uma captura real de extrato bancário: primeira captura gera+valida schema, segunda usa `schema_driven_extract`, e uma mudança simulada de layout dispara a invalidação após 2 falhas.
+- Retomar a decisão de design registrada em 29-05-2026 sobre roteamento pós-extração por `page_type` (tabelas → armazenamento relacional, entidades → enriquecimento de Artifact) — ainda pendente, com 3 perguntas em aberto.
+
+---
+
 ## [03-06-2026] - Extração adaptativa com LLM + extensão configurável por domínio
 
 **Contexto e motivação:**

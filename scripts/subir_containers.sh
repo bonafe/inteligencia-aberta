@@ -15,6 +15,9 @@ done
 echo "==> Rodando migrations..."
 docker compose exec portal python manage.py migrate
 
+echo "==> Reiniciando worker/beat (Celery não recarrega código sozinho)..."
+docker compose -f docker-compose.yml -f docker-compose.override.yml restart worker beat
+
 echo ""
 echo "Sistema no ar:"
 echo "  Portal Web     → http://localhost:8000"

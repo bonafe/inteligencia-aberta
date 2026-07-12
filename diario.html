@@ -282,6 +282,86 @@
     <div class="container">
         <div class="entries-list">
 
+            <!-- Entrada 16 -->
+            <article class="entry-card">
+                <div class="entry-header">
+                    <div class="entry-meta">
+                        <span class="entry-date">12 de julho de 2026</span>
+                        <span class="entry-sep"></span>
+                        <span class="entry-author">Bonafé &amp; Claude Code</span>
+                    </div>
+                    <h2 class="entry-title">Hot-reload não é uma propriedade do bind-mount</h2>
+                </div>
+                <div class="entry-body">
+                    <p>Depois de fechar a mudança do texto sempre-trafilatura veio a pergunta óbvia, do tipo que parece ter resposta óbvia: o script que sobe os containers já garante que essas mudanças entrem em produção? A resposta rápida seria "claro, tem <code>--build</code> e bind-mount, hot-reload cuida disso". Olhar de perto revelou uma divisão que não estava escrita em lugar nenhum.</p>
+                    <p>O <code>docker-compose.override.yml</code> monta <code>./services/portal:/app</code> em cinco serviços: <code>portal</code>, <code>orchestrator</code>, <code>mcp</code>, <code>worker</code>, <code>beat</code>. Mas bind-mount só coloca o arquivo novo dentro do container — quem decide <em>fazer algo</em> com ele é o processo que está rodando. <code>runserver</code> do Django e <code>uvicorn --reload</code> observam o filesystem e recarregam sozinhos. O comando do worker é só <code>celery -A config worker -l info</code>: nenhuma flag de observação. Os módulos Python de um processo Celery são importados uma vez, na inicialização, e ficam vivos em memória até o container reiniciar — o arquivo no disco pode mudar dez vezes que o processo não sabe.</p>
+                    <p>O detalhe que tornava isso perigoso, não só incompleto: rodar <code>subir_containers.sh</code> de novo com <code>--build</code> não garante o restart. O <code>docker compose up</code> só recria um container se a imagem resultante tiver um hash diferente da que já está rodando. Como todo o código de negócio vem do bind-mount em desenvolvimento — não é copiado para dentro da imagem —, editar um único <code>.py</code> não muda a imagem em nada. O worker continuava de pé, tranquilo, executando a versão antiga de <code>tasks.py</code> e dos extratores, enquanto o arquivo no disco já tinha a versão nova havia minutos. Rodar o script de novo dava a falsa sensação de "atualizei", sem atualizar o único processo que executa esse código.</p>
+                    <p>A correção foi direta, sem procurar elegância: um passo <code>docker compose restart worker beat</code> depois das migrations, toda vez que o script roda. Não é a solução mais sofisticada — um watcher tipo <code>watchmedo</code> observando o diretório seria mais correto — mas é suficiente, explícito e não depende de adivinhar se o build mudou alguma coisa. Quem sobe o ambiente sabe, sem pensar, que o Celery vai estar com o código do disco.</p>
+                    <p>No meio da mesma sessão apareceu um problema completamente diferente: a extensão Chrome reportando 400 ao registrar um artefato recém-salvo no MinIO. Nada a ver com hot-reload — o banco de usuários deste ambiente estava vazio, e o endpoint de criação cai num fallback de "primeiro usuário" que não tem para onde cair quando não existe nenhum. Diagnóstico rápido, sem precisar mudar uma linha de código: faltava rodar <code>createsuperuser</code>, um passo que o próprio <code>CLAUDE.md</code> já documentava mas que este ambiente específico nunca tinha executado.</p>
+                    <p><em>Hot-reload não é uma propriedade do bind-mount — é uma decisão de cada processo. Quem não perguntou explicitamente ao runtime "observe esse diretório" não vai descobrir sozinho que o arquivo mudou.</em></p>
+                </div>
+            </article>
+
+            <!-- Entrada 15 -->
+            <article class="entry-card">
+                <div class="entry-header">
+                    <div class="entry-meta">
+                        <span class="entry-date">12 de julho de 2026</span>
+                        <span class="entry-sep"></span>
+                        <span class="entry-author">Bonafé &amp; Claude Code</span>
+                    </div>
+                    <h2 class="entry-title">O texto de busca não deveria depender de o LLM ter ido bem</h2>
+                </div>
+                <div class="entry-body">
+                    <p>O relato veio de uso real: algumas páginas classificadas corretamente como <code>artigo</code> — o tipo mais simples do pipeline, o que devia ser o caminho mais confiável — estavam salvando texto incompleto. Não era a mesma falha dos extratos bancários, onde o esqueleto HTML cortava a tabela no meio. Aqui a página inteira chegava ao LLM; o problema era o que voltava dela.</p>
+                    <p>A causa ficou óbvia assim que reconstruímos o caminho: com <code>allow_external_llm</code> ligado, a primeira captura de qualquer padrão de URL passa pela Estratégia C — o LLM categoriza, extrai dados e <em>também</em> gera o texto narrativo que vira a base de busca semântica do documento. Para extrato bancário ou ficha de empresa isso nunca foi o texto "de verdade", só uma narrativa derivada dos campos. Mas para um artigo de notícia, pedir ao LLM para reescrever o texto inteiro palavra por palavra é pedir a um resumidor que não resuma — e ele resume. Nenhum prompt de "seja exaustivo" resolve isso de forma confiável, porque estamos brigando contra o que o modelo faz de melhor.</p>
+                    <p>A pergunta certa não era "como fazemos o LLM parar de resumir". Era: por que o texto pesquisável do documento depende de o componente menos previsível do pipeline ter ido bem? trafilatura existe exatamente para o problema oposto — extrair fielmente a prosa principal de um HTML, sem interpretação, sem resumo, testado em milhões de páginas reais.</p>
+                    <p>A mudança foi arquitetural, não um ajuste de prompt: o campo <code>text</code> do <code>DocumentText</code> agora vem <strong>sempre</strong> de <code>extract_narrative_text()</code> — trafilatura, rodando uma única vez, antes de qualquer detecção de tipo ou chamada de LLM. Toda a maquinaria adaptativa que existia — análise estrutural, classificação por LLM, extração+schema por LLM, os extratores determinísticos de tabela/processo/empresa, <code>schema_driven_extract</code> — perdeu a responsabilidade de gerar texto. Sobrou uma responsabilidade só para cada um deles: preencher <code>structured_data</code>, quando conseguirem.</p>
+                    <p>O efeito em cascata foi bom de ver: o prompt do LLM ficou mais curto e com uma tarefa a menos para errar; os extratores determinísticos (financeiro, tabela genérica, processo judicial, perfil de empresa) pararam de gastar código montando narrativa heurística que ninguém usava para nada além de decidir "achei algo ou não"; e a chamada de trafilatura, que antes rodava escondida dentro de cada extrator como fallback, virou uma chamada só, no topo. Se o LLM falhar, se o schema estiver quebrado, se o extrator de tabela não reconhecer o layout — o documento continua pesquisável. Só perde os campos estruturados, nunca o texto.</p>
+                    <p><em>Nem toda parte do sistema precisa carregar o mesmo peso. O texto de busca é o chão sobre o qual tudo mais é opcional — e chão não pode depender da peça menos confiável da construção.</em></p>
+                </div>
+            </article>
+
+            <!-- Entrada 14 -->
+            <article class="entry-card">
+                <div class="entry-header">
+                    <div class="entry-meta">
+                        <span class="entry-date">2 de julho de 2026</span>
+                        <span class="entry-sep"></span>
+                        <span class="entry-author">Bonafé &amp; Claude Code</span>
+                    </div>
+                    <h2 class="entry-title">O melhor detector de mudança é o próprio parser</h2>
+                </div>
+                <div class="entry-body">
+                    <p>Depois de consertar o truncamento, fizemos a pergunta seguinte: como o sistema sabe que uma página continua com a mesma estrutura — que pode reusar o mesmo parser — sem mandar a página inteira para o LLM de novo?</p>
+                    <p>A resposta que tínhamos era o fingerprint estrutural: um hash do título, dos headings e dos cabeçalhos de tabela. Funciona bem para distinguir telas de um internet banking que compartilham a mesma URL. Mas auditando o fluxo completo, encontramos um buraco: quando os seletores CSS do schema paravam de funcionar, o extrator caía silenciosamente no modo genérico — e <em>nada avisava o cache</em>. O sistema continuava confiante num schema morto, degradando cada captura para texto achatado, sem ninguém perceber.</p>
+                    <p>O problema de fundo é que o fingerprint mede a coisa errada. Ele olha o conteúdo visível — título, cabeçalhos — mas os seletores dependem de classes e IDs no HTML. As duas coisas mudam de forma independente: um rebuild do frontend com CSS hasheado quebra todos os seletores sem alterar uma letra do que o usuário vê. O fingerprint diz "mesma tela"; os seletores dizem "não acho mais nada".</p>
+                    <p>A solução foi parar de tentar prever se a estrutura mudou e simplesmente <em>medir</em>: o próprio resultado da extração vira o sinal. Se o schema extraiu dados, a estrutura está de pé — zera o contador. Se caiu no fallback, incrementa. Duas falhas seguidas e o schema é descartado; a próxima captura regenera via LLM, pagando o custo uma única vez, e o ciclo se fecha sozinho. E na outra ponta, o schema recém-gerado agora é testado contra o próprio HTML antes de ser gravado — um seletor inventado pelo LLM morre na validação, não na captura seguinte.</p>
+                    <p>Nenhuma dessas verificações usa LLM. A pergunta "os seletores ainda funcionam?" se responde com uma passada de BeautifulSoup — e é a pergunta exata que importa, não uma aproximação dela.</p>
+                    <p><em>Às vezes o detector mais confiável não é o que observa o sistema por fora — é o sistema tentando trabalhar e contando se conseguiu.</em></p>
+                </div>
+            </article>
+
+            <!-- Entrada 13 -->
+            <article class="entry-card">
+                <div class="entry-header">
+                    <div class="entry-meta">
+                        <span class="entry-date">2 de julho de 2026</span>
+                        <span class="entry-sep"></span>
+                        <span class="entry-author">Bonafé &amp; Claude Code</span>
+                    </div>
+                    <h2 class="entry-title">O corte não era no tamanho — era na hora errada de cortar</h2>
+                </div>
+                <div class="entry-body">
+                    <p>Retomamos de onde a entrada anterior parou: o esqueleto HTML de 20 KB que mandamos para o LLM classificar e extrair dados, e a suspeita de que o corte estava descartando exatamente os lançamentos do extrato bancário. Desta vez fomos direto ao código em vez de especular.</p>
+                    <p>A causa era simples de ver e óbvia depois de vista: o corte era um <code>encoded[:MAX_SKELETON_BYTES]</code> — uma fatia crua de bytes, sem nenhuma noção de onde uma tag HTML termina. Para uma página de extrato com uma tabela de centenas de transações, isso significa cortar a tabela no meio de uma <code>&lt;tr&gt;</code> qualquer. O LLM recebia o cabeçalho da tabela e as poucas linhas que coubessem antes do limite — nunca o extrato inteiro, e às vezes nem uma tag fechada direito.</p>
+                    <p>A correção não foi aumentar o limite — isso só adiaria o problema para o próximo extrato maior. Foi ensinar o compressor a entender que uma tabela grande não pode consumir o orçamento inteiro sozinha. Antes de serializar, tabelas com mais de 40 linhas agora são reduzidas a uma amostra: as primeiras 20 linhas, as últimas 15, e um marcador de quantas ficaram de fora no meio. Nunca corta uma linha ao meio — corta linhas inteiras, escolhidas para preservar tanto o formato da tabela quanto as transações mais recentes. E se, mesmo assim, o esqueleto ainda passar de 20 KB por causa de texto não-tabular, o corte final agora recua até o último <code>&gt;</code> completo em vez de parar em qualquer byte.</p>
+                    <p>Testamos com um extrato sintético de 300 lançamentos: 28,9 KB de HTML bruto viraram 3,5 KB de esqueleto, com a primeira e a última transação visíveis e um "… 265 linhas omitidas …" no meio. Bem dentro do limite, e sem quebrar uma única tag.</p>
+                    <p>No mesmo fôlego, atualizamos os modelos configurados — Haiku para a classificação barata, Sonnet para a extração de primeira captura — para os IDs atuais, já que os que estavam no <code>.env</code> eram de uma geração anterior. A divisão de custo que já existia no código continua a mesma; só os nomes dos modelos que a executam mudaram.</p>
+                    <p><em>Não testamos ainda contra uma captura real do banco. O esqueleto agora está estruturalmente correto — falta ver se isso basta para o extrato de verdade.</em></p>
+                </div>
+            </article>
+
             <!-- Entrada 12 -->
             <article class="entry-card">
                 <div class="entry-header">

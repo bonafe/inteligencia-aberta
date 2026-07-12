@@ -101,8 +101,12 @@ def _extract_tables(soup, tables_config: list) -> list[list[dict]]:
 def schema_driven_extract(html: str, url: str, title: str, config: dict) -> dict:
     """Extract structured data using a JSON schema of CSS selectors.
 
-    No exec() or eval() — the schema is interpreted data, not code.
-    Falls back to extract_fallback if the result is empty.
+    No exec() or eval() — the schema is interpreted data, not code. Produces
+    only structured_data + extractor_version — the search text is never built
+    here; it always comes from extract_narrative_text() (trafilatura), run
+    independently in tasks.py. Falls back to extract_fallback (no structured
+    data) if no selector matched anything — that emptiness is the signal
+    _update_schema_health() uses to detect a stale schema.
     """
     try:
         from bs4 import BeautifulSoup
@@ -111,17 +115,7 @@ def schema_driven_extract(html: str, url: str, title: str, config: dict) -> dict
         extracted_fields = _extract_fields(soup, config.get("fields", {}))
         extracted_tables = _extract_tables(soup, config.get("tables", []))
 
-        text_parts = [
-            f"{k.replace('_', ' ').title()}: {v}"
-            for k, v in extracted_fields.items()
-        ]
-        for table_rows in extracted_tables:
-            for row in table_rows:
-                text_parts.append(" | ".join(f"{k}: {v}" for k, v in row.items()))
-
-        text = "\n".join(text_parts)
-
-        if not text:
+        if not extracted_fields and not extracted_tables:
             logger.info("schema_driven_extract: nenhum dado extraído — fallback")
             from .strategies import extract_fallback
             return extract_fallback(html, url, title)
@@ -133,12 +127,11 @@ def schema_driven_extract(html: str, url: str, title: str, config: dict) -> dict
             structured_data["tabelas"] = extracted_tables
 
         logger.info(
-            "schema_driven_extract: %d campos, %d tabelas, %d chars",
-            len(extracted_fields), len(extracted_tables), len(text),
+            "schema_driven_extract: %d campos, %d tabelas",
+            len(extracted_fields), len(extracted_tables),
         )
 
         return {
-            "text": text,
             "structured_data": structured_data or None,
             "extractor_version": f"schema_driven:{config.get('version', '1.0')}",
         }
