@@ -282,6 +282,25 @@
     <div class="container">
         <div class="entries-list">
 
+            <!-- Entrada 19 -->
+            <article class="entry-card">
+                <div class="entry-header">
+                    <div class="entry-meta">
+                        <span class="entry-date">12 de julho de 2026</span>
+                        <span class="entry-sep"></span>
+                        <span class="entry-author">Bonafé &amp; Claude Code</span>
+                    </div>
+                    <h2 class="entry-title">Documentação não é dado — mas o hábito de trancar tudo quase nos fez tratar as duas coisas como iguais</h2>
+                </div>
+                <div class="entry-body">
+                    <p>A pergunta era simples: "temos documentação Swagger?". A resposta revelou uma assimetria que não tínhamos notado — o orchestrator e o MCP são FastAPI, então ganham uma página de documentação interativa de graça, só por existirem. O portal é Django, e nada disso vem de brinde: os dois endpoints de token que criamos na sessão anterior não apareciam em lugar nenhum, documentados só no código-fonte. Instalamos o <code>drf-spectacular</code> pra fechar essa lacuna.</p>
+                    <p>A parte interessante veio na segunda pergunta: como publicar o Swagger do MCP, que hoje só existe dentro da rede Docker, porque decidimos deliberadamente não publicar aquela porta na sessão de autenticação? Publicar a porta de novo parecia, à primeira vista, desfazer uma decisão de segurança que tínhamos acabado de tomar. Mas as duas coisas não são o mesmo: publicar a porta expõe a <em>página de documentação</em> — texto descrevendo rotas e parâmetros — não expõe as <em>ferramentas</em> em si. São coisas diferentes que só coincidem por estarem atrás do mesmo número de porta.</p>
+                    <p>A solução foi separar as duas responsabilidades explicitamente: a porta abre, <code>/docs</code> fica de graça, mas cada rota de ferramenta (CNPJ, processos, notícias) ganhou uma dependência que exige um token novo — <code>X-Mcp-Token</code>, distinto do token que já existia entre orchestrator e portal, porque são fronteiras diferentes mesmo parecendo o mesmo padrão. O FastAPI documenta esse header automaticamente na própria spec, então quem abre o Swagger já vê, sem precisar perguntar a ninguém, que a ferramenta pede uma credencial pra funcionar de verdade — a documentação e a proteção contam a mesma história sem se contradizer.</p>
+                    <p>Isso deixou visível algo que vale carregar: documentação pública e endpoint autenticado não são opostos. Todo mundo que já usou uma API de verdade — Stripe, GitHub — sabe disso: a página de referência é aberta pra qualquer um ler, mas a chamada real pede uma chave. Tínhamos internalizado tanto o hábito de "cadeado em tudo por padrão" da sessão anterior que quase tratamos "publicar uma porta" como sinônimo de "abrir mão de segurança" — quando na verdade a pergunta certa era mais fina: o que exatamente essa porta vai deixar alguém fazer sem credencial?</p>
+                    <p><em>Nem toda porta destrancada é a mesma porta. Antes de decidir se algo deve ficar público, pergunte o que especificamente está do outro lado — às vezes é só uma placa com instruções, não a sala inteira.</em></p>
+                </div>
+            </article>
+
             <!-- Entrada 18 -->
             <article class="entry-card">
                 <div class="entry-header">

@@ -408,19 +408,30 @@ Imagem registrada como agente ou worker disponível para a organização. O Orqu
 
 # Admin Django
 /admin/                         Painel administrativo (staff only)
+
+# API e documentação (pública, ver §6)
+/api/v1/token/                  Emissão de JWT (extensão Chrome)
+/api/v1/token/refresh/          Renovação de JWT
+/api/docs/                      Swagger UI (drf-spectacular)
+/api/redoc/                     ReDoc
+/api/schema/                    OpenAPI schema (YAML/JSON)
 ```
 
 ---
 
 ## 6. Controle de Acesso
 
-A autenticação usa três mecanismos, um por fronteira. Detalhes completos em [`../../seguranca/autenticacao.md`](../../seguranca/autenticacao.md).
+A autenticação usa quatro mecanismos, um por fronteira. Detalhes completos em [`../../seguranca/autenticacao.md`](../../seguranca/autenticacao.md).
 
 **Páginas web — sessão Django (secure-by-default):** `apps/accounts/middleware.py::LoginRequiredMiddleware` exige sessão autenticada em toda URL fora de uma allowlist explícita (`/entrar/`, `/registro/`, `/admin/`, `/static/`, `/api/v1/token/`, `/artifacts/api/v1/artefatos/`). URL protegida sem sessão redireciona para `/entrar/?next=<path>`. O padrão é "protegido" — abrir uma rota é decisão explícita, não o inverso.
 
 **API da extensão — JWT:** o portal emite tokens em `/api/v1/token/` (djangorestframework-simplejwt) com as claims `tenant_id`/`username`; o orchestrator valida a assinatura e extrai a identidade das claims. Substitui a identidade auto-declarada.
 
 **API interna (orchestrator → portal) — token de serviço:** `ArtefatoCreateAPIView` exige o header `X-Internal-Token` (validado com `constant_time_compare`); sem ele, 403.
+
+**Ferramentas do MCP — token de ferramenta:** `/tools/*` no MCP exigem `X-Mcp-Token`; sem ele, 401.
+
+**Documentação da API (Swagger) — pública, sem login:** `/api/docs/`, `/api/redoc/` e `/api/schema/` no portal, e `/docs` no orchestrator e no MCP, ficam acessíveis sem sessão/token — decisão deliberada para fins didáticos e para novos desenvolvedores explorarem a API. Isso descreve o formato dos endpoints, não expõe dado nenhum; cada endpoint documentado continua exigindo sua própria credencial quando de fato chamado.
 
 **Isolamento de tenant:** as views que servem dados (`gallery`, `mhtml`, `content`, `busca`) filtram por `tenant__in=orgs_do_usuario(request.user)` — organizações do usuário derivadas via `Membership`. Acesso a artefato de outra organização por manipulação de URL retorna **404** (não vaza existência).
 

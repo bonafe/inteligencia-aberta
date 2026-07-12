@@ -65,10 +65,22 @@
     <p>Painel de gestão do banco de dados relacional: Usuários, Organizações e Logs.</p>
   </a>
 
+  <!-- Swagger da API do Portal -->
+  <a href="{% url 'swagger-ui' %}" target="_blank" class="tool-card">
+    <h3>📘 API do Portal</h3>
+    <p>Documentação interativa Swagger dos endpoints REST do portal (emissão/renovação de JWT).</p>
+  </a>
+
   <!-- Swagger da API do Orquestrador -->
   <a href="http://localhost:8001/docs" target="_blank" class="tool-card">
     <h3>🔌 API do Orquestrador</h3>
     <p>Documentação interativa Swagger para os endpoints de processamento em FastAPI.</p>
+  </a>
+
+  <!-- Swagger da API do MCP -->
+  <a href="http://localhost:8002/docs" target="_blank" class="tool-card">
+    <h3>🛠️ API do MCP</h3>
+    <p>Documentação interativa Swagger das ferramentas (CNPJ, processos, notícias). Chamadas reais exigem token.</p>
   </a>
 
   <!-- MinIO Storage -->

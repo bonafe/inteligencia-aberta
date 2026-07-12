@@ -24,6 +24,7 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "rest_framework",
     "rest_framework_simplejwt",
+    "drf_spectacular",
     "apps.accounts.apps.AccountsConfig",
     "apps.artifacts.apps.ArtifactsConfig",
     "apps.infrastructure.apps.InfrastructureConfig",
@@ -145,6 +146,26 @@ REST_FRAMEWORK = {
     "DEFAULT_PERMISSION_CLASSES": (
         "rest_framework.permissions.IsAuthenticated",
     ),
+    "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+}
+
+# drf-spectacular: gera o schema OpenAPI e o Swagger UI em /api/docs/.
+# SERVE_PERMISSIONS=AllowAny é deliberado: a página de documentação (descrição
+# dos endpoints, sem dados reais) fica pública para fins didáticos e para
+# desenvolvedores novos explorarem a API sem precisar de conta. Isso não afeta
+# a segurança dos endpoints em si — cada um continua exigindo sua própria
+# credencial (JWT, sessão ou token de serviço) quando de fato chamado.
+SPECTACULAR_SETTINGS = {
+    "TITLE": "Inteligência Aberta — API do Portal",
+    "DESCRIPTION": (
+        "Endpoints REST do portal: emissão/renovação de JWT usado pela extensão "
+        "Chrome. A criação de artefatos (canal orchestrator→portal) é uma view "
+        "Django simples protegida por token de serviço e não aparece aqui — "
+        "ver docs/seguranca/autenticacao.md."
+    ),
+    "VERSION": "1.0.0",
+    "SERVE_PERMISSIONS": ["rest_framework.permissions.AllowAny"],
+    "SERVE_AUTHENTICATION": [],
 }
 
 CELERY_BEAT_SCHEDULE = {

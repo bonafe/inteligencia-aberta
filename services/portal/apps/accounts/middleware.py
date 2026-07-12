@@ -28,6 +28,9 @@ class LoginRequiredMiddleware:
         "/static/",
         "/api/v1/token/",                # emissão/refresh de JWT (credencial no corpo)
         "/artifacts/api/v1/artefatos/",  # canal serviço-a-serviço (X-Internal-Token)
+        "/api/schema/",                  # documentação da API (drf-spectacular) —
+        "/api/docs/",                    # pública por decisão: só descreve os
+        "/api/redoc/",                   # endpoints, não expõe dado nenhum.
     )
 
     def __init__(self, get_response):

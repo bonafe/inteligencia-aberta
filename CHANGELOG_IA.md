@@ -2,6 +2,48 @@
 
 Este arquivo documenta as alterações, configurações e implementações feitas por IAs (agentes) neste repositório. O objetivo é manter um histórico unificado e transparente sobre o estado do desenvolvimento, facilitando o onboarding de novas IAs e humanos na base de código.
 
+## [12-07-2026] - Documentação Swagger no Portal + MCP publicado para fins didáticos
+
+**Contexto e motivação:**
+- Orchestrator e MCP são FastAPI e ganham Swagger UI automaticamente; o Portal (Django) não tinha nenhuma documentação interativa dos endpoints REST (`/api/v1/token/`, `/api/v1/token/refresh/`). Para a entrega da matéria de API e para onboarding de desenvolvedores, faltava paridade.
+- O Swagger do MCP também não era alcançável do host — a porta 8002 tinha sido deliberadamente deixada não-publicada na sessão de autenticação anterior (mitigação para "MCP sem autenticação"). Publicar a porta só para mostrar `/docs` reabriria as ferramentas (`/tools/cnpj`, `/tools/processos`, `/tools/noticias`) sem proteção nenhuma se nada mais mudasse.
+- Decisão validada com o usuário (duas perguntas explícitas): (1) documentação pública, sem exigir login/token — só descreve o formato da API, não expõe dado; chamadas reais continuam autenticadas; (2) publicar a porta do MCP **e** adicionar um token dedicado às ferramentas, para que expor `/docs` não signifique expor as ferramentas.
+
+**O que foi implementado:**
+
+### Portal — `drf-spectacular`
+- **`requirements.txt`:** `drf-spectacular==0.27.2`.
+- **`config/settings/base.py`:** `drf_spectacular` em INSTALLED_APPS; `REST_FRAMEWORK["DEFAULT_SCHEMA_CLASS"]`; bloco `SPECTACULAR_SETTINGS` com `SERVE_PERMISSIONS=[AllowAny]` e `SERVE_AUTHENTICATION=[]` (documentação pública, independente do `DEFAULT_PERMISSION_CLASSES=IsAuthenticated` global do DRF).
+- **`config/urls.py`:** rotas `/api/schema/` (OpenAPI cru), `/api/docs/` (Swagger UI), `/api/redoc/` (ReDoc).
+- **`apps/accounts/middleware.py`:** as três rotas entram na allowlist do `LoginRequiredMiddleware` (documentação não exige sessão).
+- **`templates/accounts/dashboard.html`:** novo card "API do Portal" apontando para o Swagger; cards de Orquestrador e MCP mantidos/adicionados.
+- Nota técnica: `ArtefatoCreateAPIView` é `django.views.View` puro (não DRF), então não aparece no schema — só os dois endpoints de token são introspeccionados automaticamente.
+
+### MCP — porta publicada + token de ferramenta
+- **`services/mcp/main.py`:** `require_mcp_token` (dependência FastAPI, `hmac.compare_digest` contra `MCP_API_TOKEN`) aplicada via `dependencies=[Depends(...)]` nas três rotas `/tools/*`; sem token válido → 401. `/docs`, `/openapi.json` e `/health` continuam sem proteção. FastAPI documenta o header `X-Mcp-Token` automaticamente na spec (por vir de um parâmetro `Header()`), então o Swagger já mostra que ele é obrigatório.
+- **`docker-compose.yml`:** `mcp` ganha `ports: ["8002:8002"]`.
+- **`.env.example` / `.env`:** `MCP_API_TOKEN` (segredo distinto do `INTERNAL_API_TOKEN` — fronteira diferente: chamada de ferramenta, não criação de artefato).
+
+### Docs
+- **`docs/seguranca/autenticacao.md`:** nova seção 4 (token de ferramenta do MCP); nova seção "Documentação da API (Swagger) — pública por decisão" explicando o porquê é seguro; tabela de segredos com `MCP_API_TOKEN`; item de hardening pendente da seção do MCP atualizado (token existe agora, falta rate limit).
+- **`docs/componentes/interfaces/web.md`:** §5 lista as novas rotas; §6 ganha uma linha sobre o token do MCP e sobre a documentação pública.
+
+**Testes realizados:**
+- Rebuild de `portal`, `worker`, `beat` (mesma imagem/`requirements.txt` — Celery também carrega `INSTALLED_APPS` no boot) e `mcp`; `up -d` para recriar com a nova porta publicada.
+- `curl`: `/api/docs/`, `/api/schema/`, `/api/redoc/` no portal → 200 sem cookie de sessão; `/docs` do MCP → 200 sem token; `/tools/cnpj/...` sem token → 401; com token errado → 401; com `MCP_API_TOKEN` correto → 200 (chamada real à BrasilAPI funcionou); `/health` do MCP → 200 sempre.
+- Schema do portal (`Accept: application/json`) lista exatamente `/api/schema/`, `/api/v1/token/`, `/api/v1/token/refresh/` — confirma que `ArtefatoCreateAPIView` não aparece, como esperado.
+- `openapi.json` do MCP confirma que `x-mcp-token` aparece como parâmetro nas três rotas de ferramenta e não aparece em `/health`.
+- Logs de `worker`/`beat`/`mcp` sem erro de import após o rebuild.
+
+**Status Atual:**
+- Portal, orchestrator e MCP têm documentação interativa acessível sem autenticação; as chamadas reais de cada API continuam exigindo seu mecanismo próprio (sessão, JWT, token de serviço, token de ferramenta).
+
+**Próximos Passos Sugeridos:**
+- Rate limit no `/tools/*` do MCP (porta agora exposta ao host permite tentativas de força bruta contra `MCP_API_TOKEN`, sem limite hoje).
+- Quando o orchestrator implementar as chamadas reais ao MCP (hoje é só um TODO em `coletor.py`), usar `MCP_API_TOKEN` no header `X-Mcp-Token`.
+
+---
+
 ## [12-07-2026] - Correção: primeiro usuário volta a virar superusuário (era especificação, não bug)
 
 **Contexto e motivação:**

@@ -27,6 +27,10 @@ services:
 
   mcp:
     build: ./services/mcp
+    # Publicado para expor /docs (Swagger) para fins didáticos. As ferramentas
+    # em si (/tools/*) continuam exigindo X-Mcp-Token — ver main.py.
+    ports:
+      - "8002:8002"
     env_file: .env
 
   db:
