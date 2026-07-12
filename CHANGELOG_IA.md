@@ -2,6 +2,55 @@
 
 Este arquivo documenta as alterações, configurações e implementações feitas por IAs (agentes) neste repositório. O objetivo é manter um histórico unificado e transparente sobre o estado do desenvolvimento, facilitando o onboarding de novas IAs e humanos na base de código.
 
+## [12-07-2026] - Camada de autenticação: sessão (web) + JWT (extensão) + token de serviço (inter-serviço) + isolamento de tenant
+
+**Contexto e motivação:**
+- Auditoria de segurança revelou que o sistema não tinha autenticação em quase nenhum endpoint. No portal, só `dashboard` e `busca` exigiam login; `ArtifactGalleryView`, `ServeMHTMLView` e `ArtifactContentView` eram acessíveis sem sessão e sem filtro de tenant — IDOR: qualquer UUID servia MHTML/texto de qualquer organização. `ArtefatoCreateAPIView` era `csrf_exempt` sem auth, confiando em `user_id`/`tenant_id` do corpo da requisição. No orchestrator, `/api/v1/capture/mhtml` e `/investigar` não tinham autenticação e a identidade era auto-declarada. A extensão Chrome mandava captura sem nenhuma credencial (user_id/tenant_id eram texto livre no popup).
+- Decisão de arquitetura (validada com o usuário): usar cada mecanismo na fronteira adequada, em vez de um esquema único. JWT (tecnologia da disciplina) entra onde se justifica — o cliente externo não confiável (extensão). Hardening de configuração (CORS wildcard, SECRET_KEY, DEBUG) ficou fora desta rodada por decisão explícita.
+
+**O que foi implementado:**
+
+### Portal Django — emissão de JWT + token de serviço + login obrigatório + isolamento de tenant
+- **`requirements.txt`:** `djangorestframework==3.15.2`, `djangorestframework-simplejwt==5.3.1`. DRF é usado apenas nas rotas de token; as demais views continuam `django.views.View` puras com sessão.
+- **`config/settings/base.py`:** `rest_framework`/`rest_framework_simplejwt` em INSTALLED_APPS; `LoginRequiredMiddleware` na pilha (após AuthenticationMiddleware); blocos `SIMPLE_JWT` (HS256, access 12h/refresh 7d), `REST_FRAMEWORK`, e os segredos `JWT_SIGNING_KEY` (cai para SECRET_KEY) e `INTERNAL_API_TOKEN`.
+- **`apps/accounts/serializers.py` (novo):** `TenantTokenObtainPairSerializer` embute claims `tenant_id` (org onde o usuário é OWNER, senão a primeira Membership) e `username` no access token — assim o orchestrator lê a identidade sem tocar o banco.
+- **`config/urls.py`:** rotas `/api/v1/token/` e `/api/v1/token/refresh/`.
+- **`apps/accounts/middleware.py` (novo):** `LoginRequiredMiddleware` — exige sessão em toda URL fora de uma allowlist explícita (secure-by-default). Substitui o padrão de decorar view a view, cujo esquecimento causou o IDOR. Escrito à mão porque o middleware nativo do Django só existe a partir da 5.1 (projeto está no 5.0.6).
+- **`apps/accounts/views.py`:** helper `orgs_do_usuario(user)` (organizações via Membership); removida a auto-promoção do primeiro registro a `is_superuser` (escalada de privilégio por corrida).
+- **`apps/artifacts/views.py`:** `ArtefatoCreateAPIView` valida `X-Internal-Token` com `constant_time_compare` (403 sem token), exige `user_id`/`tenant_id` e valida `Membership` (removido o fallback "primeiro usuário" que causou o 400 da sessão anterior e permitia escrita em tenant arbitrário); `gallery`/`mhtml`/`content` filtram por `tenant__in=orgs_do_usuario(...)` (404 no IDOR).
+
+### Orchestrator — validação de JWT + repasse de token de serviço
+- **`requirements.txt`:** `pyjwt==2.9.0`.
+- **`main.py`:** dependência `require_jwt` (decodifica o Bearer com `JWT_SIGNING_KEY`, HS256; 401 em ausente/inválido/expirado; exige claims de identidade) aplicada em `/api/v1/capture/mhtml` e `/investigar`. `user_id`/`tenant_id` passam a vir das claims (removidos os `Form(None)` e o `InvestigationRequest.tenant_id`/`user_id`). A chamada httpx ao portal envia `X-Internal-Token`.
+
+### Extensão Chrome — login e Bearer
+- **`popup.html`/`popup.js`:** seção "Identificação" (UUIDs manuais) substituída por "Conta" com login usuário/senha → `POST /api/v1/token/` → guarda access/refresh em `chrome.storage.local`; indicador "logado como X" + botão Sair; botão Capturar desabilitado sem login.
+- **`background.js`:** lê o access token do storage e envia `Authorization: Bearer`; trata 401 como "faça login novamente" (via `NeedsLoginError`); parou de anexar user_id/tenant_id ao FormData.
+
+### Infra e docs
+- **`.env.example` / `.env`:** `JWT_SIGNING_KEY` e `INTERNAL_API_TOKEN` (todos os serviços já carregam via `env_file`, não precisou mexer no compose).
+- **`docs/seguranca/autenticacao.md` (novo):** documenta as três camadas, o fluxo de token da extensão e os segredos.
+- **`docs/componentes/interfaces/web.md` §6:** reescrito para o modelo implementado.
+
+### Correções de UX encontradas testando o fluxo de sessão (mesma sessão)
+- **`templates/base.html`:** o link "Sair" era um `<a href="/sair/">` (GET) — desde o Django 4.1, `LogoutView` só aceita POST (proteção contra logout forjado via link/CSRF), então o botão sempre retornou 405, silenciosamente, mesmo antes desta rodada. Trocado por `<form method="post">` com `{% csrf_token %}`, estilizado para se comportar como link.
+- **`templates/artifacts/gallery.html`:** página standalone (tema escuro próprio) que não estende `base.html`, logo não herdava a navbar/link "Painel" — não havia como voltar ao dashboard a partir do visualizador. Adicionado botão "← Painel" no cabeçalho.
+- Achado ao investigar por que a sessão sobrevivia a fechar o navegador: comportamento esperado do Django (`SESSION_EXPIRE_AT_BROWSER_CLOSE=False` por padrão, cookie válido por 14 dias) — mantido assim por decisão consciente, documentado, não é bug.
+
+**Testes realizados:**
+- `python -m py_compile` limpo em todos os arquivos Python alterados (portal + orchestrator).
+- Ponta-a-ponta com containers reais (`docker compose build portal orchestrator && ./scripts/subir_containers.sh`, `createsuperuser`): token emite com claims `tenant_id`/`username`; API interna do portal 403 sem `X-Internal-Token`; orchestrator 401 sem `Authorization`, 200 com Bearer válido; captura completa extensão→orchestrator→portal cria artefato no tenant correto; segundo usuário recebe 404 ao tentar acessar artefato de outro tenant (`content` e `gallery`); dono acessa seu próprio artefato normalmente; logs de portal/orchestrator/worker sem exceções inesperadas.
+- Correções de UX verificadas via `django.test.Client`: dashboard renderiza o `<form action="/sair/">`; `POST /sair/` retorna 302 e a sessão de fato encerra (`GET /` pós-logout redireciona); galeria contém o link "Painel" apontando para `/`.
+
+**Status Atual:**
+- As três fronteiras (páginas web, API da extensão, canal inter-serviço) exigem credencial; IDOR de leitura fechado por filtro de tenant; logout e navegação de volta ao painel funcionando. Verificação ponta-a-ponta completa.
+
+**Próximos Passos Sugeridos:**
+- Segunda rodada de hardening: CORS do orchestrator restrito à extensão, rodar em `production.py`, rate-limit no endpoint de token.
+- Autorização por papel (`Membership.role`) para operações administrativas — ainda não implementada, mencionada como evolução em `docs/componentes/interfaces/web.md` §6.
+
+---
+
 ## [12-07-2026] - Script de subida reinicia worker/beat automaticamente + diagnóstico de 400 na extensão
 
 **Contexto e motivação:**

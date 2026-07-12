@@ -3,9 +3,10 @@ const LLM_BLOCKED_LEVELS = new Set(['restrito', 'confidencial']);
 const DEFAULTS = {
   classification_level: 'restrito',
   allow_external_llm: false,
-  user_id: '',
-  tenant_id: '',
 };
+
+const TOKEN_URL = 'http://localhost:8000/api/v1/token/';
+const AUTH_KEY = 'auth';  // chave global (a identidade é da conta, não do domínio)
 
 let currentDomain = '';
 
@@ -15,25 +16,95 @@ async function init() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab || !tab.url) {
     setDomain('—', false);
+  } else {
+    try {
+      const { hostname } = new URL(tab.url);
+      currentDomain = hostname.replace(/^www\./, '');
+    } catch {
+      currentDomain = '';
+    }
+    setDomain(currentDomain || '—', false);
+
+    const key = storageKey(currentDomain);
+    const stored = await chrome.storage.local.get(key);
+    const saved = stored[key] || null;
+    applyConfig(saved || DEFAULTS);
+    setBadge(!!saved);
+    updateLlmWarning();
+  }
+
+  await refreshAuthUI();
+}
+
+// ── Autenticação ─────────────────────────────────────────────────────────────
+
+async function getAuth() {
+  const stored = await chrome.storage.local.get(AUTH_KEY);
+  return stored[AUTH_KEY] || null;
+}
+
+async function refreshAuthUI() {
+  const auth = await getAuth();
+  const loggedIn = !!(auth && auth.access);
+
+  document.getElementById('login-form').style.display = loggedIn ? 'none' : 'block';
+  document.getElementById('account-info').style.display = loggedIn ? 'block' : 'none';
+  if (loggedIn) {
+    document.getElementById('account-username').textContent = auth.username || '—';
+  }
+
+  // Sem login, não dá para capturar (o orchestrator exige Bearer).
+  const captureBtn = document.getElementById('captureBtn');
+  captureBtn.disabled = !loggedIn;
+  captureBtn.title = loggedIn ? '' : 'Faça login para capturar';
+}
+
+async function doLogin() {
+  const username = document.getElementById('login_username').value.trim();
+  const password = document.getElementById('login_password').value;
+  if (!username || !password) {
+    showStatus('❌ Informe usuário e senha', 'error');
     return;
   }
 
+  const btn = document.getElementById('loginBtn');
+  btn.disabled = true;
+  btn.textContent = 'Entrando…';
+
   try {
-    const { hostname } = new URL(tab.url);
-    currentDomain = hostname.replace(/^www\./, '');
-  } catch {
-    currentDomain = '';
+    const resp = await fetch(TOKEN_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password }),
+    });
+
+    if (!resp.ok) {
+      showStatus(resp.status === 401 ? '❌ Usuário ou senha inválidos' : `❌ Erro ${resp.status}`, 'error');
+      return;
+    }
+
+    const { access, refresh } = await resp.json();
+    await chrome.storage.local.set({
+      [AUTH_KEY]: { access, refresh, username, saved_at: new Date().toISOString() },
+    });
+    document.getElementById('login_password').value = '';
+    showStatus('✅ Login efetuado', 'success');
+    setTimeout(hideStatus, 2000);
+    await refreshAuthUI();
+  } catch (err) {
+    showStatus('❌ Não foi possível conectar ao portal', 'error');
+    console.error(err);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Entrar';
   }
+}
 
-  setDomain(currentDomain || '—', false);
-
-  const key = storageKey(currentDomain);
-  const stored = await chrome.storage.local.get(key);
-  const saved = stored[key] || null;
-
-  applyConfig(saved || DEFAULTS);
-  setBadge(!!saved);
-  updateLlmWarning();
+async function doLogout() {
+  await chrome.storage.local.remove(AUTH_KEY);
+  await refreshAuthUI();
+  showStatus('Sessão encerrada', 'info');
+  setTimeout(hideStatus, 2000);
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -59,15 +130,11 @@ function setBadge(configured) {
 }
 
 function applyConfig(config) {
-  // Classification level
   LEVELS.forEach(level => {
     document.getElementById(`level_${level}`)
       .classList.toggle('active', config.classification_level === level);
   });
-
   document.getElementById('llm_toggle').checked = !!config.allow_external_llm;
-  document.getElementById('user_id').value = config.user_id || '';
-  document.getElementById('tenant_id').value = config.tenant_id || '';
 }
 
 function readConfig() {
@@ -78,8 +145,6 @@ function readConfig() {
   return {
     classification_level: activeLevel,
     allow_external_llm: document.getElementById('llm_toggle').checked,
-    user_id: document.getElementById('user_id').value.trim(),
-    tenant_id: document.getElementById('tenant_id').value.trim(),
   };
 }
 
@@ -117,13 +182,11 @@ LEVELS.forEach(level => {
 // Toggle LLM
 document.getElementById('llm_toggle').addEventListener('change', updateLlmWarning);
 
-// Colapsável Identificação
-document.getElementById('advanced-header').addEventListener('click', () => {
-  document.getElementById('advanced-body').classList.toggle('open');
-  document.getElementById('chevron').classList.toggle('open');
-});
+// Login / logout
+document.getElementById('loginBtn').addEventListener('click', doLogin);
+document.getElementById('logoutBtn').addEventListener('click', doLogout);
 
-// Salvar configuração
+// Salvar configuração do domínio
 document.getElementById('saveBtn').addEventListener('click', async () => {
   if (!currentDomain) return;
 
@@ -153,6 +216,9 @@ document.getElementById('captureBtn').addEventListener('click', async () => {
 
     if (response.success) {
       showStatus('✅ Capturado com sucesso!', 'success');
+    } else if (response.needsLogin) {
+      showStatus('❌ Sessão expirada — entre novamente', 'error');
+      await refreshAuthUI();
     } else {
       showStatus('❌ ' + (response.error || 'Erro desconhecido'), 'error');
     }
@@ -161,8 +227,8 @@ document.getElementById('captureBtn').addEventListener('click', async () => {
     console.error(err);
   }
 
-  btn.disabled = false;
   btn.textContent = 'Capturar e Enviar';
+  await refreshAuthUI();  // reabilita o botão conforme o estado de login
 });
 
 // ── Iniciar ──────────────────────────────────────────────────────────────────

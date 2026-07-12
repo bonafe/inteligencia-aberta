@@ -414,25 +414,17 @@ Imagem registrada como agente ou worker disponível para a organização. O Orqu
 
 ## 6. Controle de Acesso
 
-O controle de acesso é aplicado em dois níveis:
+A autenticação usa três mecanismos, um por fronteira. Detalhes completos em [`../../seguranca/autenticacao.md`](../../seguranca/autenticacao.md).
 
-**Nível 1 — Autenticação:** Todas as URLs exceto `/accounts/login/` e `/accounts/registro/` exigem sessão autenticada. Redireciona para login em caso negativo.
+**Páginas web — sessão Django (secure-by-default):** `apps/accounts/middleware.py::LoginRequiredMiddleware` exige sessão autenticada em toda URL fora de uma allowlist explícita (`/entrar/`, `/registro/`, `/admin/`, `/static/`, `/api/v1/token/`, `/artifacts/api/v1/artefatos/`). URL protegida sem sessão redireciona para `/entrar/?next=<path>`. O padrão é "protegido" — abrir uma rota é decisão explícita, não o inverso.
 
-**Nível 2 — Autorização:** Views verificam o papel do usuário na organização ativa.
+**API da extensão — JWT:** o portal emite tokens em `/api/v1/token/` (djangorestframework-simplejwt) com as claims `tenant_id`/`username`; o orchestrator valida a assinatura e extrai a identidade das claims. Substitui a identidade auto-declarada.
 
-```python
-# Hierarquia de acesso nas views
-def requer_papel(papel_minimo):
-    """Decorador que verifica papel mínimo na organização ativa."""
-    ...
+**API interna (orchestrator → portal) — token de serviço:** `ArtefatoCreateAPIView` exige o header `X-Internal-Token` (validado com `constant_time_compare`); sem ele, 403.
 
-# Exemplos de aplicação
-@requer_papel("member")   # ver artefatos da própria org
-@requer_papel("admin")    # convidar membros
-@requer_papel("owner")    # ver auditoria completa, deletar org
-```
+**Isolamento de tenant:** as views que servem dados (`gallery`, `mhtml`, `content`, `busca`) filtram por `tenant__in=orgs_do_usuario(request.user)` — organizações do usuário derivadas via `Membership`. Acesso a artefato de outra organização por manipulação de URL retorna **404** (não vaza existência).
 
-**Isolamento de tenant:** Toda query a `Artifact`, `AuditLog`, `Sharing` e `Team` é filtrada por `tenant=request.user.organizacao_ativa`. Impossível acessar dado de outra organização por manipulação de URL.
+**Autorização por papel** (`Membership.role`: owner/admin/member/guest) para operações administrativas (convidar membros, ver auditoria, deletar org) permanece como evolução planejada — ainda não implementada como decorator.
 
 ---
 

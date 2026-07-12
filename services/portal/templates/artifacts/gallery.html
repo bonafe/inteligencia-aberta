@@ -48,6 +48,20 @@
             flex-shrink: 0;
         }
         header h1 { font-size: 1.2rem; font-weight: 600; }
+        header .header-left { display: flex; align-items: center; gap: 1rem; }
+        .btn-back {
+            color: var(--text-muted);
+            font-size: 0.85rem;
+            text-decoration: none;
+            display: flex;
+            align-items: center;
+            gap: 0.3rem;
+            padding: 0.3rem 0.6rem;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            transition: color 0.15s, border-color 0.15s;
+        }
+        .btn-back:hover { color: var(--text-main); border-color: var(--accent); }
 
         /* Carousel */
         .carousel-container {
@@ -317,7 +331,10 @@
 <body>
 
 <header>
-    <h1>Inteligência Aberta — Visualizador de Capturas</h1>
+    <div class="header-left">
+        <a href="{% url 'dashboard' %}" class="btn-back">← Painel</a>
+        <h1>Inteligência Aberta — Visualizador de Capturas</h1>
+    </div>
 </header>
 
 <div class="carousel-container" id="carousel">

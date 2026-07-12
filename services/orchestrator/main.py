@@ -2,8 +2,9 @@ import os
 import uuid
 import json
 import httpx
+import jwt
 from io import BytesIO
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Depends, Header
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from minio import Minio
@@ -11,7 +12,33 @@ from policy_engine import check
 
 PORTAL_URL = os.getenv("PORTAL_URL", "http://portal:8000")
 
+# Segredos compartilhados com o portal (ver services/portal/config/settings/base.py):
+# JWT_SIGNING_KEY valida os tokens da extensão; INTERNAL_API_TOKEN autentica a
+# chamada serviço-a-serviço de criação de artefato.
+JWT_SIGNING_KEY = os.getenv("JWT_SIGNING_KEY", "")
+INTERNAL_API_TOKEN = os.getenv("INTERNAL_API_TOKEN", "")
+
 app = FastAPI(title="Orquestrador — Inteligência Aberta")
+
+
+def require_jwt(authorization: str = Header(None)) -> dict:
+    """Valida o Bearer JWT emitido pelo portal e devolve as claims.
+
+    A identidade (user_id/tenant_id) passa a vir das claims assinadas, não mais
+    de campos auto-declarados pelo cliente. 401 em token ausente/inválido/expirado.
+    """
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Token de autenticação ausente")
+    token = authorization.split(" ", 1)[1]
+    try:
+        claims = jwt.decode(token, JWT_SIGNING_KEY, algorithms=["HS256"])
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Token expirado")
+    except jwt.InvalidTokenError:
+        raise HTTPException(status_code=401, detail="Token inválido")
+    if not claims.get("user_id") or not claims.get("tenant_id"):
+        raise HTTPException(status_code=401, detail="Token sem identidade de tenant")
+    return claims
 
 # Habilitar CORS para a extensão do Chrome
 app.add_middleware(
@@ -40,18 +67,18 @@ if not minio_client.bucket_exists(MHTML_BUCKET_NAME):
     minio_client.make_bucket(MHTML_BUCKET_NAME)
 class InvestigationRequest(BaseModel):
     query: str
-    tenant_id: str
     classification: str = "restrito"
-    user_id: str
 
 
 @app.post("/investigar")
-async def investigar(request: InvestigationRequest):
+async def investigar(request: InvestigationRequest, claims: dict = Depends(require_jwt)):
+    # tenant_id/user_id vêm das claims autenticadas, não do corpo da requisição.
+    tenant_id = claims["tenant_id"]
     policy = check(
         operation="chamar_llm_externo",
         classification=request.classification,
-        tenant_id=request.tenant_id,
-        requesting_tenant=request.tenant_id,
+        tenant_id=tenant_id,
+        requesting_tenant=tenant_id,
     )
     if policy["decision"] == "BLOQUEADO":
         raise HTTPException(status_code=403, detail=policy["reason"])
@@ -66,11 +93,13 @@ async def capture_mhtml(
     url: str = Form(...),
     title: str = Form(""),
     timestamp: str = Form(...),
-    user_id: str | None = Form(None),
-    tenant_id: str | None = Form(None),
     classification_level: str = Form("restrito"),
     allow_external_llm: bool = Form(False),
+    claims: dict = Depends(require_jwt),
 ):
+    # Identidade autenticada — vinda do JWT, não de campos do formulário.
+    user_id = claims["user_id"]
+    tenant_id = claims["tenant_id"]
     try:
         # Lê o conteúdo do arquivo
         content = await file.read()
@@ -89,7 +118,9 @@ async def capture_mhtml(
             content_type=file.content_type or "application/x-mimearchive"
         )
         
-        # Registra o artefato no Portal via API Django (dispara o pipeline automaticamente)
+        # Registra o artefato no Portal via API Django (dispara o pipeline automaticamente).
+        # X-Internal-Token autentica o canal serviço-a-serviço; user_id/tenant_id
+        # vêm do JWT já validado, então o portal pode confiar neles.
         try:
             resp = httpx.post(
                 f"{PORTAL_URL}/artifacts/api/v1/artefatos/",
@@ -109,6 +140,7 @@ async def capture_mhtml(
                     "info_type": "fato",
                     "sources": [],
                 },
+                headers={"X-Internal-Token": INTERNAL_API_TOKEN},
                 timeout=10.0,
             )
             resp.raise_for_status()

@@ -58,6 +58,15 @@
     .message.error { background: #fee2e2; color: #b91c1c; }
     .message.success { background: #d1fae5; color: #065f46; }
     .message.info { background: #dbeafe; color: #1e40af; }
+
+    /* Logout como <form>/<button> (LogoutView exige POST desde o Django 4.1),
+       estilizado para se comportar visualmente como os demais links da nav. */
+    .nav-links form { display: inline; }
+    .nav-links .link-btn {
+      background: none; border: none; padding: 0; margin: 0;
+      color: #cbd5e1; font-size: .9rem; font-family: inherit; cursor: pointer;
+    }
+    .nav-links .link-btn:hover { color: #fff; text-decoration: underline; }
   </style>
   {% block extra_head %}{% endblock %}
 </head>
@@ -70,7 +79,10 @@
         <a href="{% url 'artifacts:busca' %}">Busca</a>
         <a href="{% url 'artifacts:gallery' %}">Galeria OSINT</a>
         <span style="color:#94a3b8;font-size:.85rem;margin-left:1rem;">{{ user.username }}</span>
-        <a href="{% url 'logout' %}">Sair</a>
+        <form method="post" action="{% url 'logout' %}">
+          {% csrf_token %}
+          <button type="submit" class="link-btn">Sair</button>
+        </form>
       {% else %}
         <a href="{% url 'login' %}">Entrar</a>
         <a href="{% url 'registro' %}">Criar conta</a>

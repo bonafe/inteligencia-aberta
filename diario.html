@@ -282,6 +282,27 @@
     <div class="container">
         <div class="entries-list">
 
+            <!-- Entrada 17 -->
+            <article class="entry-card">
+                <div class="entry-header">
+                    <div class="entry-meta">
+                        <span class="entry-date">12 de julho de 2026</span>
+                        <span class="entry-sep"></span>
+                        <span class="entry-author">Bonafé &amp; Claude Code</span>
+                    </div>
+                    <h2 class="entry-title">A porta estava destrancada esse tempo todo</h2>
+                </div>
+                <div class="entry-body">
+                    <p>Descobrimos, quase por acaso, que dava para abrir a galeria de documentos sem passar pela tela de login. Digitar a URL direto no navegador bastava. E não era só a galeria: o visualizador de MHTML e o endpoint que devolve o texto extraído respondiam a qualquer um que soubesse o UUID do artefato — inclusive artefatos de outra organização. O sistema inteiro assumia que quem chegava até ele já era de confiança. Nunca perguntava "quem é você?".</p>
+                    <p>A tentação era sair decorando cada view com <code>@login_required</code>. Mas foi exatamente esse padrão — proteger uma de cada vez e confiar em lembrar de todas — que criou o buraco: três views ficaram sem o decorator e ninguém notou. A decisão foi inverter o default. Um middleware passa a exigir sessão em toda URL, e as poucas rotas públicas (login, registro, a emissão de token) entram numa lista de exceções explícita e curta. Esquecer agora falha para o lado seguro: a rota nova nasce trancada, e destrancá-la é uma linha que aparece no diff.</p>
+                    <p>A pergunta mais interessante não era o login das páginas, e sim a autenticação da API. Na aula tinha aparecido JWT, e a pergunta natural era "usa JWT em tudo?". A resposta que chegamos foi mais precisa: cada fronteira tem um cliente diferente, e cada cliente pede um mecanismo diferente. O navegador de uma pessoa já tem cookies e sessão — usar JWT ali seria reinventar o que o Django já faz bem. A extensão do Chrome é outra história: é um cliente externo, e até ontem a "identidade" que ela mandava era um UUID digitado à mão num campo de texto — qualquer pessoa podia se dizer qualquer organização. É aí que o JWT se justifica: a pessoa faz login uma vez, recebe um token assinado que carrega quem ela é e a que organização pertence, e o orchestrator confere a assinatura sem precisar consultar o banco nem confiar em nada que o cliente afirme por fora do token.</p>
+                    <p>E há uma terceira conversa, invisível ao usuário: o orchestrator chamando o portal para registrar o artefato. Aqui quem fala não é uma pessoa, é um serviço falando com outro na rede interna. JWT de usuário não faz sentido — o que faz sentido é um segredo compartilhado que só os dois conhecem, um header que diz "sou eu, o orchestrator". Três fronteiras, três mecanismos, cada um no lugar onde é a ferramenta certa — não uma martelada de JWT em tudo porque foi o que a aula mostrou.</p>
+                    <p>No caminho, dois problemas antigos se resolveram sozinhos. O 400 misterioso da sessão passada — a extensão não conseguia registrar a captura — era o mesmo fallback silencioso que, sem usuário no banco, não tinha para onde cair; ele saiu junto com a identidade auto-declarada. E a auto-promoção do primeiro cadastro a superusuário, uma conveniência de desenvolvimento, era na verdade uma corrida: o primeiro estranho a achar a URL de registro virava dono do sistema. Também foi embora.</p>
+                    <p>Só que exigir login em tudo tem um efeito colateral bom: expõe furos que ninguém tinha ido olhar de perto, porque ninguém realmente <em>vivia</em> logado no sistema antes. O botão "Sair" nunca tinha funcionado — era um link comum, e desde a versão 4.1 do Django o logout só aceita POST, por segurança (um GET pode ser forjado por qualquer página que saiba a URL). Ninguém tinha notado porque ninguém ficava logado tempo suficiente para precisar sair. E o visualizador de MHTML, por ter um layout próprio isolado do resto do site, nunca ganhou um link de volta para o painel — cada tela nova do sistema tinha sido pensada como destino, nunca como escala. Duas correções pequenas, nenhuma delas parte do plano original, as duas só visíveis porque finalmente alguém estava logado o tempo todo para tropeçar nelas.</p>
+                    <p><em>Segurança que depende de lembrar de proteger cada porta é segurança que uma hora vai esquecer uma. O padrão precisa ser o tranco, não a exceção — e forçar login por padrão também força alguém a de fato viver dentro do sistema, o que é a única forma confiável de achar os furos que só aparecem no uso real.</em></p>
+                </div>
+            </article>
+
             <!-- Entrada 16 -->
             <article class="entry-card">
                 <div class="entry-header">

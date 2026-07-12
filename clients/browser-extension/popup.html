@@ -262,18 +262,29 @@
   </div>
 
   <div class="section">
-    <div class="collapsible-header" id="advanced-header">
-      <span class="section-label">Identificação</span>
-      <span class="chevron" id="chevron">▼</span>
-    </div>
-    <div class="collapsible-body" id="advanced-body">
+    <div class="section-label">Conta</div>
+
+    <!-- Deslogado: formulário de login -->
+    <div id="login-form">
       <div class="field-row">
-        <label class="field-label" for="user_id">ID do usuário (UUID)</label>
-        <input class="field-input" type="text" id="user_id" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
+        <label class="field-label" for="login_username">Usuário</label>
+        <input class="field-input" type="text" id="login_username" autocomplete="username">
       </div>
       <div class="field-row">
-        <label class="field-label" for="tenant_id">ID da organização (UUID)</label>
-        <input class="field-input" type="text" id="tenant_id" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
+        <label class="field-label" for="login_password">Senha</label>
+        <input class="field-input" type="password" id="login_password" autocomplete="current-password">
+      </div>
+      <button class="btn btn-secondary" id="loginBtn" style="margin-top:8px;">Entrar</button>
+    </div>
+
+    <!-- Logado: identidade + sair -->
+    <div id="account-info" style="display:none;">
+      <div class="toggle-row">
+        <div class="toggle-text">
+          <div class="toggle-title">Logado como <span id="account-username">—</span></div>
+          <div class="toggle-sub" id="account-sub">Sessão ativa</div>
+        </div>
+        <button class="btn btn-secondary" id="logoutBtn" style="width:auto;padding:6px 12px;">Sair</button>
       </div>
     </div>
   </div>

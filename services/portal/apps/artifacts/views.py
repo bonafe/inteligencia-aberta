@@ -3,13 +3,14 @@ import email
 import json
 import logging
 import os
-import uuid
 from email import policy
 
+from django.conf import settings
 from django.http import HttpResponse, Http404, JsonResponse
 
 logger = logging.getLogger(__name__)
 from django.shortcuts import render, get_object_or_404
+from django.utils.crypto import constant_time_compare
 from django.utils.decorators import method_decorator
 from django.views import View
 from django.views.decorators.clickjacking import xframe_options_sameorigin
@@ -18,7 +19,8 @@ from django.views.decorators.csrf import csrf_exempt
 from minio import Minio
 from minio.error import S3Error
 
-from apps.accounts.models import Organization, User
+from apps.accounts.models import Membership, Organization, User
+from apps.accounts.views import orgs_do_usuario
 from .models import Artifact, DocumentText
 
 @method_decorator(csrf_exempt, name="dispatch")
@@ -26,6 +28,14 @@ class ArtefatoCreateAPIView(View):
     """Endpoint interno para criação de artefatos via ORM (dispara signal → pipeline)."""
 
     def post(self, request):
+        # Canal serviço-a-serviço: só o orchestrator (portador do INTERNAL_API_TOKEN)
+        # pode criar artefatos por aqui. constant_time_compare evita timing attack.
+        expected = getattr(settings, "INTERNAL_API_TOKEN", "")
+        provided = request.headers.get("X-Internal-Token", "")
+        if not expected or not constant_time_compare(provided, expected):
+            logger.warning("artefato recusado — X-Internal-Token ausente ou inválido")
+            return JsonResponse({"error": "Não autorizado"}, status=403)
+
         try:
             data = json.loads(request.body)
         except json.JSONDecodeError:
@@ -38,13 +48,28 @@ class ArtefatoCreateAPIView(View):
             data.get("user_id"), data.get("tenant_id"),
         )
 
-        user = self._resolve_user(data.get("user_id"))
-        if user is None:
-            return JsonResponse({"error": "Nenhum usuário encontrado"}, status=400)
-        logger.info("usuário resolvido — id=%s email=%s", user.id, user.email)
+        # user_id/tenant_id agora vêm de um JWT já validado pelo orchestrator —
+        # são obrigatórios e devem ser consistentes (o usuário pertence ao tenant).
+        # Sem fallback "primeiro usuário": ele mascarava erros e permitia escrita
+        # em tenant arbitrário.
+        user_id = data.get("user_id")
+        tenant_id = data.get("tenant_id")
+        if not user_id or not tenant_id:
+            return JsonResponse({"error": "user_id e tenant_id são obrigatórios"}, status=400)
 
-        org = self._resolve_org(data.get("tenant_id"), user)
-        logger.info("organização resolvida — id=%s nome=%s tipo=%s", org.id, org.name, org.org_type)
+        user = User.objects.filter(id=user_id).first()
+        if user is None:
+            return JsonResponse({"error": "Usuário não encontrado"}, status=400)
+
+        org = Organization.objects.filter(id=tenant_id).first()
+        if org is None:
+            return JsonResponse({"error": "Organização não encontrada"}, status=400)
+
+        if not Membership.objects.filter(user=user, organization=org).exists():
+            logger.warning("artefato recusado — usuário %s não pertence ao tenant %s", user_id, tenant_id)
+            return JsonResponse({"error": "Usuário não pertence à organização"}, status=403)
+
+        logger.info("usuário/organização validados — user=%s org=%s", user.id, org.id)
 
         # Validate allow_external_llm against classification level (mirrors policy_engine logic)
         requested_llm = bool(data.get("allow_external_llm", False))
@@ -70,26 +95,6 @@ class ArtefatoCreateAPIView(View):
         )
 
         return JsonResponse({"artifact_id": str(artifact.id)}, status=201)
-
-    def _resolve_user(self, user_id):
-        if user_id:
-            return User.objects.filter(id=user_id).first()
-        return User.objects.order_by("date_joined").first()
-
-    def _resolve_org(self, tenant_id, user):
-        if tenant_id:
-            org = Organization.objects.filter(id=tenant_id).first()
-            if org:
-                return org
-        org = Organization.objects.filter(owner=user).first()
-        if org:
-            return org
-        return Organization.objects.create(
-            name="Uso Individual",
-            slug=f"individual-{str(uuid.uuid4())[:8]}",
-            org_type=Organization.Type.INDIVIDUAL,
-            owner=user,
-        )
 
 
 @method_decorator(login_required, name="dispatch")
@@ -153,16 +158,20 @@ class BuscaSemanticaView(View):
 
 class ArtifactGalleryView(View):
     def get(self, request):
-        # Pega todos os documentos, ordenando pelos mais recentes
-        artifacts_qs = Artifact.objects.filter(artifact_type="documento").order_by("-created_at")
-        
+        # Isolamento de tenant: só documentos das organizações do usuário.
+        orgs = orgs_do_usuario(request.user)
+        artifacts_qs = (
+            Artifact.objects.filter(artifact_type="documento", tenant__in=orgs)
+            .order_by("-created_at")
+        )
+
         valid_artifacts = []
         for artifact in artifacts_qs:
             content = artifact.content or {}
             # Filtra apenas os que possuem MHTML
             if content.get("mhtml_path"):
                 valid_artifacts.append(artifact)
-                
+
         context = {
             "artifacts": valid_artifacts
         }
@@ -171,7 +180,8 @@ class ArtifactGalleryView(View):
 class ServeMHTMLView(View):
     @method_decorator(xframe_options_sameorigin)
     def get(self, request, artifact_id):
-        artifact = get_object_or_404(Artifact, id=artifact_id)
+        # Isolamento de tenant: 404 (não 403) para artefato de outra org — não vaza existência.
+        artifact = get_object_or_404(Artifact, id=artifact_id, tenant__in=orgs_do_usuario(request.user))
         content = artifact.content or {}
         
         mhtml_path = content.get("mhtml_path")
@@ -251,7 +261,8 @@ class ArtifactContentView(View):
     """Retorna texto extraído e dados estruturados de um artefato (usado via AJAX pelo visualizador)."""
 
     def get(self, request, artifact_id):
-        artifact = get_object_or_404(Artifact, id=artifact_id)
+        # Isolamento de tenant: 404 para artefato de outra org.
+        artifact = get_object_or_404(Artifact, id=artifact_id, tenant__in=orgs_do_usuario(request.user))
         try:
             doc_text = artifact.extracted_text
         except DocumentText.DoesNotExist:
