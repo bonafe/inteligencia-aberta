@@ -1,4 +1,4 @@
-from django.contrib.auth import login
+from django.contrib.auth import get_user_model, login
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import redirect, render
 from django.utils.text import slugify
@@ -25,9 +25,19 @@ def registro(request):
         if form.is_valid():
             user = form.save(commit=False)
             user.email = form.cleaned_data["email"]
-            # Registro é aberto e cria um usuário comum. Superusuário/staff é
-            # provisionado apenas via `manage.py createsuperuser` — auto-promover
-            # o primeiro cadastro seria escalada de privilégio por corrida.
+
+            # Regra de especificação (Fase 0): o primeiro usuário a se cadastrar
+            # no sistema vira superusuário. Isso faz o próprio registro bootstrapar
+            # o admin — quem instala o sistema não precisa rodar
+            # `manage.py createsuperuser` à parte. O risco aceito é operacional,
+            # não de código: quem sobe o ambiente deve criar sua conta antes de
+            # expor a porta do portal publicamente (mesma janela de setup que
+            # qualquer app self-hosted com bootstrap por primeiro-usuário).
+            User = get_user_model()
+            if not User.objects.exists():
+                user.is_staff = True
+                user.is_superuser = True
+
             user.save()
             org = Organization.objects.create(
                 name=user.username,

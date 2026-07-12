@@ -2,6 +2,27 @@
 
 Este arquivo documenta as alterações, configurações e implementações feitas por IAs (agentes) neste repositório. O objetivo é manter um histórico unificado e transparente sobre o estado do desenvolvimento, facilitando o onboarding de novas IAs e humanos na base de código.
 
+## [12-07-2026] - Correção: primeiro usuário volta a virar superusuário (era especificação, não bug)
+
+**Contexto e motivação:**
+- Na sessão da camada de autenticação (entrada abaixo, mesma data), a auto-promoção do primeiro cadastro a `is_superuser`/`is_staff` foi removida por interpretação equivocada: parecia escalada de privilégio por corrida num registro aberto. O usuário corrigiu — essa promoção **é especificação intencional**: o primeiro usuário virar superusuário é o mecanismo de bootstrap do admin, para que quem instale o sistema não precise rodar `manage.py createsuperuser` separadamente. É um trade-off aceito (janela de corrida numa instância recém-implantada), não um descuido.
+- Importante distinguir de um mecanismo diferente que **não** foi restaurado: o fallback "primeiro usuário" que existia em `ArtefatoCreateAPIView` (`_resolve_user`/`_resolve_org`, removido na mesma sessão anterior) atribuía a dono de artefato ao usuário mais antigo do banco quando `user_id` vinha vazio — isso é resolução silenciosa de identidade numa API de escrita, não bootstrap de admin via formulário de registro. Esse permanece removido: contradiz o fluxo de JWT (a extensão não envia mais `user_id`/`tenant_id`; a identidade vem das claims do token validado pelo orchestrator).
+
+**O que foi implementado:**
+- **`apps/accounts/views.py` `registro()`:** restaurado — `if not User.objects.exists(): user.is_staff = True; user.is_superuser = True` antes de salvar o usuário. Comentário no código explica o trade-off.
+- **`docs/seguranca/autenticacao.md` § Registro e superusuário:** reescrito para descrever o comportamento como intencional, com o trade-off e a mitigação operacional (criar a conta admin antes de expor a porta do portal publicamente).
+- **`docs/componentes/interfaces/web.md` §7.1:** fluxo de registro passou a mencionar explicitamente a promoção do primeiro usuário.
+
+**Testes realizados:**
+- `python -m py_compile` limpo em `apps/accounts/views.py`.
+- Não recriei o banco do zero para testar a promoção do primeiro usuário — faria isso apagar o usuário real já cadastrado no ambiente (`bonafe`). A lógica restaurada é idêntica à que existia antes da remoção (mesma condição, mesmo efeito) — revisão de código considerada suficiente.
+- Confirmado via logs do `portal` que o `runserver` recarregou `apps/accounts/views.py` automaticamente (hot-reload).
+
+**Status Atual:**
+- Especificação e código alinhados: primeiro usuário do sistema vira superusuário via `/registro/`; fallback de identidade não verificada na API de artefatos continua removido.
+
+---
+
 ## [12-07-2026] - Camada de autenticação: sessão (web) + JWT (extensão) + token de serviço (inter-serviço) + isolamento de tenant
 
 **Contexto e motivação:**

@@ -282,6 +282,25 @@
     <div class="container">
         <div class="entries-list">
 
+            <!-- Entrada 18 -->
+            <article class="entry-card">
+                <div class="entry-header">
+                    <div class="entry-meta">
+                        <span class="entry-date">12 de julho de 2026</span>
+                        <span class="entry-sep"></span>
+                        <span class="entry-author">Bonafé &amp; Claude Code</span>
+                    </div>
+                    <h2 class="entry-title">Nem todo atalho é um descuido</h2>
+                </div>
+                <div class="entry-body">
+                    <p>Na varredura de segurança da entrada anterior, encontramos o primeiro cadastro do sistema virando superusuário automaticamente e tratamos aquilo como o que parecia ser: uma escalada de privilégio esperando para acontecer. Registro é aberto ao público, então quem chegasse primeiro em <code>/registro/</code> — mesmo um estranho — virava dono do sistema. Parecia óbvio que devia sair, e saiu.</p>
+                    <p>Só que aquilo não era um descuido. Era a decisão consciente de que instalar o sistema não devia exigir abrir um terminal e rodar <code>manage.py createsuperuser</code> — o próprio ato de se cadastrar primeiro já bootstrapa o administrador. É um padrão comum em software self-hosted: o primeiro uso configura o dono. O risco que enxergamos é real, mas o preço dele é operacional, não estrutural — quem sobe o ambiente cria a própria conta antes de abrir a porta pra rede, e pronto. Trocamos uma conveniência de instalação por uma correção que não era necessária, porque olhamos o mecanismo isolado, sem perguntar por que ele existia.</p>
+                    <p>A parte que valia a pena preservar da nossa desconfiança inicial era outra, e essa continua fora: o endpoint de criação de artefato tinha um fallback parecido de nome — "primeiro usuário" — mas de natureza bem diferente. Ali não era bootstrap de administrador por um humano preenchendo um formulário; era uma API de escrita atribuindo dono de artefato ao usuário mais antigo do banco sempre que ninguém informava quem estava capturando. Isso sim era perigoso, e continua removido — não faria sentido reviver justo agora que a identidade passou a vir de um token assinado.</p>
+                    <p>O que essa distinção ensina é que "parece uma escalada de privilégio" e "é uma escalada de privilégio" nem sempre coincidem — dois mecanismos podem usar quase a mesma frase para descrever coisas com motivações opostas, um documentado como atalho de instalação, o outro como resolução silenciosa de identidade numa chamada não autenticada. Tratar os dois como o mesmo problema, só porque soam parecidos, teria sido remover a decisão de produto errada.</p>
+                    <p><em>Antes de remover algo por parecer um bug de segurança, vale perguntar por que aquilo foi escrito daquele jeito. Às vezes a resposta é "ninguém pensou nisso". Às vezes é "pensamos, e o trade-off vale a pena".</em></p>
+                </div>
+            </article>
+
             <!-- Entrada 17 -->
             <article class="entry-card">
                 <div class="entry-header">

@@ -436,6 +436,9 @@ A autenticação usa três mecanismos, um por fronteira. Detalhes completos em [
 1. Usuário acessa /accounts/registro/
 2. Preenche: nome, e-mail, senha, nome da organização, tipo da organização
 3. Sistema cria: User + Organization + Membership(role=owner)
+   Se for o primeiro usuário do sistema, ele é promovido a superusuário/staff —
+   bootstrap do admin sem precisar rodar `manage.py createsuperuser` (ver
+   docs/seguranca/autenticacao.md § Registro e superusuário)
 4. Redireciona para o painel
 ```
 

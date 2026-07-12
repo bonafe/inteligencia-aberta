@@ -54,7 +54,9 @@ Ambos vêm do `.env` (via `env_file` no `docker-compose.yml`, que todos os servi
 
 ## Registro e superusuário
 
-O registro (`/registro/`) é aberto e cria um usuário **comum** + organização própria + `Membership(owner)`. Superusuário/staff é provisionado apenas via `manage.py createsuperuser` — a auto-promoção do primeiro cadastro a `is_superuser` foi removida (era escalada de privilégio por corrida num registro aberto).
+O registro (`/registro/`) é aberto e cria um usuário + organização própria + `Membership(owner)`. **O primeiro usuário a se cadastrar no sistema vira superusuário** (`is_staff=True`, `is_superuser=True`) — decisão de especificação, não bug: o próprio registro bootstrapa o admin, então quem instala o sistema não precisa rodar `manage.py createsuperuser` à parte. Usuários seguintes se registram como contas comuns.
+
+**Trade-off aceito:** como o registro é público, isso abre uma janela de corrida em uma instância recém-implantada — quem chegar primeiro em `/registro/` vira admin. A mitigação é operacional, não de código: crie sua conta imediatamente após subir o ambiente, antes de expor a porta do portal (8000) numa rede não confiável. É o mesmo modelo de bootstrap de vários apps self-hosted (primeiro usuário = admin).
 
 ## Fora do escopo desta rodada (hardening pendente)
 
