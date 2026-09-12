@@ -1,6 +1,8 @@
 services:
   portal:
     build: ./services/portal
+    # Sobe sob daphne (ASGI) — ver Dockerfile. O painel de eventos usa WebSocket,
+    # que o servidor WSGI não atende.
     ports:
       - "8000:8000"
     depends_on:

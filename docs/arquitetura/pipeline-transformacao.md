@@ -176,6 +176,8 @@ O encadeamento de etapas (extração → fragmentação → embedding) é modela
 
 **Por que não Kafka agora?** Kafka resolve alto volume, replay de longa duração e dezenas de consumidores independentes. Com 3 serviços e escala MVP, o overhead operacional (broker, KRaft, partições, consumer groups) não tem retorno. Celery + Redis satisfaz todos os requisitos das Fases 0–4. Redis Streams é o próximo passo antes do Kafka, caso necessário. Kafka entra naturalmente ao migrar para Kubernetes (Fase 5).
 
+O que motivaria Kafka mais cedo — replay e histórico durável do que o pipeline fez — já está resolvido por outro caminho: o log de eventos em PostgreSQL, com ordem total e correlação entre serviços, e o Redis apenas como transporte ao vivo (ver [`decisoes/005-log-de-eventos-como-trilha-operacional.md`](decisoes/005-log-de-eventos-como-trilha-operacional.md)). Kafka, quando entrar, será por volume de mensagens, não por falta de histórico.
+
 ---
 
 ## Orquestração Dinâmica de Skills

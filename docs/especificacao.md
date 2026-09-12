@@ -25,6 +25,7 @@ O manifesto e a visão do projeto estão no [`README.md`](../README.md) na raiz 
 | [`arquitetura/decisoes/002-conteineres-como-unidade-fundamental.md`](arquitetura/decisoes/002-conteineres-como-unidade-fundamental.md) | Decisão: por que contêineres são a unidade fundamental |
 | [`arquitetura/decisoes/003-llm-local-para-dados-sensiveis.md`](arquitetura/decisoes/003-llm-local-para-dados-sensiveis.md) | Decisão: por que dados sensíveis só usam LLM local |
 | [`arquitetura/decisoes/004-voz-como-interface-de-primeira-classe.md`](arquitetura/decisoes/004-voz-como-interface-de-primeira-classe.md) | Decisão: por que voz é interface de primeira classe |
+| [`arquitetura/decisoes/005-log-de-eventos-como-trilha-operacional.md`](arquitetura/decisoes/005-log-de-eventos-como-trilha-operacional.md) | Decisão: por que o rastro de execução é um log append-only, e não logs de contêiner |
 
 ---
 
@@ -37,6 +38,8 @@ O manifesto e a visão do projeto estão no [`README.md`](../README.md) na raiz 
 | [`componentes/orquestrador.md`](componentes/orquestrador.md) | LangGraph: estados, transições, persistência, contrato |
 | [`componentes/mcp.md`](componentes/mcp.md) | MCP: registro de ferramentas, motor de políticas, executor |
 | [`componentes/pipeline-rag.md`](componentes/pipeline-rag.md) | Pipeline RAG: indexação, recuperação, isolamento por organização |
+| [`componentes/pipeline/extracao-adaptativa.md`](componentes/pipeline/extracao-adaptativa.md) | Extração adaptativa: detecção de tipo de página e cascata de estratégias |
+| [`componentes/observabilidade.md`](componentes/observabilidade.md) | Log de eventos, painel ao vivo, diagnóstico e reprocessamento |
 
 ### Agentes
 

@@ -64,9 +64,15 @@ _CLASSIFY_SYSTEM = (
 _EXTRACT_SYSTEM = """\
 Você é um extrator de dados inteligente para uma plataforma de jornalismo investigativo brasileiro.
 
-Você recebe o esqueleto HTML comprimido (até 20 KB) de uma página capturada. A página pode conter \
+Você recebe uma representação estrutural comprimida (via dom2parser) de uma página capturada. A página pode conter \
 qualquer tipo de informação: extrato bancário, ficha de empresa, processo judicial, notícia, \
 resultado médico, tabela de licitações, planilha de dados públicos — qualquer coisa.
+
+Quando a representação lista "REPEATED STRUCTURES", as linhas `selector:` e `fields:` são seletores \
+JÁ VERIFICADOS contra o documento original (matches/covers medidos) — reutilize-os no schema em vez de \
+inventar outros. As linhas de caminho (`div.x > ul > li`) NÃO são seletores: são truncadas e `*` marca \
+partes variáveis de id/classe. Você só está sendo chamado porque o sistema não conseguiu extrair \
+registros verificados sozinho — concentre-se nos campos soltos (rótulo: valor) que a página exibe.
 
 Sua tarefa, em ordem:
 

@@ -35,7 +35,8 @@ Cada fase deve entregar valor real a pelo menos uma persona. Nenhuma fase é "s�
 - [x] Celery + Redis como fila de tarefas assíncronas (já previsto na arquitetura)
 - [x] `ArtifactLineage` — modelo de linhagem: todo artefato derivado sabe de onde veio e como foi transformado
 - [x] Etapa 1: extração de texto com `trafilatura` (genérica, sem LLM)
-- [ ] Etapa 1b: Extração adaptativa por tipo de página — detecta automaticamente se a página é artigo, extrato financeiro, processo judicial, ficha de CNPJ etc. e aplica extrator específico; `URLPatternCache` aprende padrões de URL por tenant para evitar redetecção ([spec](../componentes/pipeline/extracao-adaptativa.md))
+- [x] Etapa 1b: Extração adaptativa por tipo de página — detecta automaticamente se a página é artigo, extrato financeiro, processo judicial, ficha de CNPJ etc. e aplica extrator específico; `URLPatternCache` aprende padrões de URL por tenant para evitar redetecção. Compressão HTML→LLM e **parser verificado sem LLM** (seletor + campos medidos contra o HTML original, gravados em `URLPatternCache.extractor_config`) via biblioteca externa [`dom2parser`](https://bonafe.github.io/dom2parser/) ([spec](../componentes/pipeline/extracao-adaptativa.md))
+- [x] **Observabilidade do pipeline** — log de eventos append-only (`PipelineEvent`) atravessando extensão, orquestrador, portal, workers e MCP, com correlação ponta a ponta, projeção reconstruível (`PipelineRun`) e painel ao vivo por WebSocket em `/eventos/`. Inclui reprocessamento dirigido para diagnóstico ([spec](../componentes/observabilidade.md), [ADR-005](../arquitetura/decisoes/005-log-de-eventos-como-trilha-operacional.md))
 - [ ] Etapa 1c: `SiteProfile` — extração aprendida por domínio via LLM Discovery (LLM roda uma vez, seletores CSS ficam salvos)
 - [ ] Etapa 2: fragmentação em chunks com overlap configurável
 - [ ] Etapa 3: embedding com `sentence-transformers` local (`paraphrase-multilingual-mpnet-base-v2`)
@@ -120,8 +121,9 @@ Cada fase deve entregar valor real a pelo menos uma persona. Nenhuma fase é "s�
 **Entregáveis:**
 - [ ] Migração de docker-compose para Kubernetes / Docker Swarm
 - [ ] Escalabilidade horizontal de agentes e workers
-- [ ] Monitoramento: Prometheus + Grafana
-- [ ] Rastreamento de agentes (LangSmith ou similar)
+- [ ] Monitoramento: Prometheus + Grafana — métricas agregadas alimentadas pelo log de eventos da Fase 1, não uma coleta paralela
+- [ ] Rastreamento de agentes (LangSmith ou similar) — `correlation_id` e `causation_id` do log de eventos já são o eixo do trace
+- [ ] Retenção e particionamento de `PipelineEvent` — hoje a retenção é indefinida por decisão; revisitar quando o volume pedir
 - [ ] SLA definido e monitorado
 - [ ] Cópia de segurança e recuperação documentados e testados
 

@@ -70,21 +70,31 @@ extract_text_from_mhtml(artifact_id)
     │       │       └─ classify(metrics) → (page_type, confidence)
     │       │
     │       └─ 4. [SE allow_external_llm E confidence < 0.75 OU desconhecido]
-    │               ├─ compress_html_skeleton(html)         [Estratégia A]
+    │               ├─ dom2parser.compress(html).text       [Estratégia A]
     │               └─ llm_classify(skeleton, url)          [Estratégia B — Haiku]
     │                       └─ sobrepõe page_type + confidence se melhor
     │
-    ├─ [SE allow_external_llm E cache sem extractor_config] → 1ª captura com LLM
-    │       ├─ compress_html_skeleton(html)                 [Estratégia A]
+    ├─ dom2parser.compress(html) roda uma única vez (reaproveitado pelas etapas acima)
+    │       ├─ .text   → sempre gravado em DocumentText.dom_representation
+    │       └─ .parser → ParserSpec verificado desta página          [Estratégia A′]
+    │
+    ├─ 1. [SE cache_obj.extractor_config presente] → schema_driven_extract(html, config)   [capturas 2+]
+    │       ├─ formato 2.0 (generated_by: dom2parser) → executor lxml do dom2parser
+    │       ├─ formato 1.0 (LLM) → seletores CSS interpretados via BeautifulSoup
+    │       └─ não extraiu nada → _update_schema_health (2 falhas → zera config) e segue
+    │
+    ├─ 2. [SE ainda sem dados E .parser tem registros verificados] → dom_parser.extract_with_spec
+    │       ├─ structured_data = {"registros": {nome: [linhas]}}  (sem LLM, sem rede)
+    │       └─ cache sem extractor_config → grava ParserSpec serializado (formato 2.0)
+    │
+    ├─ 3. [SE ainda sem dados E allow_external_llm E cache sem extractor_config] → 1ª captura com LLM
+    │       ├─ (reaproveita dom2parser.compress(html).text acima)  [Estratégia A]
     │       ├─ llm_extract_and_schema(skeleton, url, hint)  [Estratégia C — Sonnet]
     │       │       └─ retorna: categoria + page_type + structured_data + schema (sem texto)
     │       ├─ usa structured_data como resultado da extração (imediato)
-    │       └─ grava schema em URLPatternCache.extractor_config
+    │       └─ grava schema em URLPatternCache.extractor_config (formato 1.0)
     │
-    ├─ [ELSE ou LLM não produziu structured_data] route_to_extractor(page_type, cache_obj)
-    │       ├─ cache_obj.extractor_config presente?
-    │       │       └─ SIM → schema_driven_extract(html, config)   [capturas 2+]
-    │       └─ NÃO → extrator determinístico por tipo (fallback)
+    ├─ 4. [ELSE] extrator determinístico por tipo (fallback)
     │               ├─ tabular_financeiro  → extract_financial_table
     │               ├─ tabular_generico    → extract_generic_table
     │               ├─ processo_judicial   → extract_judicial_process
@@ -101,33 +111,87 @@ extract_text_from_mhtml(artifact_id)
 
 ---
 
-## Estratégia A — Compressão de Esqueleto HTML
+## Estratégia A — Compressão via `dom2parser`
 
-Antes de qualquer chamada ao LLM, o HTML é comprimido para um **esqueleto estrutural**. Isso reduz tipicamente 60–90% do tamanho sem perder as informações relevantes para classificação e definição de seletores.
+Antes de qualquer chamada ao LLM, o HTML é comprimido para uma **representação estrutural compacta**, gerada pela biblioteca externa [`dom2parser`](https://bonafe.github.io/dom2parser/) (Python, MIT, sem dependência de LLM). A compressão reduz tipicamente 90%+ do tamanho, preservando hierarquia, cardinalidade de estruturas repetidas (ex.: linhas de tabela), assinatura de conteúdo (tipos de campo) e amostras representativas — sem perder as informações relevantes para classificação e definição de seletores.
 
-### O que é removido
+Essa lógica antes vivia embutida no projeto (`compress_html_skeleton`, truncamento ad-hoc a 20 KB via BeautifulSoup); foi substituída pela lib externa para manter o repositório enxuto — a compressão de HTML para LLM não é lógica de domínio do OSINT, é uma ferramenta de propósito geral mantida separadamente.
 
-| Elemento | Motivo |
-|----------|--------|
-| `<script>`, `<style>`, `<link>`, `<meta>` | Não contribuem para estrutura semântica |
-| `<svg>`, `<canvas>`, `<noscript>`, `<iframe>` | Ruído sem valor para classificação |
-| Comentários HTML | Sem valor semântico |
-| Atributos de estilo (`style=`, `onclick=`, `data-v-*`) | Ruído de framework |
+### O que a compressão preserva
 
-### O que é preservado
-
-- Hierarquia de tags intacta
-- Atributos estruturais: `class`, `id`, `name`, `data-campo`, `aria-label`, `href` (apenas domínio)
-- Texto dos nós: truncado a **80 caracteres** — o suficiente para reconhecer labels, headers e valores de exemplo
+- Hierarquia estrutural e agrupamento de nós repetidos (ex.: `table > tr` com `count: N`)
+- Assinatura de conteúdo por cluster (`DATE | TEXT | CURRENCY`, etc.)
+- Amostras representativas de cada estrutura (não o conteúdo completo — ex.: algumas linhas de uma tabela de 500)
 
 ### Resultado esperado
 
 ```
 Entrada : 450 KB de HTML (página de extrato bancário)
-Saída   : ~12 KB de esqueleto estrutural
+Saída   : dezenas de KB de representação estrutural (~90%+ de redução)
 ```
 
-O esqueleto é o único input enviado ao LLM. O HTML original nunca é transmitido a serviços externos.
+A representação comprimida (`dom2parser.compress(html).text`) é o único input enviado ao LLM. O HTML original nunca é transmitido a serviços externos. Ela também é persistida em `DocumentText.dom_representation` (Postgres) — não no MinIO, que fica reservado ao MHTML bruto — para auditoria/depuração e para reprocessar sem precisar reler o MHTML.
+
+---
+
+## Estratégia A′ — Parser verificado do `dom2parser` (sem LLM)
+
+Desde a versão `8af008b` do `dom2parser` (pinado hoje em `519fd31`), `compress(html)` devolve também `.parser`: um
+`ParserSpec` com, para cada estrutura repetida relevante, o **seletor de registro**, o
+**locator por campo** e o **nome do campo** (lido de cabeçalhos/rótulos da própria página,
+com `name_source` dizendo de onde veio). A biblioteca sintetiza o seletor por busca
+medida — gera candidatos, roda contra o documento original, mantém só o que alcança
+exatamente todos os registros (`verified.precision == recall == 1.0`). Seletores que
+casam demais vão para `failures`, nunca viram registro.
+
+O portal usa isso como **extrator primário de `structured_data`**
+(`apps/artifacts/extractors/dom_parser.py`):
+
+- O parser é **dado, não código**: executado por lxml via `dom2parser.parser.executor`,
+  nunca por `exec()`. Roda contra o HTML **original**, nunca contra a forma compacta.
+- Só registros com verificação exata são executados; linhas puladas pelo spec
+  (cabeçalho) e linhas totalmente vazias são descartadas; teto de 2 000 linhas por
+  registro. Um registro pode abranger vários irmãos (`span`, ex.: item do Hacker News
+  = 3 `tr`; glossário = `dt` + `dd`) e cada campo indica o irmão a que é relativo
+  (`sibling`). Registro sem campo descoberto rende `{"_text": "..."}`.
+- Resultado: `structured_data = {"registros": {"<nome>": [{campo: valor, ...}, ...]}}`,
+  `extractor_version = "dom2parser:<schema_version>"`.
+- Na primeira captura de um padrão de URL sem schema, o spec é serializado em
+  `URLPatternCache.extractor_config` (formato 2.0, abaixo). Capturas seguintes
+  reexecutam esse mesmo parser (nomes estáveis, editáveis à mão) sem recomprimir.
+
+```json
+{
+  "version": "2.0",
+  "generated_by": "dom2parser",
+  "generated_at": "2026-09-10T12:00:00+00:00",
+  "parser": {
+    "schema_version": 1,
+    "records": [
+      {
+        "name": "tr",
+        "selector": "div.lancamentos tr",
+        "count": 154,
+        "span": 1,
+        "fields": [
+          {"name": "data", "locator": "td:nth-of-type(1)", "type": "DATE", "capture": "text",
+           "attribute": null, "required": false, "present": 125, "total": 154,
+           "name_source": "header", "sibling": 0}
+        ],
+        "skip_when": {"header_values": ["Data", "Transações", "Moeda", "Valor"]},
+        "verified": {"matched": 154, "expected": 154, "precision": 1.0, "recall": 1.0}
+      }
+    ],
+    "failures": []
+  }
+}
+```
+
+Consequência para o LLM: a Estratégia C (abaixo) passa a rodar **apenas** quando o
+`dom2parser` não encontrou nenhuma estrutura repetida verificada — tipicamente páginas
+de campos soltos (ficha de CNPJ, cabeçalho de processo). Nesses casos o prompt avisa ao
+modelo que as linhas `selector:`/`fields:` da representação já são seletores medidos e
+devem ser reaproveitados, e que os caminhos truncados (`div.x > ul > li`) não são.
 
 ---
 
@@ -170,16 +234,16 @@ O campo `hints` é opcional — o LLM o inclui quando consegue identificar selet
 
 - A chamada ao LLM ocorre **uma única vez por padrão de URL por tenant**.
 - Após gravar no `URLPatternCache` com `detection_source="llm_classification"`, capturas seguintes do mesmo padrão usam o cache diretamente.
-- Custo por chamada: ~1.500–4.000 tokens (esqueleto típico + prompt + resposta).
+- Custo por chamada: ~1.500–4.000 tokens (representação comprimida típica + prompt + resposta).
 - Modelo recomendado: modelo de menor custo da família disponível (ex: `claude-haiku-4-5`).
 
 ---
 
 ## Estratégia C — Extração + Schema Unificados (primeira captura)
 
-Na **primeira captura** de um padrão URL novo com `allow_external_llm=True`, o LLM faz tudo em uma única chamada: categoriza a página, extrai os dados estruturados e produz o schema de seletores CSS para reuso.
+Na **primeira captura** de um padrão URL novo com `allow_external_llm=True`, **e somente se o parser verificado do `dom2parser` (Estratégia A′) não produziu registros**, o LLM faz tudo em uma única chamada: categoriza a página, extrai os dados estruturados e produz o schema de seletores CSS para reuso.
 
-Isso é fundamental: o extrator determinístico não roda na primeira captura quando LLM está habilitado e retorna `structured_data` — o LLM substitui completamente a extração estruturada, não só complementa. **O LLM não gera texto de busca** — esse campo é sempre produzido separadamente por `extract_narrative_text()` (trafilatura), como descrito em "Princípio: texto de busca sempre via trafilatura" no topo deste documento. Isso limita o dano de uma resposta de LLM malformada ou incompleta: mesmo que `structured_data` saia vazio ou o schema seja inválido, o texto pesquisável do documento nunca depende do LLM.
+Isso é fundamental: o extrator determinístico não roda na primeira captura quando LLM está habilitado e retorna `structured_data` — o LLM substitui completamente a extração estruturada, não só complementa. Mas o LLM nunca substitui um parser verificado: se o `dom2parser` já alcançou os registros da página com seletores medidos, não há chamada externa. **O LLM não gera texto de busca** — esse campo é sempre produzido separadamente por `extract_narrative_text()` (trafilatura), como descrito em "Princípio: texto de busca sempre via trafilatura" no topo deste documento. Isso limita o dano de uma resposta de LLM malformada ou incompleta: mesmo que `structured_data` saia vazio ou o schema seja inválido, o texto pesquisável do documento nunca depende do LLM.
 
 ### Modelo usado
 
@@ -190,7 +254,7 @@ Isso é fundamental: o extrator determinístico não roda na primeira captura qu
 ```
 URL da página
 Dica de page_type da análise estrutural (não vinculante)
-Esqueleto HTML comprimido (Estratégia A, máx. 20 KB)
+Representação estrutural comprimida via dom2parser (Estratégia A)
 ```
 
 ### Output esperado
@@ -282,11 +346,48 @@ os seletores ainda extraem dados é testar exatamente a pergunta que importa.
 Duas limitações registradas em 2026-06-03 foram corrigidas:
 
 1. **Truncamento do esqueleto**: o corte de 20 KB era um slice cego de bytes que
-   podia cortar a tabela de lançamentos no meio de uma linha. Agora tabelas com
-   mais de 40 linhas são amostradas (20 do início + 15 do fim + marcador de
-   omissão) antes da serialização, e o corte final recua até a última tag completa.
+   podia cortar a tabela de lançamentos no meio de uma linha. Tabelas com mais de
+   40 linhas passaram a ser amostradas (20 do início + 15 do fim + marcador de
+   omissão) antes da serialização, e o corte final recuava até a última tag completa.
+   **Superado em 2026-09-08**: todo esse mecanismo caseiro (`compress_html_skeleton`,
+   truncamento a 20 KB, amostragem de linhas) foi substituído pela biblioteca externa
+   [`dom2parser`](https://bonafe.github.io/dom2parser/), que resolve o mesmo problema
+   de forma mais geral (clusterização + amostragem representativa) sem cap fixo de
+   tamanho — ver Estratégia A acima.
 2. **Schema sem validação**: o schema gerado pelo LLM era gravado sem teste.
    Agora é validado contra o próprio HTML da captura antes de ser gravado.
+
+---
+
+## Extração bruta por biblioteca (comparação, 2026-09-11)
+
+Além de `structured_data` (a vencedora da cascata acima, usada pelo resto do app),
+`DocumentText` guarda o resultado **bruto** de cada biblioteca de extração
+estrutural que roda sobre o HTML, sem passar pela cascata de decisão. Servem para
+comparar cobertura/qualidade entre estratégias e depurar sem reprocessar o MHTML —
+não alimentam busca, embeddings nem nenhum consumidor além do visualizador.
+
+| Campo | Biblioteca | O que captura |
+|---|---|---|
+| `dados_estruturados_dom2parser` | [`dom2parser`](https://bonafe.github.io/dom2parser/) (Estratégia A′) | Estruturas repetidas inferidas por padrão do DOM (tabelas, listas) — `{"registros": {...}}`, igual ao formato de `structured_data` quando essa é a fonte vencedora |
+| `dados_estruturados_extruct` | [`extruct`](https://github.com/scrapinghub/extruct) | Metadados que o próprio site declara: JSON-LD, Microdata, OpenGraph, RDFa e Microformats (schema.org Organization/Person/Article/Product, meta tags sociais) |
+
+Ambas rodam de forma determinística, sem LLM e sem rede, em **toda captura**,
+independente de `page_type`, `allow_external_llm` ou de qual estratégia venceu a
+cascata (`apps/artifacts/tasks.py`, logo após `dom2parser.compress(html)`):
+
+- `dados_estruturados_dom2parser` reaproveita a mesma execução de
+  `dom_parser.extract_with_spec()` usada na Estratégia A′ — não há segunda passada
+  pelo HTML só para preencher este campo.
+- `dados_estruturados_extruct` (`apps/artifacts/extractors/extruct_extractor.py`)
+  é uma extração independente; como muitos sites não declaram nenhum dos formatos
+  suportados, o campo fica `null` na maioria das capturas — isso é esperado, não
+  uma falha.
+
+Complementares por natureza: `dom2parser` infere estrutura por repetição no DOM
+mesmo sem marcação alguma; `extruct` só lê o que o publicador anotou
+explicitamente, mas quando presente costuma ser mais confiável que qualquer
+heurística. Nenhuma delas substitui a outra nem a cascata de `structured_data`.
 
 ---
 
@@ -420,6 +521,8 @@ class URLPatternCache(models.Model):
   "url_pattern_cache_id": "uuid-do-cache",
   "extractor_version": "schema_driven:1.0 | financial_table:1.0 | ...",
   "structured_data": { ... },
+  "dados_estruturados_dom2parser": { ... },
+  "dados_estruturados_extruct": { ... },
   "char_count": 1234,
   "word_count": 234
 }
@@ -470,18 +573,22 @@ Usados quando `extractor_config` está vazio — ou seja, nas primeiras capturas
 
 ## Observabilidade
 
-Campos logados a cada extração:
+Cada item abaixo é hoje um **evento persistido** no log do pipeline, não apenas uma linha de log de contêiner — ver [`../observabilidade.md`](../observabilidade.md). Em particular, `extracao.dom2parser` distingue `falhou` (a biblioteca quebrou) de `vazio` (rodou e nenhum registro atingiu `precision/recall == 1.0`), com o motivo e as contagens no payload. Antes disso, os dois casos chegavam ao banco como o mesmo `NULL`.
+
+Campos registrados a cada extração:
 
 - `page_type` detectado
 - `detection_source` (`cache`, `structural_analysis`, `llm_classification`)
 - `detection_confidence`
 - `extractor_version`
-- `skeleton_size_kb` (quando Estratégia A é ativada)
+- `dom_representation` gerado/persistido (bool), sua redução percentual e o número de registros verificados / falhas do parser (`dom2parser`)
+- registros e linhas extraídos pelo parser verificado (Estratégia A′) e se o spec foi gravado no cache
 - `llm_model` (quando Estratégia B é ativada)
 - `schema_driven` (bool — se Estratégia C foi usada)
 - `divergence` (se houve divergência com cache)
 - `structured_data_keys`
 - Tempo de extração em ms
+- Nó e processo que executaram (`hostname`/`process_id`) — relevante com mais de um worker
 
 ---
 
@@ -500,9 +607,12 @@ Campos logados a cada extração:
 - [ ] Processo judicial do TJSP detectado como `processo_judicial` com `numero_cnj` extraído.
 - [ ] Artigo de notícia detectado como `artigo`, comportamento atual preservado sem regressão.
 - [ ] Segunda captura do mesmo padrão de URL usa `detection_source: cache` e não roda análise estrutural.
-- [ ] Página com `confidence < 0.75` aciona compressão de esqueleto (A) e classificação por LLM (B).
-- [ ] Página classificada como `restrito` ou `confidencial` **não** aciona LLM externo.
-- [ ] Esqueleto HTML enviado ao LLM tem no máximo 20 KB (independente do tamanho original).
+- [x] Página com `confidence < 0.75` aciona compressão via `dom2parser` (A) e classificação por LLM (B).
+- [x] Página classificada como `restrito` ou `confidencial` **não** aciona LLM externo.
+- [x] `DocumentText.dom_representation` é persistido a cada extração, independente do caminho de extração seguido.
+- [x] Página com estruturas repetidas (extrato, listagem) tem `structured_data.registros` extraído pelo parser verificado do `dom2parser`, sem chamada a LLM (A′).
+- [x] O `ParserSpec` é gravado em `extractor_config` (formato 2.0) na primeira captura e reexecutado nas seguintes via `schema_driven_extract`.
+- [x] LLM (C) só é acionado quando o parser verificado não produziu registros.
 - [ ] `extractor_config` é gerado e gravado na primeira extração pós-classificação por LLM (C).
 - [ ] Segunda captura usa `schema_driven_extract` sem nova chamada ao LLM.
 - [ ] Seletor inválido no schema produz warning sem interromper extração dos demais campos.
@@ -510,7 +620,7 @@ Campos logados a cada extração:
 - [ ] Cache isolado por tenant: organização A não acessa registros da organização B.
 - [ ] Página não reconhecida usa `desconhecido` sem lançar exceção.
 - [ ] `ArtifactLineage.processor` identifica o extrator e sua versão.
-- [ ] Todos os campos de observabilidade logados a cada extração.
+- [x] Todos os campos de observabilidade registrados a cada extração, como eventos persistidos e consultáveis.
 - [ ] `DocumentText.text` é sempre produzido por `extract_narrative_text()` (trafilatura), inclusive quando `page_type` é `tabular_financeiro`, `processo_judicial` ou quando a extração roda via LLM (Estratégia C).
 - [ ] `llm_extract_and_schema()` não retorna mais campo `text`; resposta do LLM sem `structured_data` não impede a criação do `DocumentText` (o texto já foi extraído antes).
 - [ ] Falha total do extrator estruturado (LLM indisponível, schema inválido, extrator determinístico sem dados) resulta em `structured_data=null`, mas nunca em `DocumentText.text` vazio se a página tiver conteúdo extraível por trafilatura.

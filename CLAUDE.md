@@ -21,9 +21,19 @@ docker compose up --build orchestrator
 
 # Logs em tempo real
 docker compose logs -f orchestrator
+
+# Testes
+docker compose exec portal python -m pytest tests/ -q
+
+# Diagnóstico do pipeline (ver docs/componentes/observabilidade.md)
+docker compose exec portal python manage.py reprocessar_captura <artifact_id|url> --forcar
+docker compose exec portal python manage.py reprocessar_incompletos --criterio dom2parser --simular
+docker compose exec portal python manage.py reconstruir_projecoes
 ```
 
-Não existe Makefile, CI/CD, pytest, linting ou pre-commit configurados. Ao adicionar testes, usar pytest; ao adicionar linting, usar ruff.
+O painel ao vivo do pipeline fica em `http://localhost:8000/eventos/`.
+
+Não existe Makefile, CI/CD, linting ou pre-commit configurados. Ao adicionar linting, usar ruff. Os testes usam pytest + pytest-django (`services/portal/pytest.ini`, suíte em `services/portal/tests/`).
 
 ## Arquitetura de serviços
 
@@ -37,7 +47,9 @@ Três microserviços Python + workers de processamento:
 | `worker` | Celery 5.4 | — | Executa tasks assíncronas do pipeline |
 | `beat` | Celery Beat | — | Agenda tasks periódicas (catch-up scan a cada 2min) |
 
-Infraestrutura de suporte: PostgreSQL 16-alpine (5432), Qdrant v1.9.0 (6333), MinIO latest (9000/9001), Redis 7-alpine (6379).
+Infraestrutura de suporte: PostgreSQL 16-alpine (5432), Qdrant v1.9.0 (6333), MinIO latest (9000/9001), Redis 7-alpine (6379 — banco 0 para o Celery, banco 1 para o channel layer do painel de eventos).
+
+O `portal` roda sob **ASGI (daphne)**, não WSGI: o painel de eventos usa WebSocket. Em desenvolvimento, `manage.py runserver` já sobe em ASGI porque `daphne` é o primeiro item de `INSTALLED_APPS`.
 
 **Fluxo de captura MHTML (funcional):**
 ```
@@ -64,6 +76,14 @@ Extensão Chrome → POST orchestrator:8001/api/v1/capture/mhtml
 - `signals.py`: `post_save` em `Artifact` dispara a task de extração automaticamente.
 - `views.py`: `ArtefatoCreateAPIView` — endpoint interno `POST /artifacts/api/v1/artefatos/` usado pelo orchestrator para criar artefatos via ORM (necessário para o signal disparar).
 
+**`services/portal/apps/events/`** — log de eventos e observabilidade (transversal aos três serviços).
+- `models.py`: `PipelineEvent` (append-only, ordem total por `sequence`, correlação ponta a ponta, identidade do nó) e `PipelineRun` (projeção reconstruível, uma linha por captura).
+- `emit.py`: `emit()` e o gerenciador de contexto `etapa()`. **Nunca levantam exceção** — observabilidade não pode derrubar o pipeline. Trunca payload em 8 KB e descarta chaves de conteúdo/segredo.
+- `context.py`: `contextvars` de correlação — é o que permite instrumentar sem mudar assinatura de função.
+- `celery_signals.py`: fila/início/fim/falha/retry de toda task, automático, propagando a correlação por header.
+- `projecao.py`: `aplicar_evento()`, a única escrita em `PipelineRun`; usada tanto no caminho incremental quanto na reconstrução.
+- `consumers.py`: WebSocket do painel; assina apenas os grupos das organizações do usuário.
+
 **`services/portal/config/celery.py`** — app Celery do projeto. `config/__init__.py` o exporta para que `celery -A config` funcione.
 
 **`services/mcp/tools/cnpj.py`** — única ferramenta funcional (BrasilAPI). `processos.py` e `noticias.py` são stubs.
@@ -81,6 +101,8 @@ Extensão Chrome → POST orchestrator:8001/api/v1/capture/mhtml
 - **`AuditLog` (artifacts/models.py)** — o modelo de auditoria não deve ter campos removidos nem registro suprimido. Toda operação auditada deve sempre criar uma entrada.
 - **UUIDs como PKs** — todos os modelos usam UUID. Não trocar por inteiros sequenciais.
 - **Níveis de classificação** — os quatro valores (`público`, `interno`, `restrito`, `confidencial`) são contratos de API entre serviços. Renomear quebra o orchestrator, o portal e futuramente o RAG pipeline.
+- **`PipelineEvent` (events/models.py)** — append-only como o `AuditLog`: nenhum processo faz `UPDATE` ou `DELETE`. Não é substituto do `AuditLog` (aquele é trilha de compliance, este é diário operacional) — não fundir os dois. E `emit()` jamais pode passar a propagar exceção: uma falha de observabilidade não pode quebrar uma captura.
+- **Semântica de `status` nos eventos** — `vazio` ("rodou e não produziu") é distinto de `falhou` ("quebrou"). Essa distinção é a razão de ser do modelo; colapsá-la devolve o sistema ao estado em que um `NULL` no banco não dizia nada.
 
 ## Documentação de referência
 
@@ -88,8 +110,9 @@ A pasta `docs/` contém ~2 400 linhas de especificação:
 
 - `docs/roadmap.md` — 6 fases; fase 0 (MVP local) ainda em implementação
 - `docs/arquitetura/visao-geral.md` — visão de 5 camadas e fluxos de dados
-- `docs/arquitetura/decisoes/` — 4 ADRs explicando escolhas de MCP, containers, LLM local e voz
+- `docs/arquitetura/decisoes/` — 5 ADRs explicando escolhas de MCP, containers, LLM local, voz e log de eventos
 - `docs/componentes/agentes/` — spec detalhada de cada agente (planejador, coletor, extrator, correlacionador, validador, analista, redator)
 - `docs/seguranca/classificacao.md` — regras completas do motor de política
+- `docs/componentes/observabilidade.md` — log de eventos, taxonomia de `stage`/`status`, painel e reprocessamento
 
 Antes de implementar um agente ou ferramenta nova, ler a spec correspondente em `docs/`.

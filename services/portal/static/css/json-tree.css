@@ -1,0 +1,31 @@
+/* Árvore JSON colapsável — compartilhada pela galeria de capturas e pelo
+ * painel de eventos. As cores vêm de variáveis CSS que a página define
+ * (--json-key, --json-string, …), para que cada tela mantenha seu tema.
+ */
+.json-tree {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.82rem;
+    line-height: 1.8;
+}
+.jt-key { color: var(--json-key); }
+.jt-str { color: var(--json-string); }
+.jt-num { color: var(--json-number); }
+.jt-bool { color: var(--json-bool); }
+.jt-null { color: var(--json-null); }
+.jt-bracket { color: var(--json-bracket); }
+.jt-node { display: block; }
+.jt-collapsible > .jt-toggle {
+    cursor: pointer;
+    user-select: none;
+}
+.jt-toggle::before {
+    content: '▾';
+    display: inline-block;
+    width: 1em;
+    transition: transform 0.15s;
+    color: var(--text-muted);
+}
+.jt-collapsible.collapsed > .jt-toggle::before { transform: rotate(-90deg); }
+.jt-children { padding-left: 1.5rem; }
+.jt-collapsible.collapsed > .jt-children { display: none; }
+.jt-summary { color: var(--text-muted); font-style: italic; }

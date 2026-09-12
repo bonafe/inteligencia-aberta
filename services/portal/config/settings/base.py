@@ -16,6 +16,11 @@ DEBUG = False
 ALLOWED_HOSTS = []
 
 INSTALLED_APPS = [
+    # daphne precisa vir ANTES de staticfiles: ele substitui o runserver por um
+    # servidor ASGI de desenvolvimento, e é o que faz o WebSocket funcionar em dev
+    # sem mudar o comando do docker-compose.override.yml.
+    "daphne",
+    "channels",
     "django.contrib.admin",
     "django.contrib.auth",
     "django.contrib.contenttypes",
@@ -28,10 +33,16 @@ INSTALLED_APPS = [
     "apps.accounts.apps.AccountsConfig",
     "apps.artifacts.apps.ArtifactsConfig",
     "apps.infrastructure.apps.InfrastructureConfig",
+    "apps.events.apps.EventsConfig",
 ]
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    # Serve os estáticos a partir do próprio processo ASGI. Sem isto, o daphne
+    # de produção (ver Dockerfile) não entregaria o CSS/JS do painel de eventos
+    # e da galeria — o runserver de desenvolvimento os serve sozinho, o que
+    # esconderia o problema até o deploy.
+    "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -90,6 +101,16 @@ USE_TZ = True
 
 STATIC_URL = "/static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
+# Ativos próprios do projeto (árvore JSON compartilhada entre a galeria e o
+# painel de eventos). Em produção, `collectstatic` os leva para STATIC_ROOT.
+STATICFILES_DIRS = [BASE_DIR / "static"]
+
+# WhiteNoise com hash no nome do arquivo: permite cache longo sem servir
+# versão velha depois de um deploy. Exige `collectstatic` (feito no Dockerfile).
+STORAGES = {
+    "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+    "staticfiles": {"BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage"},
+}
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
@@ -105,6 +126,21 @@ CELERY_RESULT_SERIALIZER = "json"
 CELERY_ACCEPT_CONTENT = ["json"]
 CELERY_TIMEZONE = "America/Sao_Paulo"
 CELERY_TASK_TRACK_STARTED = True
+
+# ── Tempo real (Django Channels) ─────────────────────────────────────────────
+# O painel de eventos recebe cada etapa do pipeline por WebSocket. O channel
+# layer usa o db 1 do Redis, separado do broker do Celery (db 0), para que a
+# fila de tarefas e o fanout do painel não compartilhem keyspace.
+ASGI_APPLICATION = "config.asgi.application"
+
+CHANNEL_LAYER_URL = os.environ.get("CHANNEL_LAYER_URL", REDIS_URL.rsplit("/", 1)[0] + "/1")
+CHANNEL_LAYERS = {
+    "default": {
+        "BACKEND": "channels_redis.core.RedisChannelLayer",
+        "CONFIG": {"hosts": [CHANNEL_LAYER_URL], "capacity": 2000, "expiry": 30},
+    },
+}
+
 QDRANT_HOST = os.environ.get("QDRANT_HOST", "qdrant")
 QDRANT_PORT = int(os.environ.get("QDRANT_PORT", "6333"))
 EMBEDDING_MODEL = os.environ.get(

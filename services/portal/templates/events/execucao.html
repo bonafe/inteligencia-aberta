@@ -1,0 +1,132 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Execução {{ run.titulo|default:run.url|default:run.correlation_id }} — Eventos</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{% static 'css/eventos.css' %}">
+    <link rel="stylesheet" href="{% static 'css/json-tree.css' %}">
+</head>
+<body>
+
+<header>
+    <div class="header-left">
+        <a href="{% url 'events:painel' %}" class="btn-back">← Eventos</a>
+        <h1>{{ run.titulo|default:run.url|default:"Execução" }}</h1>
+    </div>
+    <div class="header-right">
+        {% if run.artifact_id %}
+        <button class="btn" id="btn-reprocessar">Reprocessar captura</button>
+        {% endif %}
+    </div>
+</header>
+
+<div class="wrap">
+
+    <div class="resumo">
+        <div class="trilha" id="trilha"></div>
+        <dl>
+            <dt>Situação</dt><dd>{{ run.get_status_display }}</dd>
+            <dt>URL</dt><dd>{{ run.url|default:"—" }}</dd>
+            <dt>Início</dt><dd>{{ run.iniciado_em|date:"d/m/Y H:i:s" }}</dd>
+            <dt>Duração</dt><dd>{% if run.duracao_ms %}{{ run.duracao_ms }} ms{% else %}em curso{% endif %}</dd>
+            <dt>Eventos</dt><dd>{{ run.total_eventos }}{% if run.total_falhas %} ({{ run.total_falhas }} falha{{ run.total_falhas|pluralize }}){% endif %}</dd>
+            <dt>Correlação</dt><dd>{{ run.correlation_id }}</dd>
+            {% if run.artifact_id %}<dt>Artefato</dt><dd>{{ run.artifact_id }}</dd>{% endif %}
+        </dl>
+        <div id="aviso-reprocessar" class="detalhe" style="margin-top:.75rem;color:var(--text-muted);font-size:.82rem"></div>
+    </div>
+
+    <h2>Linha do tempo <span class="contador">{{ eventos|length }} evento{{ eventos|length|pluralize }}</span></h2>
+
+    <div class="timeline">
+        {% for ev in eventos %}
+        <div class="evento st-{{ ev.status }}">
+            <div class="cabecalho">
+                <span class="stage">{{ ev.stage }}</span>
+                <span class="badge st-{{ ev.status }}">{{ ev.get_status_display }}</span>
+                <span class="quando" style="font-size:.75rem;color:var(--text-muted)">{{ ev.occurred_at|date:"H:i:s.u"|slice:":12" }}</span>
+            </div>
+            {% if ev.message %}<div class="msg">{{ ev.message }}</div>{% endif %}
+            <div class="rodape">
+                <span>{{ ev.get_source_display }}</span>
+                {% if ev.duration_ms is not None %}<span>{{ ev.duration_ms }} ms</span>{% endif %}
+                {% if ev.hostname %}<span>{{ ev.hostname }}{% if ev.process_id %} pid {{ ev.process_id }}{% endif %}</span>{% endif %}
+                {% if ev.celery_task_name %}<span>{{ ev.celery_task_name }}</span>{% endif %}
+                <span>#{{ ev.sequence }}</span>
+            </div>
+            {% if ev.payload %}
+            <details>
+                <summary>detalhes</summary>
+                <div class="json-tree" data-payload="{{ ev.id }}"></div>
+                {{ ev.payload|json_script:ev.id }}
+            </details>
+            {% endif %}
+            {% if ev.error %}<pre class="erro">{{ ev.error }}</pre>{% endif %}
+        </div>
+        {% empty %}
+        <div class="vazio-aviso">Nenhum evento registrado para esta correlação.</div>
+        {% endfor %}
+    </div>
+
+</div>
+
+{{ trilha|json_script:"dados-trilha" }}
+{{ run.etapas|json_script:"dados-etapas" }}
+<script src="{% static 'js/trilha.js' %}"></script>
+<script src="{% static 'js/json_tree.js' %}"></script>
+<script>
+const TRILHA = JSON.parse(document.getElementById('dados-trilha').textContent);
+const ETAPAS = JSON.parse(document.getElementById('dados-etapas').textContent);
+(function () {
+    desenharTrilha(document.getElementById('trilha'), TRILHA, ETAPAS);
+})();
+
+/* O payload de cada evento só é renderizado quando o usuário abre os detalhes:
+ * uma execução tem dezenas de eventos, e montar todas as árvores de uma vez
+ * deixaria a página lenta à toa. */
+document.querySelectorAll('details').forEach(det => {
+    det.addEventListener('toggle', () => {
+        if (!det.open) return;
+        const alvo = det.querySelector('[data-payload]');
+        if (!alvo || alvo.dataset.pronto) return;
+        const bruto = document.getElementById(alvo.dataset.payload);
+        if (!bruto) return;
+        alvo.appendChild(renderJsonNode(JSON.parse(bruto.textContent)));
+        alvo.dataset.pronto = '1';
+    }, { once: false });
+});
+
+const btn = document.getElementById('btn-reprocessar');
+if (btn) {
+    btn.onclick = async () => {
+        btn.disabled = true;
+        btn.textContent = 'Enfileirando…';
+        const aviso = document.getElementById('aviso-reprocessar');
+        try {
+            const r = await fetch("{% url 'events:reprocessar' run.correlation_id %}", {
+                method: 'POST',
+                headers: { 'X-CSRFToken': '{{ csrf_token }}' },
+            });
+            const dados = await r.json();
+            if (r.ok) {
+                aviso.textContent = 'Reprocessamento enfileirado. Recarregue em alguns segundos para ver a nova trilha.';
+                btn.textContent = 'Enfileirado';
+            } else {
+                aviso.textContent = dados.error || 'Não foi possível reprocessar.';
+                btn.disabled = false;
+                btn.textContent = 'Reprocessar captura';
+            }
+        } catch (err) {
+            aviso.textContent = 'Falha de rede ao pedir o reprocessamento.';
+            btn.disabled = false;
+            btn.textContent = 'Reprocessar captura';
+        }
+    };
+}
+</script>
+
+</body>
+</html>

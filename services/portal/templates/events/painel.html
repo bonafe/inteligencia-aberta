@@ -1,0 +1,404 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Painel de Eventos — Inteligência Aberta</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{% static 'css/eventos.css' %}">
+    <link rel="stylesheet" href="{% static 'css/json-tree.css' %}">
+</head>
+<body>
+
+<header>
+    <div class="header-left">
+        <a href="{% url 'dashboard' %}" class="btn-back">← Painel</a>
+        <h1>Eventos do pipeline</h1>
+    </div>
+    <div class="header-right">
+        <span class="conexao" id="conexao"><span class="bolinha"></span><span id="conexao-texto">conectando…</span></span>
+        <a href="{% url 'artifacts:gallery' %}" class="btn-back">Galeria</a>
+    </div>
+</header>
+
+<div class="wrap">
+
+    <h2>Agora</h2>
+    <div class="metricas" id="metricas"></div>
+
+    <h2>Execuções <span class="contador" id="contador-execucoes"></span></h2>
+    <div id="execucoes">
+        <noscript>
+            <div class="vazio-aviso">
+                Este painel mostra o pipeline ao vivo e precisa de JavaScript.
+                O histórico completo também está no admin, em Eventos do pipeline.
+            </div>
+        </noscript>
+    </div>
+
+    <h2>Fluxo de eventos</h2>
+    <div class="filtros">
+        <select id="f-status">
+            <option value="">todos os status</option>
+            <option value="ok">ok</option>
+            <option value="vazio">vazio</option>
+            <option value="falhou">falhou</option>
+            <option value="iniciado">iniciado</option>
+            <option value="retentando">retentando</option>
+            <option value="ignorado">ignorado</option>
+        </select>
+        <select id="f-source">
+            <option value="">todos os serviços</option>
+            <option value="extensao">extensão</option>
+            <option value="orchestrator">orchestrator</option>
+            <option value="portal">portal</option>
+            <option value="worker">worker</option>
+            <option value="beat">beat</option>
+            <option value="mcp">mcp</option>
+        </select>
+        <input type="text" id="f-stage" placeholder="filtrar por etapa (ex.: dom2parser)" style="min-width:240px">
+        <button id="btn-pausa">Pausar</button>
+        <button id="btn-limpar">Limpar</button>
+        <span id="resumo-filtro" class="resumo-filtro"></span>
+    </div>
+    <div class="fluxo" id="fluxo">
+        <div class="vazio-aviso" id="fluxo-vazio">Aguardando eventos…</div>
+    </div>
+
+</div>
+
+{{ dados_iniciais|json_script:"dados-iniciais" }}
+<script src="{% static 'js/trilha.js' %}"></script>
+<script src="{% static 'js/json_tree.js' %}"></script>
+<script>
+/* Estado do painel. `ultimaSequence` é o cursor: tanto o WebSocket (na
+ * reconexão) quanto o polling de fallback retomam a partir dele, e os eventos
+ * são deduplicados por id — porque sob concorrência um evento com sequence
+ * menor pode chegar depois de um maior. */
+const INICIAL = JSON.parse(document.getElementById('dados-iniciais').textContent);
+const TRILHA = INICIAL.trilha;
+let ultimaSequence = INICIAL.ultima_sequence;
+const vistos = new Set();
+let pausado = false;
+let socket = null;
+let pollTimer = null;
+const MAX_LINHAS = 300;
+/* Os eventos recebidos ficam em memória (mais novos primeiro) para que trocar
+ * o filtro redesenhe o que já está na tela. Sem este buffer, o filtro só valia
+ * para eventos futuros — e em um sistema parado nada acontecia ao mudá-lo. */
+const recebidos = [];
+
+const fluxo = document.getElementById('fluxo');
+const fluxoVazio = document.getElementById('fluxo-vazio');
+
+// ─── Conexão ────────────────────────────────────────────────────────────────
+function marcarConexao(estado, texto) {
+    const el = document.getElementById('conexao');
+    el.className = 'conexao ' + estado;
+    document.getElementById('conexao-texto').textContent = texto;
+}
+
+function conectar() {
+    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+    try {
+        socket = new WebSocket(`${proto}://${location.host}/ws/eventos/?desde=${ultimaSequence}`);
+    } catch (err) {
+        return iniciarPolling();
+    }
+
+    socket.onopen = () => {
+        marcarConexao('ligado', 'ao vivo');
+        pararPolling();
+    };
+    socket.onmessage = ev => {
+        const dado = JSON.parse(ev.data);
+        if (dado.tipo === 'evento') receber(dado.evento);
+    };
+    socket.onclose = () => {
+        marcarConexao('caiu', 'reconectando…');
+        // Enquanto o WebSocket não volta, o painel continua atualizando por
+        // polling: perder o tempo real não pode significar perder o histórico.
+        iniciarPolling();
+        setTimeout(conectar, 4000);
+    };
+    socket.onerror = () => { try { socket.close(); } catch (e) {} };
+}
+
+function iniciarPolling() {
+    if (pollTimer) return;
+    marcarConexao('polling', 'atualizando a cada 3s');
+    pollTimer = setInterval(buscarNovos, 3000);
+    buscarNovos();
+}
+function pararPolling() {
+    if (!pollTimer) return;
+    clearInterval(pollTimer);
+    pollTimer = null;
+}
+
+async function buscarNovos() {
+    try {
+        const r = await fetch(`{% url 'events:api_eventos' %}?desde=${ultimaSequence}`);
+        if (!r.ok) return;
+        const dados = await r.json();
+        dados.eventos.forEach(receber);
+    } catch (err) { /* rede instável: o próximo ciclo tenta de novo */ }
+}
+
+// ─── Recepção ───────────────────────────────────────────────────────────────
+function receber(evento) {
+    if (vistos.has(evento.id)) return;   // dedup: backfill e stream se sobrepõem
+    vistos.add(evento.id);
+    if (evento.sequence > ultimaSequence) ultimaSequence = evento.sequence;
+
+    atualizarExecucao(evento);
+
+    recebidos.unshift(evento);
+    if (recebidos.length > MAX_LINHAS) recebidos.length = MAX_LINHAS;
+
+    // Pausado, o buffer continua enchendo: retomar mostra o que passou, em vez
+    // de deixar um buraco no histórico da tela.
+    if (pausado) return;
+    if (passaFiltro(evento)) inserirLinha(evento);
+    atualizarResumoFiltro();
+}
+
+/* Redesenha o fluxo inteiro a partir do buffer. Chamado quando o filtro muda
+ * ou ao retomar de uma pausa — não a cada evento, que continua no caminho
+ * rápido de inserir uma linha só. */
+function redesenharFluxo() {
+    fluxo.querySelectorAll('.linha-evento').forEach(l => l.remove());
+    // `recebidos` está do mais novo para o mais antigo e `inserirLinha` insere
+    // no topo: percorremos ao contrário para preservar a ordem.
+    recebidos.filter(passaFiltro).reverse().forEach(inserirLinha);
+    atualizarResumoFiltro();
+}
+
+function atualizarResumoFiltro() {
+    const visiveis = fluxo.querySelectorAll('.linha-evento').length;
+    const resumo = document.getElementById('resumo-filtro');
+    if (!recebidos.length) {
+        resumo.textContent = '';
+    } else if (visiveis === recebidos.length) {
+        resumo.textContent = `${visiveis} evento${visiveis === 1 ? '' : 's'}`;
+    } else {
+        resumo.textContent = `${visiveis} de ${recebidos.length} eventos`;
+    }
+
+    if (visiveis === 0) {
+        fluxoVazio.style.display = '';
+        fluxoVazio.textContent = recebidos.length
+            ? 'Nenhum evento corresponde ao filtro.'
+            : 'Aguardando eventos…';
+    } else {
+        fluxoVazio.style.display = 'none';
+    }
+}
+
+function passaFiltro(ev) {
+    const status = document.getElementById('f-status').value;
+    const source = document.getElementById('f-source').value;
+    const stage = document.getElementById('f-stage').value.trim().toLowerCase();
+    if (status && ev.status !== status) return false;
+    if (source && ev.source !== source) return false;
+    if (stage && !ev.stage.toLowerCase().includes(stage)) return false;
+    return true;
+}
+
+function inserirLinha(ev) {
+    const linha = document.createElement('div');
+    linha.className = 'linha-evento';
+
+    const hora = document.createElement('span');
+    hora.className = 'hora';
+    hora.textContent = new Date(ev.occurred_at).toLocaleTimeString('pt-BR');
+
+    const stage = document.createElement('span');
+    stage.className = 'stage';
+    stage.textContent = ev.stage;
+    stage.title = ev.stage;
+
+    const msg = document.createElement('span');
+    msg.className = 'msg';
+    const link = document.createElement('a');
+    link.href = `/eventos/${ev.correlation_id}/`;
+    link.textContent = ev.message || '—';
+    link.title = ev.message || '';
+    msg.appendChild(link);
+
+    const meta = document.createElement('span');
+    meta.className = 'meta';
+    const badge = document.createElement('span');
+    badge.className = 'badge st-' + ev.status;
+    badge.textContent = ev.status;
+    meta.appendChild(badge);
+    if (ev.duration_ms !== null && ev.duration_ms !== undefined) {
+        meta.appendChild(document.createTextNode(' ' + ev.duration_ms + 'ms'));
+    }
+    if (ev.hostname) meta.appendChild(document.createTextNode(' · ' + ev.hostname));
+
+    linha.append(hora, stage, msg, meta);
+    fluxo.insertBefore(linha, fluxo.firstChild);
+
+    while (fluxo.children.length > MAX_LINHAS) fluxo.removeChild(fluxo.lastChild);
+}
+
+/* Um evento novo pode pertencer a uma execução que ainda não está na tela.
+ * Em vez de remontar a lista a cada evento, recarregamos as execuções quando
+ * aparece uma correlação desconhecida. */
+let recarregandoExecucoes = false;
+function atualizarExecucao(ev) {
+    const el = document.querySelector(`.execucao[data-correlation="${ev.correlation_id}"]`);
+    if (!el) {
+        if (!recarregandoExecucoes) {
+            recarregandoExecucoes = true;
+            setTimeout(() => { recarregandoExecucoes = false; carregarExecucoes(); }, 900);
+        }
+        return;
+    }
+    const trilha = el.querySelector('.trilha');
+    const etapas = aplicarEventoNasEtapas(JSON.parse(el.dataset.etapas || '{}'), ev);
+    el.dataset.etapas = JSON.stringify(etapas);
+    desenharTrilha(trilha, TRILHA, etapas);
+}
+
+async function carregarExecucoes() {
+    try {
+        const r = await fetch("{% url 'events:api_execucoes' %}");
+        if (!r.ok) return;
+        const { execucoes } = await r.json();
+        pintarExecucoes(execucoes);
+    } catch (err) { /* mantém o que já está na tela */ }
+}
+
+function pintarExecucoes(execucoes) {
+    const alvo = document.getElementById('execucoes');
+    alvo.innerHTML = '';
+    if (!execucoes.length) {
+        alvo.innerHTML = '<div class="vazio-aviso">' +
+            'Nenhuma execução registrada ainda. Capture uma página com a extensão e ela aparece aqui.' +
+            '</div>';
+    }
+    execucoes.forEach(run => alvo.appendChild(montarExecucao(run)));
+    document.getElementById('contador-execucoes').textContent =
+        execucoes.length ? `${execucoes.length} mais recentes` : '';
+}
+
+function montarExecucao(run) {
+    const el = document.createElement('div');
+    el.className = 'execucao status-' + run.status;
+    el.dataset.correlation = run.correlation_id;
+    el.dataset.etapas = JSON.stringify(run.etapas || {});
+
+    const topo = document.createElement('div');
+    topo.className = 'topo';
+
+    const esq = document.createElement('div');
+    esq.style.minWidth = '0';
+    const titulo = document.createElement('div');
+    titulo.className = 'titulo';
+    const link = document.createElement('a');
+    link.href = `/eventos/${run.correlation_id}/`;
+    link.textContent = run.titulo || run.url || run.correlation_id;
+    titulo.appendChild(link);
+    const url = document.createElement('div');
+    url.className = 'url';
+    url.textContent = run.url || '';
+    esq.append(titulo, url);
+
+    const quando = document.createElement('div');
+    quando.className = 'quando';
+    quando.textContent = new Date(run.iniciado_em).toLocaleString('pt-BR');
+
+    topo.append(esq, quando);
+
+    const trilha = document.createElement('div');
+    trilha.className = 'trilha';
+
+    el.append(topo, trilha);
+    desenharTrilha(trilha, TRILHA, run.etapas || {});
+    return el;
+}
+
+// ─── Métricas ───────────────────────────────────────────────────────────────
+function metrica(rotulo, valor, detalhe, classe) {
+    return `<div class="metrica ${classe || ''}">
+        <div class="rotulo">${rotulo}</div>
+        <div class="valor">${valor}</div>
+        ${detalhe ? `<div class="detalhe">${detalhe}</div>` : ''}
+    </div>`;
+}
+
+function desenharMetricas(d) {
+    const fila = d.fila || {};
+    const gaps = d.gaps || {};
+    const ex = d.execucoes || {};
+    const pendentes = (gaps.extracao || 0) + (gaps.fragmentacao || 0) + (gaps.embedding || 0);
+    document.getElementById('metricas').innerHTML = [
+        metrica('Em andamento', ex.em_andamento ?? '—'),
+        fila.disponivel
+            ? metrica('Na fila', fila.enfileiradas ?? 0, `${fila.ativas ?? 0} em execução`)
+            : metrica('Na fila', 'sem contato', 'broker não respondeu', 'indisponivel'),
+        metrica('Pendentes', pendentes,
+                `extração ${gaps.extracao || 0} · frag ${gaps.fragmentacao || 0} · embed ${gaps.embedding || 0}`),
+        metrica('Falhas 24h', ex.falhas_24h ?? 0,
+                ex.execucoes_com_falha_24h ? `em ${ex.execucoes_com_falha_24h} execução(ões)` : null,
+                (ex.falhas_24h ? 'alerta' : '')),
+        metrica('Concluídas 24h', ex.concluidas_24h ?? 0),
+        metrica('Eventos', (ex.eventos_total ?? 0).toLocaleString('pt-BR'), `${ex.eventos_24h ?? 0} nas últimas 24h`),
+        fila.workers && fila.workers.length
+            ? metrica('Workers', fila.workers.length, fila.workers.map(w => w.nome.split('@').pop()).join(', '))
+            : '',
+    ].join('');
+}
+
+async function carregarMetricas() {
+    try {
+        const r = await fetch("{% url 'events:api_agregados' %}");
+        if (r.ok) desenharMetricas(await r.json());
+    } catch (err) { /* próxima rodada */ }
+}
+
+// ─── Controles ──────────────────────────────────────────────────────────────
+// Trocar um filtro tem de refletir no que já está na tela, e não só nos
+// eventos seguintes — era esse o defeito: em um sistema parado, mudar o filtro
+// não fazia nada.
+['f-status', 'f-source'].forEach(id => {
+    document.getElementById(id).addEventListener('change', redesenharFluxo);
+});
+document.getElementById('f-stage').addEventListener('input', redesenharFluxo);
+
+document.getElementById('btn-pausa').onclick = function () {
+    pausado = !pausado;
+    this.textContent = pausado ? 'Retomar' : 'Pausar';
+    this.classList.toggle('ativo', pausado);
+    // Ao retomar, mostra também o que chegou durante a pausa.
+    if (!pausado) redesenharFluxo();
+};
+
+document.getElementById('btn-limpar').onclick = () => {
+    // Limpa o buffer junto com a tela: senão o próximo ajuste de filtro
+    // ressuscitaria tudo que se acabou de limpar.
+    recebidos.length = 0;
+    fluxo.querySelectorAll('.linha-evento').forEach(l => l.remove());
+    atualizarResumoFiltro();
+};
+
+// ─── Início ─────────────────────────────────────────────────────────────────
+desenharMetricas(INICIAL.agregados);
+pintarExecucoes(INICIAL.execucoes);
+// Os eventos iniciais já vêm do mais novo para o mais antigo, que é a ordem do
+// buffer; `redesenharFluxo` cuida de aplicar o filtro e desenhar.
+INICIAL.eventos.forEach(ev => {
+    vistos.add(ev.id);
+    recebidos.push(ev);
+});
+redesenharFluxo();
+conectar();
+// Os agregados (fila, gaps) não chegam por evento — são consultados.
+setInterval(carregarMetricas, 10000);
+</script>
+
+</body>
+</html>

@@ -28,6 +28,7 @@ class LoginRequiredMiddleware:
         "/static/",
         "/api/v1/token/",                # emissão/refresh de JWT (credencial no corpo)
         "/artifacts/api/v1/artefatos/",  # canal serviço-a-serviço (X-Internal-Token)
+        "/eventos/api/v1/ingest/",       # idem: eventos vindos do orchestrator e do MCP
         "/api/schema/",                  # documentação da API (drf-spectacular) —
         "/api/docs/",                    # pública por decisão: só descreve os
         "/api/redoc/",                   # endpoints, não expõe dado nenhum.

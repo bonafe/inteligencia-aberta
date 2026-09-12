@@ -83,6 +83,25 @@ Cada componente de infraestrutura é um contêiner isolado. Falha de um não der
 | Neo4j | Grafo de vínculos entre entidades |
 | MinIO | Arquivos brutos (PDFs, imagens, áudios) |
 | Celery Workers | Processamento assíncrono (indexação, alertas) |
+| Redis | Fila de tarefas (banco 0) e canal do painel ao vivo (banco 1) |
+
+---
+
+## Camada Transversal — Observabilidade
+
+As cinco camadas acima descrevem o caminho do dado. Esta descreve o rastro que esse caminho deixa, e atravessa todas elas.
+
+Toda etapa relevante de todo serviço grava um evento imutável em um log append-only (`PipelineEvent`), com correlação ponta a ponta, identidade do nó executor e o motivo de cada resultado. Desse log deriva-se uma projeção reconstruível (`PipelineRun`) e um painel ao vivo.
+
+```
+Interfaces ─┐
+Gateway    ─┤
+Agentes    ─┼──> PipelineEvent (append-only, ordem total) ──> PipelineRun (projeção)
+MCP        ─┤            │                                          │
+Infra      ─┘            └──> Redis (channel layer) ──> WebSocket ──┴──> /eventos/
+```
+
+Três invariantes: o log é somente inserção; emitir evento nunca pode derrubar a etapa observada; e toda projeção deve ser reconstruível a partir do log. Ele **não** substitui o registro de auditoria da Camada 2 — aquele é trilha de compliance, este é diário operacional. Ver [`decisoes/005-log-de-eventos-como-trilha-operacional.md`](decisoes/005-log-de-eventos-como-trilha-operacional.md).
 
 ---
 

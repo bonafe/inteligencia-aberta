@@ -1,4 +1,5 @@
 import os
+import time
 import uuid
 import json
 import httpx
@@ -8,7 +9,8 @@ from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Depends, Hea
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from minio import Minio
-from policy_engine import check
+from policy_engine import check, registrar_decisao
+from eventos import emitir, nova_correlacao
 
 PORTAL_URL = os.getenv("PORTAL_URL", "http://portal:8000")
 
@@ -74,17 +76,28 @@ class InvestigationRequest(BaseModel):
 async def investigar(request: InvestigationRequest, claims: dict = Depends(require_jwt)):
     # tenant_id/user_id vêm das claims autenticadas, não do corpo da requisição.
     tenant_id = claims["tenant_id"]
+    correlacao = nova_correlacao()
     policy = check(
         operation="chamar_llm_externo",
         classification=request.classification,
         tenant_id=tenant_id,
         requesting_tenant=tenant_id,
     )
+    registrar_decisao(
+        policy,
+        operation="chamar_llm_externo",
+        classification=request.classification,
+        tenant_id=tenant_id,
+        requesting_tenant=tenant_id,
+        correlation_id=correlacao,
+        user_id=claims.get("user_id"),
+    )
     if policy["decision"] == "BLOQUEADO":
         raise HTTPException(status_code=403, detail=policy["reason"])
 
     # TODO Fase 0: executar grafo LangGraph
-    return {"status": "em_desenvolvimento", "query": request.query}
+    return {"status": "em_desenvolvimento", "query": request.query,
+            "correlation_id": correlacao}
 
 
 @app.post("/api/v1/capture/mhtml")
@@ -95,21 +108,40 @@ async def capture_mhtml(
     timestamp: str = Form(...),
     classification_level: str = Form("restrito"),
     allow_external_llm: bool = Form(False),
+    correlation_id: str = Form(""),
     claims: dict = Depends(require_jwt),
 ):
     # Identidade autenticada — vinda do JWT, não de campos do formulário.
     user_id = claims["user_id"]
     tenant_id = claims["tenant_id"]
+
+    # A correlação acompanha esta captura por todo o sistema. Preferimos a que a
+    # extensão gerou (assim a timeline começa no clique do usuário); se ela não
+    # mandou nenhuma, criamos aqui.
+    correlacao = correlation_id or nova_correlacao()
+
+    def evento(stage, status, **kw):
+        emitir(stage, status, correlation_id=correlacao,
+               tenant_id=tenant_id, user_id=user_id, **kw)
+
     try:
         # Lê o conteúdo do arquivo
         content = await file.read()
         file_size = len(content)
-        
+
+        evento("captura.recebida", "ok",
+               message=f"MHTML recebido de {url}",
+               payload={"url": url, "titulo": title, "bytes": file_size,
+                        "classificacao": classification_level,
+                        "allow_external_llm": allow_external_llm,
+                        "capture_timestamp": timestamp})
+
         # Gera um ID único para o artefato
         artifact_id = str(uuid.uuid4())
         object_name = f"{artifact_id}.mhtml"
-        
+
         # Salva no MinIO
+        t0 = time.perf_counter()
         minio_client.put_object(
             bucket_name=MHTML_BUCKET_NAME,
             object_name=object_name,
@@ -117,7 +149,12 @@ async def capture_mhtml(
             length=file_size,
             content_type=file.content_type or "application/x-mimearchive"
         )
-        
+        evento("captura.armazenada", "ok",
+               message=f"MHTML gravado no MinIO ({file_size} bytes)",
+               payload={"bucket": MHTML_BUCKET_NAME, "path": object_name,
+                        "bytes": file_size, "url": url},
+               duration_ms=int((time.perf_counter() - t0) * 1000))
+
         # Registra o artefato no Portal via API Django (dispara o pipeline automaticamente).
         # X-Internal-Token autentica o canal serviço-a-serviço; user_id/tenant_id
         # vêm do JWT já validado, então o portal pode confiar neles.
@@ -137,6 +174,7 @@ async def capture_mhtml(
                     "allow_external_llm": allow_external_llm,
                     "tenant_id": tenant_id,
                     "user_id": user_id,
+                    "correlation_id": correlacao,
                     "info_type": "fato",
                     "sources": [],
                 },
@@ -146,14 +184,23 @@ async def capture_mhtml(
             resp.raise_for_status()
             artifact_id = resp.json()["artifact_id"]
         except Exception as api_err:
+            # Captura órfã: o MHTML está no MinIO mas nenhum Artifact existe, então
+            # o catch-up do Beat (que varre Artifact, não o bucket) jamais a verá.
+            # Antes disto, esse caso sumia sem deixar rastro em lugar nenhum.
             print(f"Erro ao registrar artefato no Portal: {api_err}")
+            emitir("captura.orfa", "falhou", correlation_id=correlacao,
+                   tenant_id=tenant_id, user_id=user_id,
+                   message="MHTML gravado no MinIO mas não registrado no portal",
+                   payload={"bucket": MHTML_BUCKET_NAME, "path": object_name, "url": url},
+                   error=str(api_err), sincrono=True)
             raise Exception(f"Salvo no MinIO, mas erro ao registrar no Portal: {api_err}")
-        
+
         # TODO: Enviar o texto extraído para o Qdrant
-        
+
         return {
             "status": "success",
             "artifact_id": artifact_id,
+            "correlation_id": correlacao,
             "message": "MHTML capturado e salvo no armazenamento seguro."
         }
     except Exception as e:

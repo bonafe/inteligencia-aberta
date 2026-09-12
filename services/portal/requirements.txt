@@ -4,6 +4,8 @@ python-dotenv==1.0.1
 minio==7.2.7
 celery[redis]==5.4.0
 trafilatura==1.12.2
+dom2parser @ git+https://github.com/bonafe/dom2parser.git@519fd319037bd6e4a848c2a8e05bcd0427a9edf1
+extruct==0.18.0
 beautifulsoup4==4.12.3
 fastembed==0.3.6
 qdrant-client==1.9.2
@@ -11,3 +13,13 @@ anthropic>=0.40.0
 djangorestframework==3.15.2
 djangorestframework-simplejwt==5.3.1
 drf-spectacular==0.27.2
+channels==4.1.0
+channels-redis==4.2.0
+daphne==4.1.2
+whitenoise==6.7.0
+redis==5.0.7
+
+# Testes (pytest, conforme CLAUDE.md)
+pytest==8.3.2
+pytest-django==4.9.0
+pytest-asyncio==0.24.0

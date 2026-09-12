@@ -79,6 +79,14 @@ class ArtefatoCreateAPIView(View):
             Artifact.ClassificationLevel.CONFIDENTIAL,
         )
 
+        # A correlação nasce no orchestrator (ou na extensão) e é guardada no
+        # próprio artefato, para que a timeline da captura comece no clique do
+        # usuário e não na criação do registro. O signal post_save e as tasks
+        # subsequentes a recuperam daqui.
+        correlation_id = data.get("correlation_id")
+        if correlation_id:
+            content = {**content, "correlation_id": str(correlation_id)}
+
         artifact = Artifact.objects.create(
             artifact_type=data.get("artifact_type", Artifact.Type.DOCUMENT),
             content=content,
@@ -277,4 +285,7 @@ class ArtifactContentView(View):
             "extractor_version": doc_text.extractor_version,
             "text": doc_text.text,
             "structured_data": doc_text.structured_data,
+            "dados_estruturados_dom2parser": doc_text.dados_estruturados_dom2parser,
+            "dados_estruturados_extruct": doc_text.dados_estruturados_extruct,
+            "dom_representation": doc_text.dom_representation,
         })

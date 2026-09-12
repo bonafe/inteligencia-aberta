@@ -137,6 +137,9 @@ class DocumentText(models.Model):
         "URLPatternCache", null=True, blank=True, on_delete=models.SET_NULL
     )
     structured_data = models.JSONField(null=True, blank=True)
+    dados_estruturados_dom2parser = models.JSONField(null=True, blank=True)
+    dados_estruturados_extruct = models.JSONField(null=True, blank=True)
+    dom_representation = models.TextField(null=True, blank=True)
     extractor_version = models.CharField(max_length=100, blank=True)
     char_count = models.IntegerField(default=0)
     word_count = models.IntegerField(default=0)

@@ -1,3 +1,4 @@
+{% load static %}
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -298,35 +299,10 @@
         .btn-copy:hover { color: var(--text-main); border-color: var(--accent); }
         .btn-copy.copied { color: var(--json-string); border-color: var(--json-string); }
 
-        /* JSON tree */
-        .json-tree {
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 0.82rem;
-            line-height: 1.8;
-        }
-        .jt-key { color: var(--json-key); }
-        .jt-str { color: var(--json-string); }
-        .jt-num { color: var(--json-number); }
-        .jt-bool { color: var(--json-bool); }
-        .jt-null { color: var(--json-null); }
-        .jt-bracket { color: var(--json-bracket); }
-        .jt-node { display: block; }
-        .jt-collapsible > .jt-toggle {
-            cursor: pointer;
-            user-select: none;
-        }
-        .jt-toggle::before {
-            content: '▾';
-            display: inline-block;
-            width: 1em;
-            transition: transform 0.15s;
-            color: var(--text-muted);
-        }
-        .jt-collapsible.collapsed > .jt-toggle::before { transform: rotate(-90deg); }
-        .jt-children { padding-left: 1.5rem; }
-        .jt-collapsible.collapsed > .jt-children { display: none; }
-        .jt-summary { color: var(--text-muted); font-style: italic; }
+        /* As classes .json-tree/.jt-* vêm de static/css/json-tree.css,
+           compartilhadas com o painel de eventos. */
     </style>
+    <link rel="stylesheet" href="{% static 'css/json-tree.css' %}">
 </head>
 <body>
 
@@ -345,7 +321,7 @@
             <div class="card-title">{{ artifact.content.title|default:"Sem Título" }}</div>
             <div class="card-meta">
                 <span title="{{ artifact.content.url }}">🔗 {{ artifact.content.url|truncatechars:35 }}</span>
-                <span>🕒 {{ artifact.content.capture_timestamp|slice:":10" }}</span>
+                <span>🕒 {{ artifact.content.capture_timestamp|slice:":10" }} {{ artifact.content.capture_timestamp|slice:"11:16" }}</span>
             </div>
         </div>
     {% empty %}
@@ -394,6 +370,9 @@
             <button class="tab-btn active" id="tab-mhtml" onclick="switchTab('mhtml')">MHTML</button>
             <button class="tab-btn disabled" id="tab-texto" onclick="switchTab('texto')">Texto</button>
             <button class="tab-btn disabled" id="tab-json" onclick="switchTab('json')">Dados Estruturados</button>
+            <button class="tab-btn disabled" id="tab-json_dom2parser" onclick="switchTab('json_dom2parser')">dom2parser</button>
+            <button class="tab-btn disabled" id="tab-json_extruct" onclick="switchTab('json_extruct')">extruct</button>
+            <button class="tab-btn disabled" id="tab-dom" onclick="switchTab('dom')">HTML Reduzido</button>
         </div>
 
         <!-- MHTML Panel -->
@@ -412,30 +391,73 @@
             </div>
         </div>
 
-        <!-- JSON Panel -->
+        <!-- JSON Panel (structured_data — vencedor da cascata de extração) -->
         <div class="tab-panel" id="panel-json">
             <div class="json-panel-inner">
                 <div class="loading-msg" id="json-loading" style="display:none">Carregando dados…</div>
                 <div id="json-content" style="display:none">
                     <div class="json-toolbar">
                         <span class="json-toolbar-title" id="json-type-label"></span>
-                        <button class="btn-copy" id="btn-copy-json" onclick="copyJson()">Copiar JSON</button>
+                        <button class="btn-copy" id="btn-copy-json" onclick="copyJson('json')">Copiar JSON</button>
                     </div>
                     <div class="json-tree" id="json-tree"></div>
                 </div>
             </div>
         </div>
 
+        <!-- JSON Panel (dom2parser — resultado bruto, sem passar pela cascata) -->
+        <div class="tab-panel" id="panel-json_dom2parser">
+            <div class="json-panel-inner">
+                <div id="json-content_dom2parser" style="display:none">
+                    <div class="json-toolbar">
+                        <span class="json-toolbar-title" id="json-type-label_dom2parser"></span>
+                        <button class="btn-copy" id="btn-copy-json_dom2parser" onclick="copyJson('json_dom2parser')">Copiar JSON</button>
+                    </div>
+                    <div class="json-tree" id="json-tree_dom2parser"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- JSON Panel (extruct — metadados embutidos: JSON-LD/Microdata/OpenGraph/RDFa) -->
+        <div class="tab-panel" id="panel-json_extruct">
+            <div class="json-panel-inner">
+                <div id="json-content_extruct" style="display:none">
+                    <div class="json-toolbar">
+                        <span class="json-toolbar-title" id="json-type-label_extruct"></span>
+                        <button class="btn-copy" id="btn-copy-json_extruct" onclick="copyJson('json_extruct')">Copiar JSON</button>
+                    </div>
+                    <div class="json-tree" id="json-tree_extruct"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- DOM Reduzido Panel -->
+        <div class="tab-panel" id="panel-dom">
+            <div class="text-panel-inner">
+                <div class="loading-msg" id="dom-loading" style="display:none">Carregando HTML reduzido…</div>
+                <pre class="text-content" id="dom-content" style="display:none"></pre>
+            </div>
+        </div>
+
     </div>
 </div>
 
+<script src="{% static 'js/json_tree.js' %}"></script>
 <script>
     // ─── State ───────────────────────────────────────────────────────────────
     let currentArtifactId = null;
     let currentTab = 'mhtml';
     // Cache: keyed by artifact_id → {text, structured_data, page_type, ...} or null if 404
     const contentCache = {};
-    let rawJsonForCopy = null;
+    // Uma aba por fonte de dados estruturados: "structured_data" é a vencedora da
+    // cascata de extração (usada pelo resto do app); as demais são o resultado bruto
+    // de cada biblioteca, mantidas à parte só para comparação/depuração.
+    const JSON_SOURCES = [
+        { key: 'structured_data', tab: 'json', idSuffix: '', label: 'Dados Estruturados' },
+        { key: 'dados_estruturados_dom2parser', tab: 'json_dom2parser', idSuffix: '_dom2parser', label: 'dom2parser' },
+        { key: 'dados_estruturados_extruct', tab: 'json_extruct', idSuffix: '_extruct', label: 'extruct' },
+    ];
+    const rawJsonByTab = {};
 
     // ─── Artifact Selection ───────────────────────────────────────────────────
     function selectArtifact(element, id, url, date, classification) {
@@ -445,16 +467,21 @@
         currentArtifactId = id;
 
         // Reset content cache load for this artifact (keep cache entry if already loaded)
-        rawJsonForCopy = null;
         document.getElementById('text-content').style.display = 'none';
         document.getElementById('text-content').textContent = '';
-        document.getElementById('json-content').style.display = 'none';
-        document.getElementById('json-tree').innerHTML = '';
+        JSON_SOURCES.forEach(s => {
+            delete rawJsonByTab[s.tab];
+            document.getElementById(`json-content${s.idSuffix}`).style.display = 'none';
+            document.getElementById(`json-tree${s.idSuffix}`).innerHTML = '';
+        });
+        document.getElementById('dom-content').style.display = 'none';
+        document.getElementById('dom-content').textContent = '';
         document.getElementById('meta-extraction-section').style.display = 'none';
 
         // Disable content tabs until we know what's available
         setTabState('tab-texto', false);
-        setTabState('tab-json', false);
+        JSON_SOURCES.forEach(s => setTabState(`tab-${s.tab}`, false));
+        setTabState('tab-dom', false);
 
         // Metadata
         document.getElementById('meta-id').textContent = id;
@@ -489,7 +516,7 @@
         if (document.getElementById(`tab-${tab}`).classList.contains('disabled')) return;
 
         currentTab = tab;
-        ['mhtml', 'texto', 'json'].forEach(t => {
+        ['mhtml', 'texto', 'json', 'json_dom2parser', 'json_extruct', 'dom'].forEach(t => {
             document.getElementById(`tab-${t}`).classList.toggle('active', t === tab);
             document.getElementById(`panel-${t}`).classList.toggle('active', t === tab);
         });
@@ -534,7 +561,8 @@
 
     function applyTabStates(data) {
         setTabState('tab-texto', !!data.text);
-        setTabState('tab-json', !!data.structured_data);
+        JSON_SOURCES.forEach(s => setTabState(`tab-${s.tab}`, !!data[s.key]));
+        setTabState('tab-dom', !!data.dom_representation);
     }
 
     function updateExtractionMeta(data) {
@@ -557,144 +585,43 @@
             el.textContent = data.text;
             el.style.display = 'block';
         }
-        if (currentTab === 'json' && data.structured_data) {
-            rawJsonForCopy = data.structured_data;
-            document.getElementById('json-type-label').textContent =
-                `${data.page_type || ''}${data.detection_confidence != null ? ' · ' + Math.round(data.detection_confidence * 100) + '%' : ''}`;
-            const tree = document.getElementById('json-tree');
-            tree.innerHTML = '';
-            tree.appendChild(renderJsonNode(data.structured_data));
-            document.getElementById('json-content').style.display = 'block';
+        const jsonSource = JSON_SOURCES.find(s => s.tab === currentTab);
+        if (jsonSource && data[jsonSource.key]) {
+            renderJsonPanel(jsonSource, data);
+        }
+        if (currentTab === 'dom' && data.dom_representation) {
+            const el = document.getElementById('dom-content');
+            el.textContent = data.dom_representation;
+            el.style.display = 'block';
         }
     }
 
+    function renderJsonPanel(source, data) {
+        const value = data[source.key];
+        rawJsonByTab[source.tab] = value;
+        document.getElementById(`json-type-label${source.idSuffix}`).textContent =
+            `${data.page_type || ''}${data.detection_confidence != null ? ' · ' + Math.round(data.detection_confidence * 100) + '%' : ''}`;
+        const tree = document.getElementById(`json-tree${source.idSuffix}`);
+        tree.innerHTML = '';
+        tree.appendChild(renderJsonNode(value));
+        document.getElementById(`json-content${source.idSuffix}`).style.display = 'block';
+    }
+
     // ─── JSON Copy ────────────────────────────────────────────────────────────
-    function copyJson() {
-        if (!rawJsonForCopy) return;
-        navigator.clipboard.writeText(JSON.stringify(rawJsonForCopy, null, 2)).then(() => {
-            const btn = document.getElementById('btn-copy-json');
+    function copyJson(tab) {
+        const value = rawJsonByTab[tab];
+        if (!value) return;
+        const source = JSON_SOURCES.find(s => s.tab === tab);
+        navigator.clipboard.writeText(JSON.stringify(value, null, 2)).then(() => {
+            const btn = document.getElementById(`btn-copy-json${source.idSuffix}`);
             btn.textContent = 'Copiado!';
             btn.classList.add('copied');
             setTimeout(() => { btn.textContent = 'Copiar JSON'; btn.classList.remove('copied'); }, 1800);
         });
     }
 
-    // ─── JSON Tree Renderer ───────────────────────────────────────────────────
-    function renderJsonNode(value, key) {
-        if (Array.isArray(value)) return renderArray(value, key);
-        if (value !== null && typeof value === 'object') return renderObject(value, key);
-        return renderScalar(value, key);
-    }
-
-    function renderScalar(value, key) {
-        const span = document.createElement('span');
-        span.className = 'jt-node';
-
-        if (key !== undefined) {
-            const keySpan = document.createElement('span');
-            keySpan.className = 'jt-key';
-            keySpan.textContent = `"${key}": `;
-            span.appendChild(keySpan);
-        }
-
-        const valSpan = document.createElement('span');
-        if (value === null) {
-            valSpan.className = 'jt-null';
-            valSpan.textContent = 'null';
-        } else if (typeof value === 'boolean') {
-            valSpan.className = 'jt-bool';
-            valSpan.textContent = String(value);
-        } else if (typeof value === 'number') {
-            valSpan.className = 'jt-num';
-            valSpan.textContent = String(value);
-        } else {
-            valSpan.className = 'jt-str';
-            valSpan.textContent = `"${String(value)}"`;
-        }
-        span.appendChild(valSpan);
-        return span;
-    }
-
-    function renderObject(obj, key) {
-        const keys = Object.keys(obj);
-        const wrapper = document.createElement('div');
-        wrapper.className = 'jt-collapsible jt-node';
-
-        const toggle = document.createElement('span');
-        toggle.className = 'jt-toggle';
-        toggle.onclick = () => wrapper.classList.toggle('collapsed');
-
-        if (key !== undefined) {
-            const keySpan = document.createElement('span');
-            keySpan.className = 'jt-key';
-            keySpan.textContent = `"${key}": `;
-            toggle.appendChild(keySpan);
-        }
-
-        const openBracket = document.createElement('span');
-        openBracket.className = 'jt-bracket';
-        openBracket.textContent = '{';
-        toggle.appendChild(openBracket);
-
-        const summary = document.createElement('span');
-        summary.className = 'jt-summary';
-        summary.textContent = ` ${keys.length} chave${keys.length !== 1 ? 's' : ''} `;
-        toggle.appendChild(summary);
-
-        wrapper.appendChild(toggle);
-
-        const children = document.createElement('div');
-        children.className = 'jt-children';
-        keys.forEach(k => children.appendChild(renderJsonNode(obj[k], k)));
-        wrapper.appendChild(children);
-
-        const close = document.createElement('span');
-        close.className = 'jt-bracket';
-        close.textContent = '}';
-        wrapper.appendChild(close);
-
-        return wrapper;
-    }
-
-    function renderArray(arr, key) {
-        const wrapper = document.createElement('div');
-        wrapper.className = 'jt-collapsible jt-node';
-
-        const toggle = document.createElement('span');
-        toggle.className = 'jt-toggle';
-        toggle.onclick = () => wrapper.classList.toggle('collapsed');
-
-        if (key !== undefined) {
-            const keySpan = document.createElement('span');
-            keySpan.className = 'jt-key';
-            keySpan.textContent = `"${key}": `;
-            toggle.appendChild(keySpan);
-        }
-
-        const openBracket = document.createElement('span');
-        openBracket.className = 'jt-bracket';
-        openBracket.textContent = '[';
-        toggle.appendChild(openBracket);
-
-        const summary = document.createElement('span');
-        summary.className = 'jt-summary';
-        summary.textContent = ` ${arr.length} item${arr.length !== 1 ? 's' : ''} `;
-        toggle.appendChild(summary);
-
-        wrapper.appendChild(toggle);
-
-        const children = document.createElement('div');
-        children.className = 'jt-children';
-        arr.forEach((item, i) => children.appendChild(renderJsonNode(item, i)));
-        wrapper.appendChild(children);
-
-        const close = document.createElement('span');
-        close.className = 'jt-bracket';
-        close.textContent = ']';
-        wrapper.appendChild(close);
-
-        return wrapper;
-    }
+    // O renderizador de árvore JSON vive em static/js/json_tree.js — é o
+    // mesmo usado pelo painel de eventos para exibir o payload de cada etapa.
 </script>
 </body>
 </html>

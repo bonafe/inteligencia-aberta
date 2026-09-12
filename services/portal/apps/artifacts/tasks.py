@@ -9,7 +9,39 @@ from celery import shared_task
 from django.conf import settings
 from minio import Minio
 
+from apps.events.context import correlacao_de_artefato, set_correlation_id, set_tenant_id
+from apps.events.emit import emit, etapa
+
 logger = logging.getLogger(__name__)
+
+
+def correlacao_do_artefato(artifact_id) -> "uuid_lib.UUID":
+    """A correlação da captura à qual este artefato pertence.
+
+    Prefere o id que o orchestrator gerou no momento da captura (guardado em
+    `Artifact.content["correlation_id"]`), para que a timeline comece no clique
+    da extensão. Cai para um uuid5 derivado do id do artefato quando ele não
+    existe — capturas anteriores a este log, artefatos criados pelo
+    `sync_minio_postgres.py` — mantendo mesmo assim uma correlação estável
+    entre reprocessamentos do mesmo artefato.
+    """
+    from .models import Artifact
+
+    try:
+        artefato = Artifact.objects.filter(id=artifact_id).only("content").first()
+        declarada = (artefato.content or {}).get("correlation_id") if artefato else None
+        if declarada:
+            return uuid_lib.UUID(str(declarada))
+    except (ValueError, TypeError, AttributeError):
+        pass
+    return correlacao_de_artefato(artifact_id)
+
+
+def _uuid_ou_none(valor):
+    try:
+        return uuid_lib.UUID(str(valor))
+    except (ValueError, TypeError, AttributeError):
+        return None
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -104,9 +136,8 @@ def _schema_reproduces_data(schema: dict, html: str, url: str, title: str, artif
     seguintes — melhor não gravar e deixar a próxima captura regenerar.
     """
     try:
-        from .extractors.schema_extractor import schema_driven_extract
-        result = schema_driven_extract(html, url, title, schema)
-        return result.get("extractor_version", "").startswith("schema_driven:")
+        from .extractors.schema_extractor import schema_driven_extract, schema_worked
+        return schema_worked(schema_driven_extract(html, url, title, schema))
     except Exception:
         logger.exception("[%s] validação de schema falhou — schema não será gravado", artifact_id)
         return False
@@ -116,18 +147,17 @@ def _update_schema_health(cache_obj, extracted: dict, artifact_id) -> None:
     """Realimenta o URLPatternCache com o resultado real do schema de seletores.
 
     O extractor_version do resultado é o sinal: se não começa com
-    "schema_driven:", o schema_driven_extract caiu no fallback — os seletores
-    não casaram com o HTML. Após SCHEMA_FAILURE_THRESHOLD falhas consecutivas,
+    "schema_driven:" nem "dom2parser:", o schema_driven_extract caiu no
+    fallback — os seletores não casaram com o HTML. Após SCHEMA_FAILURE_THRESHOLD falhas consecutivas,
     o schema é descartado e a entrada marcada para revisão; a captura seguinte
     (com LLM habilitado) regenera o schema pagando o custo uma única vez.
     Um sucesso zera o contador.
     """
     from django.db import models as django_models
+    from .extractors.schema_extractor import schema_worked
     from .models import URLPatternCache
 
-    schema_worked = extracted.get("extractor_version", "").startswith("schema_driven:")
-
-    if schema_worked:
+    if schema_worked(extracted):
         if cache_obj.schema_failure_count:
             URLPatternCache.objects.filter(id=cache_obj.id).update(schema_failure_count=0)
         return
@@ -157,43 +187,96 @@ def _update_schema_health(cache_obj, extracted: dict, artifact_id) -> None:
 # ── Etapa 1: extração de texto ────────────────────────────────────────────────
 
 @shared_task(bind=True, max_retries=3, default_retry_delay=60)
-def extract_text_from_mhtml(self, artifact_id: str):
+def extract_text_from_mhtml(self, artifact_id: str, forcar: bool = False):
+    """Extrai texto e dados estruturados de um MHTML capturado.
+
+    Com `forcar=True`, apaga o DocumentText (e seus fragmentos) e refaz a
+    extração do zero. É o caminho para diagnosticar uma captura antiga: o
+    reprocessamento emite a mesma trilha de eventos de uma captura nova, e o
+    painel passa a dizer em que etapa e por que o resultado saiu vazio.
+    """
     from .models import Artifact, DocumentText
+
+    correlation = correlacao_do_artefato(artifact_id)
+    set_correlation_id(correlation)
 
     try:
         artifact = Artifact.objects.get(id=artifact_id)
     except Artifact.DoesNotExist:
+        logger.warning("[%s] artefato não encontrado — extração abortada", artifact_id)
+        emit("extracao.ignorada", "ignorado",
+             subject_type="artifact", subject_id=_uuid_ou_none(artifact_id),
+             message="artefato não encontrado no banco")
         return {"status": "error", "reason": f"Artifact {artifact_id} não encontrado"}
 
-    logger.info("[%s] extract_text_from_mhtml iniciado", artifact_id)
+    tenant_id = artifact.tenant_id
+    # A partir daqui todo evento deste processo — inclusive os automáticos dos
+    # signals do Celery, ao despachar as tasks seguintes — herda o tenant.
+    set_tenant_id(tenant_id)
+    logger.info("[%s] extract_text_from_mhtml iniciado (forcar=%s)", artifact_id, forcar)
 
     content = artifact.content or {}
     mhtml_path = content.get("mhtml_path")
     mhtml_bucket = content.get("mhtml_bucket", "inteligencia-aberta-mhtml")
+    url = content.get("url", "")
+    title = content.get("title", "")
+
+    def evento(stage, status, **kw):
+        """Atalho: todo evento desta task fala do mesmo artefato e tenant."""
+        kw.setdefault("subject_type", "artifact")
+        kw.setdefault("subject_id", artifact.id)
+        kw.setdefault("tenant_id", tenant_id)
+        return emit(stage, status, **kw)
+
+    evento("extracao.iniciada", "iniciado",
+           message=f"extração iniciada para {url or artifact_id}",
+           payload={"url": url, "titulo": title, "forcar": forcar,
+                    "allow_external_llm": artifact.allow_external_llm})
 
     if not mhtml_path:
         logger.info("[%s] sem mhtml_path — ignorado", artifact_id)
+        evento("extracao.ignorada", "ignorado", message="artefato sem mhtml_path no conteúdo")
         return {"status": "skipped", "reason": "sem mhtml_path no conteúdo"}
 
     # Idempotência: já tem DocumentText?
     existing = DocumentText.objects.filter(document=artifact).first()
-    if existing:
+    if existing and not forcar:
         logger.info("[%s] já processado — document_text_id=%s", artifact_id, existing.id)
+        evento("extracao.ignorada", "ignorado",
+               message="já existe DocumentText; use forcar=True para reextrair",
+               payload={"document_text_id": str(existing.id),
+                        "tem_dom_representation": bool(existing.dom_representation),
+                        "tem_dados_dom2parser": existing.dados_estruturados_dom2parser is not None,
+                        "tem_dados_extruct": existing.dados_estruturados_extruct is not None})
         fragment_text.delay(str(existing.id))
         return {"status": "already_done", "document_text_id": str(existing.id)}
 
+    if existing and forcar:
+        from .models import DocumentFragment
+        n_frags = DocumentFragment.objects.filter(document_text=existing).count()
+        DocumentFragment.objects.filter(document_text=existing).delete()
+        existing.delete()
+        logger.info("[%s] reprocessamento forçado — DocumentText e %d fragmentos apagados", artifact_id, n_frags)
+        evento("extracao.reiniciada", "ok",
+               message="DocumentText anterior descartado para reextração",
+               payload={"fragmentos_apagados": n_frags})
+
     logger.info("[%s] buscando MHTML no MinIO — bucket=%s path=%s", artifact_id, mhtml_bucket, mhtml_path)
     try:
-        client = Minio(
-            os.getenv("MINIO_ENDPOINT", "minio:9000"),
-            access_key=os.getenv("MINIO_ROOT_USER", "minioadmin"),
-            secret_key=os.getenv("MINIO_ROOT_PASSWORD", "substitua-por-senha-segura"),
-            secure=False,
-        )
-        response = client.get_object(mhtml_bucket, mhtml_path)
-        mhtml_bytes = response.read()
-        response.close()
-        response.release_conn()
+        with etapa("extracao.minio", subject_type="artifact", subject_id=artifact.id,
+                   tenant_id=tenant_id) as e:
+            client = Minio(
+                os.getenv("MINIO_ENDPOINT", "minio:9000"),
+                access_key=os.getenv("MINIO_ROOT_USER", "minioadmin"),
+                secret_key=os.getenv("MINIO_ROOT_PASSWORD", "substitua-por-senha-segura"),
+                secure=False,
+            )
+            response = client.get_object(mhtml_bucket, mhtml_path)
+            mhtml_bytes = response.read()
+            response.close()
+            response.release_conn()
+            e.ok(f"MHTML lido ({len(mhtml_bytes)} bytes)",
+                 bytes=len(mhtml_bytes), bucket=mhtml_bucket, path=mhtml_path)
     except Exception as exc:
         logger.warning("[%s] falha ao buscar MHTML — tentativa %d: %s", artifact_id, self.request.retries + 1, exc)
         raise self.retry(exc=exc)
@@ -202,118 +285,302 @@ def extract_text_from_mhtml(self, artifact_id: str):
 
     msg = email_lib.message_from_bytes(mhtml_bytes, policy=email_policy.default)
     html_content = None
+    charset_usado = None
     for part in msg.walk():
         if part.get_content_type() == "text/html" and html_content is None:
             mime_charset = part.get_content_charset()
             payload = part.get_payload(decode=True)
             if payload:
                 html_content = _decode_html_bytes(payload, mime_charset)
+                charset_usado = mime_charset
                 logger.debug("[%s] charset resolvido — mime=%s bytes=%d", artifact_id, mime_charset, len(payload))
                 break
 
     if not html_content:
         logger.info("[%s] HTML não encontrado no MHTML — ignorado", artifact_id)
+        evento("extracao.mhtml", "vazio", message="nenhuma parte text/html dentro do MHTML")
         return {"status": "skipped", "reason": "HTML não encontrado no MHTML"}
 
     logger.info("[%s] HTML extraído do MHTML — %d chars", artifact_id, len(html_content))
+    evento("extracao.mhtml", "ok",
+           message=f"HTML extraído do MHTML ({len(html_content)} chars)",
+           payload={"chars_html": len(html_content), "charset": charset_usado or "indeterminado"})
 
     from .extractors import detect_page_type, route, extract_narrative_text
+    from .extractors.schema_extractor import schema_worked
 
     # Texto de busca: SEMPRE via trafilatura, independente de page_type ou de LLM.
     # Roda antes de qualquer detecção/classificação — se a página não tem prosa
     # extraível, não vale a pena gastar chamadas de LLM tentando classificá-la.
-    text = extract_narrative_text(html_content)
+    with etapa("extracao.trafilatura", subject_type="artifact", subject_id=artifact.id,
+               tenant_id=tenant_id) as e:
+        text = extract_narrative_text(html_content)
+        if not text:
+            e.vazio("trafilatura não encontrou prosa extraível nesta página")
+        else:
+            e.ok(f"texto extraído ({len(text)} chars)",
+                 chars=len(text), palavras=len(text.split()))
 
     if not text:
         logger.info("[%s] trafilatura não produziu conteúdo — ignorado", artifact_id)
+        evento("extracao.ignorada", "ignorado",
+               message="sem texto extraível — o restante do pipeline não roda")
         return {"status": "skipped", "reason": "trafilatura não produziu conteúdo"}
 
     logger.info("[%s] texto extraído via trafilatura — %d chars", artifact_id, len(text))
 
-    url = content.get("url", "")
-    title = content.get("title", "")
+    # dom2parser roda uma única vez: produz a representação compacta (persistida em
+    # DocumentText.dom_representation e enviada ao LLM quando necessário) e o parser
+    # verificado desta página (seletores medidos contra o próprio HTML, sem LLM).
+    from .extractors import dom_parser
+
+    dom_representation = None
+    parser_spec = None
+    diag_d2p: dict = {}
+    try:
+        with etapa("extracao.dom2parser", subject_type="artifact", subject_id=artifact.id,
+                   tenant_id=tenant_id) as e:
+            import dom2parser
+            compressed = dom2parser.compress(html_content)
+            dom_representation = compressed.text
+            parser_spec = compressed.parser
+            reduction_pct = (compressed.reduction or {}).get("reduction_pct", {})
+            logger.info(
+                "[%s] dom2parser — %.1f%% redução de chars (%d chars finais), %d registros verificados, %d falhas",
+                artifact_id, reduction_pct.get("chars", 0.0), len(dom_representation),
+                len(parser_spec.records), len(parser_spec.failures),
+            )
+
+            # O parser sintetizado é executado aqui mesmo; o resultado alimenta
+            # tanto `dados_estruturados_dom2parser` quanto a cascata abaixo.
+            dom2parser_extraction = dom_parser.extract_with_spec(
+                parser_spec, html_content, diagnostico=diag_d2p
+            )
+            diag_d2p["reducao_pct_chars"] = round(reduction_pct.get("chars", 0.0), 2)
+            diag_d2p["chars_finais"] = len(dom_representation)
+
+            if dom2parser_extraction:
+                e.ok("parser verificado extraiu registros", **diag_d2p)
+            else:
+                # A distinção que faltava: rodou, mas não produziu — e agora o
+                # motivo fica gravado no banco em vez de morrer no stdout.
+                e.vazio(diag_d2p.get("motivo", "parser não produziu registros"), **diag_d2p)
+    except Exception:
+        logger.exception("[%s] dom2parser falhou — representação não será persistida", artifact_id)
+        dom2parser_extraction = None
+        if dom_representation is None:
+            parser_spec = None
+
+    dados_estruturados_dom2parser = (
+        dom2parser_extraction["structured_data"] if dom2parser_extraction else None
+    )
+
+    # Extração bruta de cada biblioteca de "dados estruturados de página web", persistida
+    # à parte de `structured_data` (que carrega só a vencedora da cascata abaixo) — para
+    # comparar cobertura/qualidade entre estratégias sem precisar reprocessar o MHTML.
+    diag_extruct: dict = {}
+    try:
+        from .extractors import extruct_extractor
+        with etapa("extracao.extruct", subject_type="artifact", subject_id=artifact.id,
+                   tenant_id=tenant_id) as e:
+            dados_estruturados_extruct = extruct_extractor.extract(
+                html_content, url, diagnostico=diag_extruct
+            )
+            if dados_estruturados_extruct:
+                e.ok("metadados embutidos encontrados", **diag_extruct)
+            else:
+                e.vazio(diag_extruct.get("motivo", "nenhum metadado embutido"), **diag_extruct)
+    except Exception:
+        logger.exception("[%s] extruct falhou — seguindo sem dados_estruturados_extruct", artifact_id)
+        dados_estruturados_extruct = None
 
     logger.info("[%s] detectando tipo de página — url=%s allow_external_llm=%s", artifact_id, url, artifact.allow_external_llm)
-    page_type, confidence, detection_source, cache_id, cache_obj = detect_page_type(
-        html_content, url, artifact.tenant_id,
-        allow_external_llm=artifact.allow_external_llm,
-    )
+    with etapa("deteccao.page_type", subject_type="artifact", subject_id=artifact.id,
+               tenant_id=tenant_id) as e:
+        page_type, confidence, detection_source, cache_id, cache_obj = detect_page_type(
+            html_content, url, artifact.tenant_id,
+            allow_external_llm=artifact.allow_external_llm,
+            dom_representation=dom_representation,
+        )
+        e.ok(f"{page_type} ({detection_source}, confiança {confidence:.2f})",
+             page_type=page_type, confidence=round(confidence, 3),
+             detection_source=detection_source,
+             cache_id=str(cache_id) if cache_id else None,
+             # cache_obj None significa que URLPatternCache não pôde ser criado:
+             # sem ele, o parser não é gravado e a Estratégia C nunca dispara.
+             tem_cache=cache_obj is not None)
     logger.info(
         "[%s] tipo detectado — page_type=%s confidence=%.2f source=%s cache_id=%s",
         artifact_id, page_type, confidence, detection_source, cache_id,
     )
 
-    # Estratégia A+B+C unificada: na primeira captura com LLM habilitado, o LLM faz tudo —
-    # entende a página, extrai os dados estruturados e gera o schema — em vez de usar o
-    # extrator determinístico. O LLM nunca produz o texto de busca (já extraído acima);
-    # sua responsabilidade é só structured_data + schema. Resultado usado imediatamente
-    # (não só na próxima captura). Fallback para route() se o LLM falhar, não estiver
-    # disponível, ou não encontrar nenhum dado estruturado.
-    first_capture_with_llm = (
-        artifact.allow_external_llm
-        and cache_obj is not None
-        and not cache_obj.extractor_config
-    )
-
+    # Ordem de extração de structured_data (o texto de busca já foi definido acima):
+    #   1. schema gravado no cache (parser dom2parser 2.0 ou seletores do LLM 1.0)
+    #   2. parser verificado que o dom2parser sintetizou para ESTA página (sem LLM);
+    #      gravado no cache quando o padrão de URL ainda não tem schema
+    #   3. LLM (Estratégia C) — só na 1ª captura sem schema, quando o dom2parser
+    #      não encontrou estruturas repetidas (páginas de campos soltos: ficha de CNPJ)
+    #   4. extrator determinístico por page_type
     extracted = None
+    cached_config = cache_obj.extractor_config if cache_obj is not None else {}
+    # Trilha da cascata: por que cada estratégia foi (ou não) usada. Vira o
+    # payload de `extracao.cascata` e responde "por que o dado veio daqui".
+    cascata: list[dict] = []
+
+    if cached_config:
+        logger.info("[%s] extraindo com schema do cache (%s)", artifact_id, cached_config.get("generated_by", "llm"))
+        extracted = route(page_type, html_content, url, title, cache_obj=cache_obj)
+        # Realimentação do cache: se o resultado não veio do schema, os seletores
+        # não casaram — a estrutura da página provavelmente mudou.
+        _update_schema_health(cache_obj, extracted, artifact_id)
+        if not schema_worked(extracted):
+            cascata.append({"estrategia": "schema_cache", "usada": False,
+                            "motivo": "seletores gravados não casaram com o HTML"})
+            extracted = None
+        else:
+            cascata.append({"estrategia": "schema_cache", "usada": True,
+                            "generated_by": cached_config.get("generated_by", "llm")})
+    else:
+        cascata.append({"estrategia": "schema_cache", "usada": False,
+                        "motivo": "padrão de URL ainda não tem schema gravado"})
+
+    if extracted is None and dom2parser_extraction is not None:
+        # Já calculado acima — reaproveita sem reexecutar.
+        extracted = dom2parser_extraction
+        registros = extracted["structured_data"]["registros"]
+        logger.info(
+            "[%s] parser dom2parser extraiu %d registros — %s",
+            artifact_id, len(registros), {k: len(v) for k, v in registros.items()},
+        )
+        cascata.append({"estrategia": "dom2parser", "usada": True,
+                        "registros": {k: len(v) for k, v in registros.items()}})
+        if cache_obj is not None and not cached_config:
+            config = dom_parser.config_from_spec(parser_spec)
+            if config:
+                from .models import URLPatternCache
+                URLPatternCache.objects.filter(id=cache_obj.id).update(
+                    extractor_config=config,
+                    schema_failure_count=0,
+                    needs_review=False,
+                )
+                logger.info(
+                    "[%s] parser dom2parser gravado no cache — %d registros",
+                    artifact_id, len(config["parser"]["records"]),
+                )
+                evento("extracao.schema_cache", "ok",
+                       message="parser do dom2parser gravado no cache de padrões",
+                       payload={"registros": len(config["parser"]["records"]),
+                                "cache_id": str(cache_obj.id)})
+            else:
+                evento("extracao.schema_cache", "vazio",
+                       message="nenhum registro verificado para gravar no cache",
+                       payload={"cache_id": str(cache_obj.id)})
+    elif extracted is None:
+        logger.info("[%s] dom2parser não sintetizou parser utilizável para esta página", artifact_id)
+        cascata.append({"estrategia": "dom2parser", "usada": False,
+                        "motivo": diag_d2p.get("motivo", "sem parser utilizável")})
+
+    # Estratégia C: na primeira captura com LLM habilitado e sem schema, o LLM entende a
+    # página, extrai os dados estruturados e gera o schema de seletores. O LLM nunca
+    # produz o texto de busca (já extraído acima); sua responsabilidade é só
+    # structured_data + schema. Resultado usado imediatamente. Fallback para route()
+    # se o LLM falhar, não estiver disponível, ou não encontrar nenhum dado estruturado.
+    first_capture_with_llm = (
+        extracted is None
+        and artifact.allow_external_llm
+        and cache_obj is not None
+        and not cached_config
+    )
 
     if first_capture_with_llm:
         logger.info("[%s] primeira captura com LLM — extraindo dados e gerando schema", artifact_id)
         try:
-            from .extractors.skeleton import compress_html_skeleton
-            from .extractors.llm_classifier import llm_extract_and_schema
-            from .models import URLPatternCache
+            with etapa("extracao.llm", subject_type="artifact", subject_id=artifact.id,
+                       tenant_id=tenant_id) as e:
+                from .extractors.llm_classifier import llm_extract_and_schema
+                from .models import URLPatternCache
 
-            skeleton = compress_html_skeleton(html_content)
-            llm_result = llm_extract_and_schema(skeleton, url, page_type_hint=page_type)
+                skeleton = dom_representation
+                if skeleton is None:
+                    import dom2parser
+                    skeleton = dom2parser.compress(html_content).text
+                llm_result = llm_extract_and_schema(skeleton, url, page_type_hint=page_type)
 
-            if llm_result and llm_result.get("structured_data"):
-                extracted = {
-                    "structured_data": llm_result["structured_data"],
-                    "extractor_version": "llm_direct:1.0",
-                }
-                # Refine page_type if LLM disagrees with structural analysis
-                if llm_result.get("page_type") and llm_result["page_type"] != "desconhecido":
-                    page_type = llm_result["page_type"]
+                if llm_result and llm_result.get("structured_data"):
+                    extracted = {
+                        "structured_data": llm_result["structured_data"],
+                        "extractor_version": "llm_direct:1.0",
+                    }
+                    # Refine page_type if LLM disagrees with structural analysis
+                    if llm_result.get("page_type") and llm_result["page_type"] != "desconhecido":
+                        page_type = llm_result["page_type"]
 
-                schema = llm_result.get("schema") or {}
-                if schema and _schema_reproduces_data(schema, html_content, url, title, artifact_id):
-                    URLPatternCache.objects.filter(id=cache_obj.id).update(
-                        extractor_config=schema,
-                        page_type=page_type,
-                        schema_failure_count=0,
-                        needs_review=False,
-                    )
-                    logger.info(
-                        "[%s] schema validado e gravado — categoria='%s' campos=%d tabelas=%d",
-                        artifact_id, schema.get("categoria", ""),
-                        len(schema.get("fields", {})), len(schema.get("tables", [])),
-                    )
-                elif schema:
-                    logger.warning(
-                        "[%s] schema gerado pelo LLM não reproduz dados no próprio HTML — "
-                        "não gravado; esta captura usa o structured_data direto do LLM",
-                        artifact_id,
-                    )
-            else:
-                logger.warning("[%s] LLM não produziu dados estruturados — fallback para extrator determinístico", artifact_id)
+                    schema = llm_result.get("schema") or {}
+                    schema_gravado = False
+                    if schema and _schema_reproduces_data(schema, html_content, url, title, artifact_id):
+                        URLPatternCache.objects.filter(id=cache_obj.id).update(
+                            extractor_config=schema,
+                            page_type=page_type,
+                            schema_failure_count=0,
+                            needs_review=False,
+                        )
+                        schema_gravado = True
+                        logger.info(
+                            "[%s] schema validado e gravado — categoria='%s' campos=%d tabelas=%d",
+                            artifact_id, schema.get("categoria", ""),
+                            len(schema.get("fields", {})), len(schema.get("tables", [])),
+                        )
+                    elif schema:
+                        logger.warning(
+                            "[%s] schema gerado pelo LLM não reproduz dados no próprio HTML — "
+                            "não gravado; esta captura usa o structured_data direto do LLM",
+                            artifact_id,
+                        )
+                    e.ok("LLM extraiu dados estruturados",
+                         modelo=llm_result.get("model", ""),
+                         page_type=page_type,
+                         schema_gerado=bool(schema),
+                         schema_gravado=schema_gravado,
+                         chars_enviados=len(skeleton or ""))
+                    cascata.append({"estrategia": "llm", "usada": True,
+                                    "schema_gravado": schema_gravado})
+                else:
+                    logger.warning("[%s] LLM não produziu dados estruturados — fallback para extrator determinístico", artifact_id)
+                    e.vazio("LLM não produziu dados estruturados",
+                            chars_enviados=len(skeleton or ""))
+                    cascata.append({"estrategia": "llm", "usada": False,
+                                    "motivo": "LLM não produziu dados estruturados"})
         except Exception:
             logger.exception("[%s] llm_extract_and_schema falhou — fallback para extrator determinístico", artifact_id)
+            cascata.append({"estrategia": "llm", "usada": False, "motivo": "exceção na chamada"})
+    elif extracted is None:
+        cascata.append({
+            "estrategia": "llm", "usada": False,
+            "motivo": ("LLM externo não permitido para esta classificação"
+                       if not artifact.allow_external_llm else "condições da 1ª captura não atendidas"),
+        })
 
     if extracted is None:
-        logger.info("[%s] extraindo structured_data com extrator=%s", artifact_id, page_type)
-        extracted = route(page_type, html_content, url, title, cache_obj=cache_obj)
+        # cache_obj=None: o schema do cache (se havia) já foi tentado e realimentado acima.
+        logger.info("[%s] extraindo structured_data com extrator determinístico=%s", artifact_id, page_type)
+        extracted = route(page_type, html_content, url, title, cache_obj=None)
+        cascata.append({"estrategia": "deterministico", "usada": True,
+                        "extractor_version": extracted["extractor_version"]})
 
-        # Realimentação do cache: se havia schema mas o resultado não veio dele,
-        # os seletores não casaram — a estrutura da página provavelmente mudou.
-        if cache_obj is not None and cache_obj.extractor_config:
-            _update_schema_health(cache_obj, extracted, artifact_id)
+    evento("extracao.cascata",
+           "ok" if extracted.get("structured_data") else "vazio",
+           message=f"structured_data via {extracted['extractor_version']}",
+           payload={"extractor_version": extracted["extractor_version"],
+                    "page_type": page_type, "trilha": cascata})
 
     logger.info(
-        "[%s] extração concluída — chars=%d words=%d structured_data=%s extractor=%s",
+        "[%s] extração concluída — chars=%d words=%d structured_data=%s extractor=%s "
+        "dom2parser=%s extruct=%s",
         artifact_id, len(text), len(text.split()),
         "sim" if extracted.get("structured_data") else "não",
         extracted["extractor_version"],
+        "sim" if dados_estruturados_dom2parser else "não",
+        "sim" if dados_estruturados_extruct else "não",
     )
 
     doc_text = DocumentText.objects.create(
@@ -326,10 +593,24 @@ def extract_text_from_mhtml(self, artifact_id: str):
         detection_source=detection_source,
         url_pattern_cache_id=cache_id,
         structured_data=extracted.get("structured_data"),
+        dados_estruturados_dom2parser=dados_estruturados_dom2parser,
+        dados_estruturados_extruct=dados_estruturados_extruct,
+        dom_representation=dom_representation,
         extractor_version=extracted["extractor_version"],
         char_count=len(text),
         word_count=len(text.split()),
     )
+
+    evento("extracao.concluida", "ok",
+           message=f"DocumentText criado ({doc_text.word_count} palavras)",
+           payload={"document_text_id": str(doc_text.id),
+                    "extractor_version": extracted["extractor_version"],
+                    "page_type": page_type,
+                    "palavras": doc_text.word_count,
+                    "tem_structured_data": bool(extracted.get("structured_data")),
+                    "tem_dom2parser": dados_estruturados_dom2parser is not None,
+                    "tem_extruct": dados_estruturados_extruct is not None,
+                    "tem_dom_representation": dom_representation is not None})
 
     logger.info("[%s] DocumentText criado — id=%s → despachando fragment_text", artifact_id, doc_text.id)
     fragment_text.delay(str(doc_text.id))
@@ -348,16 +629,26 @@ def fragment_text(self, document_text_id: str):
     from .models import DocumentText, DocumentFragment
 
     try:
-        doc_text = DocumentText.objects.get(id=document_text_id)
+        doc_text = DocumentText.objects.select_related("document").get(id=document_text_id)
     except DocumentText.DoesNotExist:
+        emit("fragmentacao.ignorada", "ignorado",
+             subject_type="document_text", subject_id=_uuid_ou_none(document_text_id),
+             message="DocumentText não encontrado")
         return {"status": "error", "reason": f"DocumentText {document_text_id} não encontrado"}
 
+    set_correlation_id(correlacao_do_artefato(doc_text.document_id))
+    tenant_id = doc_text.document.tenant_id
+    set_tenant_id(tenant_id)
     logger.info("[%s] fragment_text iniciado", document_text_id)
 
     # Idempotência: já foi fragmentado?
     existing_ids = list(doc_text.fragments.values_list("id", flat=True))
     if existing_ids:
         logger.info("[%s] já fragmentado — %d fragmentos existentes", document_text_id, len(existing_ids))
+        emit("fragmentacao.ignorada", "ignorado",
+             subject_type="document_text", subject_id=doc_text.id, tenant_id=tenant_id,
+             message=f"já havia {len(existing_ids)} fragmentos",
+             payload={"n": len(existing_ids)})
         for frag_id in existing_ids:
             frag = DocumentFragment.objects.filter(id=frag_id).first()
             if frag and not frag.qdrant_point_id:
@@ -367,6 +658,9 @@ def fragment_text(self, document_text_id: str):
     text = doc_text.text
     if not text:
         logger.info("[%s] sem texto no DocumentText — ignorado", document_text_id)
+        emit("fragmentacao.ignorada", "ignorado",
+             subject_type="document_text", subject_id=doc_text.id, tenant_id=tenant_id,
+             message="DocumentText sem texto")
         return {"status": "skipped", "reason": "sem texto no conteúdo"}
 
     chunk_size = getattr(settings, "FRAGMENT_CHUNK_SIZE", 1000)
@@ -388,6 +682,11 @@ def fragment_text(self, document_text_id: str):
         embed_fragment.delay(str(frag.id))
 
     logger.info("[%s] %d fragmentos criados e despachados para embed_fragment", document_text_id, len(chunks))
+    emit("fragmentacao.concluida", "ok",
+         subject_type="document_text", subject_id=doc_text.id, tenant_id=tenant_id,
+         message=f"{len(chunks)} fragmentos criados",
+         payload={"n": len(chunks), "chars": len(text),
+                  "chunk_size": chunk_size, "overlap": overlap})
     return {"status": "success", "fragments": len(chunks)}
 
 
@@ -403,12 +702,28 @@ def embed_fragment(self, fragment_id: str):
             "document_text__document"
         ).get(id=fragment_id)
     except DocumentFragment.DoesNotExist:
+        emit("embedding.ignorado", "ignorado",
+             subject_type="fragment", subject_id=_uuid_ou_none(fragment_id),
+             message="fragmento não encontrado")
         return {"status": "error", "reason": f"DocumentFragment {fragment_id} não encontrado"}
 
+    set_correlation_id(correlacao_do_artefato(fragment.document_text.document_id))
+    set_tenant_id(fragment.document_text.document.tenant_id)
     logger.info("[%s] embed_fragment iniciado", fragment_id)
 
     if fragment.qdrant_point_id:
         logger.info("[%s] embedding já existe — qdrant_point_id=%s", fragment_id, fragment.qdrant_point_id)
+        # Emite mesmo assim: o fato relevante para a projeção é "este fragmento
+        # está indexado", não "foi esta execução que o indexou". Sem este evento
+        # a trilha ficava presa em 8/9 quando uma task era despachada duas vezes.
+        emit("embedding.concluido", "ok",
+             subject_type="fragment", subject_id=fragment.id,
+             tenant_id=fragment.document_text.document.tenant_id,
+             message=f"fragmento {fragment.fragment_index + 1}/{fragment.total_fragments} já estava indexado",
+             payload={"indice": fragment.fragment_index,
+                      "total": fragment.total_fragments,
+                      "ja_existia": True,
+                      "collection": fragment.qdrant_collection})
         return {"status": "already_done", "qdrant_point_id": fragment.qdrant_point_id}
 
     text = fragment.text
@@ -468,6 +783,13 @@ def embed_fragment(self, fragment_id: str):
     fragment.save(update_fields=["qdrant_point_id", "qdrant_collection", "updated_at"])
 
     logger.info("[%s] embed_fragment concluído — point_id=%s collection=%s", fragment_id, point_id, collection)
+    emit("embedding.concluido", "ok",
+         subject_type="fragment", subject_id=fragment.id, tenant_id=document.tenant_id,
+         message=f"fragmento {fragment.fragment_index + 1}/{fragment.total_fragments} indexado",
+         payload={"indice": fragment.fragment_index,
+                  "total": fragment.total_fragments,
+                  "collection": collection,
+                  "dimensao": len(vector)})
     return {"status": "success", "qdrant_point_id": point_id, "collection": collection}
 
 
@@ -475,32 +797,42 @@ def embed_fragment(self, fragment_id: str):
 
 @shared_task
 def scan_unprocessed_documents():
-    """Varre gaps nos três estágios do pipeline e enfileira tarefas pendentes."""
-    from .models import Artifact, DocumentText, DocumentFragment
+    """Varre gaps nos três estágios do pipeline e enfileira tarefas pendentes.
 
-    # Gap 1: documento sem DocumentText
-    processed_doc_ids = DocumentText.objects.values_list("document_id", flat=True)
-    gap1 = 0
-    for art in Artifact.objects.filter(artifact_type=Artifact.Type.DOCUMENT).exclude(id__in=processed_doc_ids):
-        if (art.content or {}).get("mhtml_path"):
-            extract_text_from_mhtml.delay(str(art.id))
-            gap1 += 1
+    A identificação dos gaps vive em `apps.events.agregados.contar_gaps` para
+    que o painel exiba exatamente a mesma contagem que esta varredura usa para
+    decidir o que reenfileirar — número divergente entre o que se vê e o que o
+    sistema faz é pior do que não mostrar número nenhum.
+    """
+    from apps.events.agregados import contar_gaps
 
-    # Gap 2: DocumentText sem fragmentos
-    fragmented_ids = DocumentFragment.objects.values_list("document_text_id", flat=True).distinct()
-    gap2 = 0
-    for dt in DocumentText.objects.exclude(id__in=fragmented_ids):
-        fragment_text.delay(str(dt.id))
-        gap2 += 1
+    gaps = contar_gaps()
 
-    # Gap 3: fragmento sem embedding no Qdrant
-    gap3 = 0
-    for frag in DocumentFragment.objects.filter(qdrant_point_id=""):
-        embed_fragment.delay(str(frag.id))
-        gap3 += 1
+    def despachar(itens, task):
+        for alvo_id, artifact_id, tenant_id in itens:
+            # Sem isto, os eventos de ciclo de vida das tasks redespachadas pelo
+            # catch-up nasceriam sem correlação e sem tenant — ficariam fora da
+            # linha do tempo da captura e invisíveis no painel.
+            set_correlation_id(correlacao_do_artefato(artifact_id))
+            set_tenant_id(tenant_id)
+            task.delay(str(alvo_id))
+        set_correlation_id(None)
+        set_tenant_id(None)
+
+    despachar(gaps["extracao"], extract_text_from_mhtml)
+    despachar(gaps["fragmentacao"], fragment_text)
+    despachar(gaps["embedding"], embed_fragment)
+
+    gap1, gap2, gap3 = (len(gaps["extracao"]), len(gaps["fragmentacao"]), len(gaps["embedding"]))
 
     if gap1 or gap2 or gap3:
         logger.info("scan gaps — doc→texto: %d, texto→frag: %d, frag→embed: %d", gap1, gap2, gap3)
+        # Só emite quando há algo a fazer: a varredura roda a cada 2 minutos e
+        # um evento por ciclo ocioso afogaria a timeline em ruído.
+        emit("catchup.varredura", "ok",
+             source="beat",
+             message=f"catch-up reenfileirou {gap1 + gap2 + gap3} tarefas",
+             payload={"extracao": gap1, "fragmentacao": gap2, "embedding": gap3})
 
     return {"gap_extraction": gap1, "gap_fragmentation": gap2, "gap_embedding": gap3}
 

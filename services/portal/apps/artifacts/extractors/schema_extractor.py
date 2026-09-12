@@ -98,8 +98,26 @@ def _extract_tables(soup, tables_config: list) -> list[list[dict]]:
     return result
 
 
+def schema_worked(extracted: dict) -> bool:
+    """True se o resultado veio de um schema gravado no cache (LLM 1.0 ou dom2parser 2.0).
+
+    Qualquer outro prefixo em extractor_version significa que os seletores não
+    casaram e a extração caiu no fallback — sinal usado por _update_schema_health().
+    """
+    from .dom_parser import EXTRACTOR_VERSION_PREFIX
+
+    version = extracted.get("extractor_version", "")
+    return version.startswith("schema_driven:") or version.startswith(EXTRACTOR_VERSION_PREFIX)
+
+
 def schema_driven_extract(html: str, url: str, title: str, config: dict) -> dict:
-    """Extract structured data using a JSON schema of CSS selectors.
+    """Extract structured data using a schema stored in URLPatternCache.extractor_config.
+
+    Two formats coexist:
+    - 2.0 (`generated_by: dom2parser`): a serialized ParserSpec, executed by
+      lxml through dom2parser's executor.
+    - 1.0 (LLM-generated): `fields` + `tables` of CSS selectors, interpreted
+      below with BeautifulSoup.
 
     No exec() or eval() — the schema is interpreted data, not code. Produces
     only structured_data + extractor_version — the search text is never built
@@ -108,6 +126,16 @@ def schema_driven_extract(html: str, url: str, title: str, config: dict) -> dict
     data) if no selector matched anything — that emptiness is the signal
     _update_schema_health() uses to detect a stale schema.
     """
+    from .dom_parser import extract_with_config, is_parser_config
+
+    if is_parser_config(config):
+        result = extract_with_config(config, html)
+        if result is None:
+            logger.info("schema_driven_extract: parser dom2parser não extraiu nada — fallback")
+            from .strategies import extract_fallback
+            return extract_fallback(html, url, title)
+        return result
+
     try:
         from bs4 import BeautifulSoup
         soup = BeautifulSoup(html, "html.parser")

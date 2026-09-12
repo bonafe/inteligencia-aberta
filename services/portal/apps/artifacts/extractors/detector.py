@@ -183,6 +183,7 @@ def detect_page_type(
     url: str,
     tenant_id,
     allow_external_llm: bool = False,
+    dom_representation: str | None = None,
 ):
     """Detect the page type using a three-layer strategy.
 
@@ -190,8 +191,10 @@ def detect_page_type(
 
     Layer 1 — URLPatternCache hit (confidence ≥ 0.9, not needs_review).
     Layer 2 — Deterministic structural analysis.
-    Layer 3 — LLM classification via compressed skeleton (Estratégias A + B),
-               only when confidence < 0.75 and allow_external_llm is True.
+    Layer 3 — LLM classification via a compressed HTML representation
+               (dom2parser), only when confidence < 0.75 and allow_external_llm
+               is True. Pass `dom_representation` if the caller already computed
+               it, to avoid compressing the same HTML twice.
     """
     from django.db import models as django_models
     from apps.artifacts.models import URLPatternCache
@@ -267,14 +270,16 @@ def detect_page_type(
     # Layer 3: LLM classification (Estratégias A + B) when structural confidence is low
     if allow_external_llm and (confidence < _LLM_CONFIDENCE_THRESHOLD or page_type == "desconhecido"):
         logger.info(
-            "ativando LLM (confidence=%.2f < %.2f ou desconhecido) — comprimindo esqueleto",
+            "ativando LLM (confidence=%.2f < %.2f ou desconhecido) — comprimindo HTML",
             confidence, _LLM_CONFIDENCE_THRESHOLD,
         )
         try:
-            from .skeleton import compress_html_skeleton
             from .llm_classifier import llm_classify
 
-            skeleton = compress_html_skeleton(html)
+            skeleton = dom_representation
+            if skeleton is None:
+                import dom2parser
+                skeleton = dom2parser.compress(html).text
             llm_type, llm_confidence, _ = llm_classify(skeleton, url)
 
             if llm_type != "desconhecido" or llm_confidence > confidence:

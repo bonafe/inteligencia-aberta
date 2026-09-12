@@ -7,7 +7,7 @@ class NeedsLoginError extends Error {}
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === 'capture_and_upload') {
     captureAndUpload(request.config || {})
-      .then(() => sendResponse({ success: true }))
+      .then(result => sendResponse({ success: true, correlationId: result?.correlationId }))
       .catch(err => {
         console.error('Capture Error:', err);
         if (err instanceof NeedsLoginError) {
@@ -52,6 +52,11 @@ async function captureAndUpload(config = {}) {
       try {
         const token = await getAccessToken();
 
+        // Identificador desta captura, gerado no clique. Ele acompanha a página
+        // por todo o sistema (orchestrator → MinIO → portal → workers) e é o que
+        // permite ver a trilha completa no painel de eventos, começando aqui.
+        const correlationId = crypto.randomUUID();
+
         const formData = new FormData();
         formData.append('file', mhtmlData, 'capture.mhtml');
         formData.append('url', tab.url);
@@ -59,6 +64,7 @@ async function captureAndUpload(config = {}) {
         formData.append('timestamp', new Date().toISOString());
         formData.append('classification_level', config.classification_level || 'restrito');
         formData.append('allow_external_llm', config.allow_external_llm ? 'true' : 'false');
+        formData.append('correlation_id', correlationId);
         // Identidade (user_id/tenant_id) vem das claims do JWT — não é mais enviada aqui.
 
         const response = await fetch(API_URL, {
@@ -75,7 +81,7 @@ async function captureAndUpload(config = {}) {
           return reject(new Error(`API retornou ${response.status}: ${body}`));
         }
 
-        resolve();
+        resolve({ correlationId });
       } catch (err) {
         reject(err);
       }
