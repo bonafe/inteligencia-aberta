@@ -65,6 +65,8 @@ headers={"X-Internal-Token": INTERNAL_API_TOKEN},
 
 O JWT prova *quem é o usuário*. O `X-Internal-Token` prova *que o chamador é o próprio orchestrator*, não um script batendo direto na API interna do Portal. São duas perguntas diferentes — por isso dois segredos diferentes (`JWT_SIGNING_KEY` vs `INTERNAL_API_TOKEN`), cada um guardado só pelos dois lados que precisam validá-lo.
 
+Esse mesmo salto se repete numa fronteira nova: o log de eventos do pipeline. Orchestrator e MCP mandam cada etapa do processamento pro Portal via `POST /eventos/api/v1/ingest/`, com o mesmo `X-Internal-Token` e a mesma validação em tempo constante. Vale citar porque é a evidência de que o padrão não foi desenhado pra um caso só — quando apareceu um segundo canal serviço-a-serviço, ele coube sem inventar mecanismo novo, e a decisão de segurança que se toma é sempre a mesma (entrar na allowlist do middleware é explícito, nunca acidental).
+
 ---
 
 ## Endpoint 2 — `GET /artifacts/<uuid>/mhtml/` (Portal, Django — `ServeMHTMLView`)
@@ -152,6 +154,7 @@ Se sobrar tempo ou vier pergunta, esses são bons complementos — mesma lógica
 |---|---|---|---|
 | `POST /api/v1/token/` | Portal (Django/DRF) | Público (`AllowAny`) — usuário + senha no corpo | É a *origem* do JWT que os outros endpoints validam. Emite o token com `user_id`/`tenant_id` já embutidos nas claims (`TenantTokenObtainPairSerializer`), pra não precisar consultar o banco depois. |
 | `POST /artifacts/api/v1/artefatos/` | Portal (Django) | Token de serviço (`X-Internal-Token`, `constant_time_compare`) | É pra onde o Endpoint 1 chama por baixo dos panos — o outro lado do "segundo salto" já explicado acima. Boa view pra mostrar o código completo se quiserem ver a validação de `Membership` (usuário realmente pertence ao tenant). |
+| `POST /eventos/api/v1/ingest/` | Portal (Django) | Token de serviço (`X-Internal-Token`, `constant_time_compare`) | Irmão do endpoint acima, e o segundo canal serviço-a-serviço do sistema: recebe os eventos do pipeline emitidos pelo orchestrator e pelo MCP. Bom pra mostrar que a fronteira de confiança "serviço interno" tem um mecanismo só, reaproveitado — e que abrir uma rota nova exige entrar na allowlist do `LoginRequiredMiddleware` de propósito. |
 | `POST /investigar` | Orchestrator (FastAPI) | `Depends(require_jwt)` — mesmo mecanismo do Endpoint 1 | Mostra que o padrão não é um caso isolado — a mesma dependência é reaproveitada em outra rota, o que é justamente a vantagem de ter isolado a checagem numa função. |
 | `GET /tools/{cnpj,processos,noticias}` | MCP (FastAPI) | `Depends(require_mcp_token)` — token dedicado (`X-Mcp-Token`, `hmac.compare_digest`) | Mesmo padrão de dependência do FastAPI, mas com um segredo *diferente* do `INTERNAL_API_TOKEN` — bom exemplo de que "parece o mesmo mecanismo" não significa "é a mesma fronteira de confiança". |
 | `GET /api/docs/` (Portal) e `GET /docs` (Orchestrator e MCP) | Todos os três serviços | Público, sem autenticação nenhuma | Documentação Swagger interativa — pública de propósito, pra fins didáticos. Bom gancho pra explicar que documentação (descrição do formato da API) e dado real são coisas diferentes: abrir a página não abre a API. |
