@@ -1,0 +1,23 @@
+"""Estruturação manual: mesmo prompt de extração da cascata automática
+(_EXTRACT_SYSTEM), mas disparado sob demanda pelo visualizador e capaz de
+falar com qualquer provider (Claude ou Ollama) via gerar_texto().
+
+Puramente funcional — nunca grava nada; quem chama decide onde persistir.
+"""
+from .llm_common import _EXTRACT_SYSTEM, _extract_json, gerar_texto
+
+
+def estruturar_manual(provider: str, model_name: str, skeleton: str, url: str, page_type_hint: str = "") -> dict:
+    """Retorna {categoria, page_type, structured_data}. Levanta em erro de chamada
+    (rede indisponível, parse impossível) — quem chama decide vazio vs falhou."""
+    hint_line = f"Dica da análise estrutural: {page_type_hint}\n\n" if page_type_hint else ""
+    user_prompt = f"{hint_line}URL: {url}\n\nEsqueleto HTML:\n{skeleton}"
+
+    texto = gerar_texto(provider, model_name, _EXTRACT_SYSTEM, user_prompt, max_tokens=4096)
+    data = _extract_json(texto)
+
+    return {
+        "categoria": data.get("categoria", ""),
+        "page_type": data.get("page_type", page_type_hint or "desconhecido"),
+        "structured_data": data.get("structured_data") or None,
+    }

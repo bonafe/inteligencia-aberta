@@ -1,0 +1,78 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mapa Vivo — Inteligência Aberta</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{% static 'css/eventos.css' %}">
+    <link rel="stylesheet" href="{% static 'css/json-tree.css' %}">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/vis-network/10.1.2/dist/dist/vis-network.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/vis-timeline/8.5.4/vis-timeline-graph2d.min.css">
+    <link rel="stylesheet" href="{% static 'css/mapa_vivo.css' %}">
+</head>
+<body>
+<script>
+    // Aplica a altura salva da timeline antes do primeiro paint — sem isso,
+    // a página nasceria sempre em 130px e só pularia pro tamanho salvo depois
+    // que mapa_vivo_timeline.js rodasse.
+    (function () {
+        try {
+            var h = localStorage.getItem('mapaVivo.timelineH');
+            if (h) document.documentElement.style.setProperty('--mapa-timeline-h', h + 'px');
+        } catch (e) { /* localStorage indisponível (modo privado etc.) */ }
+    })();
+</script>
+
+<header>
+    <div class="header-left">
+        <a href="{% url 'dashboard' %}" class="btn-back">← Painel</a>
+        <h1>Mapa Vivo</h1>
+    </div>
+    <div class="header-right">
+        <span class="conexao" id="conexao"><span class="bolinha"></span><span id="conexao-texto">conectando…</span></span>
+        <a href="{% url 'artifacts:gallery' %}" class="btn-back">Galeria</a>
+        <a href="{% url 'events:painel' %}" class="btn-back">Eventos</a>
+    </div>
+</header>
+
+<div id="mapa-network" class="mapa-network"></div>
+<div class="mapa-vazio-aviso" id="mapa-vazio" style="display:none">
+    Nenhuma captura ainda. Use a extensão para capturar uma página — ela nasce aqui.
+</div>
+<div id="mapa-resize" class="mapa-resize" title="Arraste para redimensionar a linha do tempo"></div>
+<!-- vis-timeline força position:relative inline no elemento em que monta —
+     por isso ele mora dentro de um filho; quem fica ancorado no rodapé via
+     CSS (position:absolute; bottom:0) é o pai, que a lib nunca toca. -->
+<div id="mapa-timeline" class="mapa-timeline"><div id="mapa-timeline-montagem"></div></div>
+
+<div class="overlay-detalhe" id="overlay-detalhe" hidden>
+    <div class="overlay-conteudo" id="overlay-conteudo">
+        <button class="overlay-fechar" id="overlay-fechar" aria-label="Fechar">✕</button>
+        <div class="overlay-titulo" id="overlay-titulo"></div>
+        <div class="overlay-sub" id="overlay-sub"></div>
+        <div class="overlay-tabs" id="overlay-tabs"></div>
+        <div id="overlay-paineis"></div>
+    </div>
+</div>
+
+{{ dados_iniciais|json_script:"dados-iniciais" }}
+<script>
+    window.MAPA_VIVO_CSRF = "{{ csrf_token }}";
+    window.MAPA_VIVO_ICONE_NAVEGADOR = "{% static 'img/navegador.svg' %}";
+</script>
+<!-- vis-network e vis-timeline são pacotes "standalone" separados que definem
+     o mesmo global window.vis — carregar os dois em sequência faz o segundo
+     apagar o primeiro. Guardamos cada um num nome próprio assim que carrega. -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/vis-network/10.1.2/standalone/umd/vis-network.min.js"></script>
+<script>window.VisNetworkLib = window.vis;</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/vis-timeline/8.5.4/vis-timeline-graph2d.min.js"></script>
+<script>window.VisTimelineLib = window.vis;</script>
+<script src="{% static 'js/json_tree.js' %}"></script>
+<script src="{% static 'js/mapa_vivo.js' %}"></script>
+<script src="{% static 'js/mapa_vivo_overlay.js' %}"></script>
+<script src="{% static 'js/mapa_vivo_timeline.js' %}"></script>
+
+</body>
+</html>

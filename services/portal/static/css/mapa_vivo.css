@@ -1,0 +1,129 @@
+/* Mapa Vivo — reaproveita as variáveis de cor de eventos.css (--ok/--vazio/
+ * --falhou/--andamento/--ignorado etc.) definidas em :root lá. O grafo em si
+ * (nós, arestas, física, animação de entrada) é desenhado em canvas pelo
+ * vis-network (CDN, sem build) — este arquivo só estiliza o contêiner e o
+ * efeito de explosão, que fica por cima do canvas em DOM comum. */
+
+:root { --mapa-timeline-h: 130px; }
+
+body { overflow: hidden; }
+
+.mapa-network {
+    position: absolute;
+    top: 56px; left: 0; right: 0; bottom: calc(var(--mapa-timeline-h) + 6px);
+    background:
+        radial-gradient(circle at 1px 1px, var(--border) 1px, transparent 0) 0 0 / 28px 28px,
+        var(--bg-body);
+}
+
+.mapa-vazio-aviso {
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%, calc(-50% - var(--mapa-timeline-h) / 2 - 3px));
+    color: var(--text-muted); font-size: .9rem; text-align: center;
+    pointer-events: none;
+}
+
+/* Alça de arrasto entre o grafo e a timeline — arrastar muda --mapa-timeline-h
+ * (ver mapa_vivo_timeline.js), então tanto o grafo quanto a timeline crescem/
+ * encolhem junto, sem duplicar a medida em dois lugares. */
+.mapa-resize {
+    position: absolute; left: 0; right: 0; height: 6px;
+    bottom: var(--mapa-timeline-h);
+    cursor: row-resize; background: var(--border);
+    z-index: 5; touch-action: none;
+}
+.mapa-resize:hover, .mapa-resize.arrastando { background: var(--accent); }
+
+/* ── Timeline de capturas (vis-timeline) ──────────────────────────────────── */
+.mapa-timeline {
+    position: absolute; left: 0; right: 0; bottom: 0; height: var(--mapa-timeline-h);
+    background: var(--bg-panel);
+}
+#mapa-timeline-montagem { width: 100%; height: 100%; }
+
+/* vis-timeline vem com tema claro fixo no CSS da lib — sobrescreve pro escuro
+ * do resto do app em vez de reimplementar o widget. */
+.mapa-timeline .vis-timeline { border: none; font-family: 'Inter', sans-serif; color: var(--text-main); }
+.mapa-timeline .vis-panel.vis-bottom,
+.mapa-timeline .vis-panel.vis-top,
+.mapa-timeline .vis-panel.vis-left,
+.mapa-timeline .vis-panel.vis-right,
+.mapa-timeline .vis-panel.vis-center { border-color: var(--border); }
+.mapa-timeline .vis-time-axis .vis-text { color: var(--text-muted); }
+.mapa-timeline .vis-time-axis .vis-grid.vis-minor { border-color: rgba(255, 255, 255, .06); }
+.mapa-timeline .vis-time-axis .vis-grid.vis-major { border-color: var(--border); }
+.mapa-timeline .vis-current-time { background-color: var(--accent); width: 2px; }
+.mapa-timeline .vis-item {
+    background: var(--bg-sunken); border-color: var(--accent); color: var(--text-main);
+    border-radius: 6px; font-size: .78rem;
+}
+.mapa-timeline .vis-item.vis-selected {
+    background: var(--hover); border-color: var(--accent);
+    box-shadow: 0 0 0 2px var(--accent);
+}
+.mapa-timeline .vis-item .vis-item-content { padding: 3px 8px; }
+.mapa-timeline .vis-labelset .vis-label { border-color: var(--border); color: var(--text-muted); }
+
+/* explosão: partículas soltas na hora da falha, posicionadas em tela sobre o
+ * canvas (vis-network não tem hook de animação DOM por nó). */
+.particula-boom {
+    position: fixed; width: 6px; height: 6px; border-radius: 50%;
+    background: var(--falhou); pointer-events: none; z-index: 90;
+    box-shadow: 0 0 6px var(--falhou);
+}
+
+/* ── Overlay de detalhe ───────────────────────────────────────────────────── */
+.overlay-detalhe {
+    position: fixed; inset: 0; z-index: 100;
+    background: rgba(5, 7, 10, .78);
+    backdrop-filter: blur(2px);
+    display: flex; align-items: center; justify-content: center;
+    clip-path: circle(0% at var(--origem-x, 50%) var(--origem-y, 50%));
+    transition: clip-path .38s ease-out;
+}
+.overlay-detalhe.aberto { clip-path: circle(150% at var(--origem-x, 50%) var(--origem-y, 50%)); }
+.overlay-detalhe[hidden] { display: none; }
+
+.overlay-conteudo {
+    position: relative;
+    width: min(920px, 92vw); height: min(720px, 88vh);
+    background: var(--bg-panel); border: 1px solid var(--border); border-radius: 12px;
+    padding: 1.5rem; overflow-y: auto;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, .5);
+}
+.overlay-fechar {
+    position: absolute; top: .9rem; right: 1rem;
+    background: var(--bg-sunken); border: 1px solid var(--border); color: var(--text-main);
+    border-radius: 50%; width: 32px; height: 32px; cursor: pointer; font-size: 1rem;
+}
+.overlay-fechar:hover { border-color: var(--accent); }
+
+.overlay-titulo { font-size: 1.1rem; font-weight: 600; margin-bottom: .3rem; padding-right: 2.5rem; }
+.overlay-sub { color: var(--text-muted); font-size: .82rem; margin-bottom: 1rem; word-break: break-all; }
+
+.overlay-tabs { display: flex; gap: .4rem; flex-wrap: wrap; margin-bottom: 1rem; border-bottom: 1px solid var(--border); padding-bottom: .6rem; }
+.overlay-tab {
+    background: none; border: 1px solid transparent; color: var(--text-muted);
+    padding: .35rem .7rem; border-radius: 6px; cursor: pointer; font-size: .82rem; font-family: inherit;
+}
+.overlay-tab:hover { color: var(--text-main); }
+.overlay-tab.active { background: var(--bg-sunken); border-color: var(--border); color: var(--accent); }
+
+.overlay-painel { display: none; }
+.overlay-painel.active { display: block; }
+
+.overlay-iframe { width: 100%; height: 480px; border: 1px solid var(--border); border-radius: 8px; background: #fff; }
+.overlay-texto { white-space: pre-wrap; font-family: 'JetBrains Mono', monospace; font-size: .82rem; max-height: 480px; overflow-y: auto; }
+
+.overlay-card {
+    background: var(--bg-sunken); border: 1px solid var(--border); border-radius: 8px;
+    padding: .8rem 1rem; margin-bottom: .6rem;
+}
+.overlay-card.st-ok { border-left: 3px solid var(--ok); }
+.overlay-card.st-falhou { border-left: 3px solid var(--falhou); }
+.overlay-card.st-vazio { border-left: 3px solid var(--vazio); }
+.overlay-card.st-iniciado { border-left: 3px solid var(--andamento); }
+
+@media (max-width: 720px) {
+    .overlay-conteudo { width: 96vw; height: 92vh; padding: 1rem; }
+    .overlay-iframe { height: 320px; }
+}

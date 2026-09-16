@@ -10,6 +10,7 @@ beautifulsoup4==4.12.3
 fastembed==0.3.6
 qdrant-client==1.9.2
 anthropic>=0.40.0
+requests>=2.32.0
 djangorestframework==3.15.2
 djangorestframework-simplejwt==5.3.1
 drf-spectacular==0.27.2

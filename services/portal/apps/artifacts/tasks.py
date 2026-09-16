@@ -4,9 +4,11 @@ import os
 import re
 import uuid as uuid_lib
 from email import policy as email_policy
+from time import perf_counter
 
 from celery import shared_task
 from django.conf import settings
+from django.utils import timezone
 from minio import Minio
 
 from apps.events.context import correlacao_de_artefato, set_correlation_id, set_tenant_id
@@ -723,7 +725,8 @@ def embed_fragment(self, fragment_id: str):
              payload={"indice": fragment.fragment_index,
                       "total": fragment.total_fragments,
                       "ja_existia": True,
-                      "collection": fragment.qdrant_collection})
+                      "collection": fragment.qdrant_collection,
+                      "document_text_id": str(fragment.document_text_id)})
         return {"status": "already_done", "qdrant_point_id": fragment.qdrant_point_id}
 
     text = fragment.text
@@ -789,7 +792,8 @@ def embed_fragment(self, fragment_id: str):
          payload={"indice": fragment.fragment_index,
                   "total": fragment.total_fragments,
                   "collection": collection,
-                  "dimensao": len(vector)})
+                  "dimensao": len(vector),
+                  "document_text_id": str(fragment.document_text_id)})
     return {"status": "success", "qdrant_point_id": point_id, "collection": collection}
 
 
@@ -861,3 +865,227 @@ def reprocess_garbled_documents():
 
     logger.info("reprocess_garbled_documents: %d artefatos reenfileirados", count)
     return {"requeued": count}
+
+
+# ── Estruturação manual via LLM (Claude/Ollama) e comparação ─────────────────
+
+def _gravar_se_nao_cancelado(modelo, id_, status_cancelado, **campos):
+    """Grava campos só se o registro não foi cancelado nesse meio-tempo.
+
+    Cancelamento manda SIGKILL no processo do worker (ver EstruturacaoCancelarView/
+    ComparacaoCancelarView em views.py) —
+    a task quase nunca chega a executar Python de novo depois disso (está bloqueada
+    dentro da chamada HTTP quando o sinal chega), mas na corrida rara em que o
+    resultado volta antes do sinal ser entregue, este guard evita sobrescrever
+    o cancelamento que o usuário pediu.
+    """
+    return modelo.objects.filter(id=id_).exclude(status=status_cancelado).update(**campos)
+
+
+@shared_task(bind=True, max_retries=1)
+def estruturar_llm_manual(self, estruturacao_id: str):
+    """Executa uma EstruturacaoLLM(status=pendente): chama o provider escolhido
+    e grava o resultado.
+
+    Estritamente aditiva — nunca sobrescreve DocumentText. Falha de LLM não é
+    transiente como MinIO: em vez de `self.retry()`, captura e grava `falhou`,
+    para o usuário ver o erro na hora em vez de esperar 3 tentativas. Não há
+    timeout que aborte a chamada automaticamente — a interrupção é sempre
+    manual (botão "Parar" na tela de execuções, que revoga esta task).
+    """
+    from .extractors.estruturacao_manual import estruturar_manual
+    from .models import EstruturacaoLLM
+    from .policy import permite_llm_externo
+
+    try:
+        execucao = EstruturacaoLLM.objects.select_related("document_text__document").get(id=estruturacao_id)
+    except EstruturacaoLLM.DoesNotExist:
+        logger.warning("[%s] EstruturacaoLLM não encontrada", estruturacao_id)
+        return {"status": "error", "reason": "não encontrada"}
+
+    artifact = execucao.document_text.document
+    set_correlation_id(correlacao_do_artefato(artifact.id))
+    set_tenant_id(execucao.tenant_id)
+
+    def evento(stage, status, **kw):
+        kw.setdefault("subject_type", "artifact")
+        kw.setdefault("subject_id", artifact.id)
+        kw.setdefault("tenant_id", execucao.tenant_id)
+        kw.setdefault("payload", {}).setdefault("provider", execucao.provider)
+        kw["payload"].setdefault("model_name", execucao.model_name)
+        kw["payload"].setdefault("estruturacao_id", str(execucao.id))
+        return emit(stage, status, **kw)
+
+    CANCELADO = EstruturacaoLLM.Status.CANCELADO
+
+    # Defesa em profundidade: a view já checa isto, mas esta task pode em tese
+    # ser invocada fora dela (replay, shell) — nunca chama provider externo
+    # para um artefato restrito/confidencial.
+    if execucao.provider == EstruturacaoLLM.Provider.ANTHROPIC and not permite_llm_externo(artifact.classification_level):
+        msg = f"LLM externo não permitido para classificação '{artifact.classification_level}'"
+        _gravar_se_nao_cancelado(EstruturacaoLLM, execucao.id, CANCELADO,
+                                  status=EstruturacaoLLM.Status.FALHOU, error_message=msg,
+                                  updated_at=timezone.now())
+        evento("estruturacao_llm.bloqueada", "ignorado", message=msg)
+        return {"status": "blocked"}
+
+    # A partir daqui a task está de fato rodando — a UI passa a mostrar "rodando
+    # há Xs" em vez de "na fila", medido a partir de started_at.
+    if not _gravar_se_nao_cancelado(EstruturacaoLLM, execucao.id, CANCELADO,
+                                     status=EstruturacaoLLM.Status.EXECUTANDO,
+                                     started_at=timezone.now(), updated_at=timezone.now()):
+        logger.info("[%s] EstruturacaoLLM cancelada antes de iniciar", estruturacao_id)
+        return {"status": "cancelled"}
+
+    evento("estruturacao_llm.iniciada", "iniciado",
+           message=f"estruturação manual iniciada — {execucao.provider}:{execucao.model_name}")
+
+    doc_text = execucao.document_text
+    url = doc_text.source_url or (artifact.content or {}).get("url", "")
+    t0 = perf_counter()
+    try:
+        resultado = estruturar_manual(
+            execucao.provider, execucao.model_name,
+            doc_text.dom_representation or "", url, page_type_hint=doc_text.page_type,
+        )
+    except Exception as exc:
+        duration_ms = int((perf_counter() - t0) * 1000)
+        _gravar_se_nao_cancelado(EstruturacaoLLM, execucao.id, CANCELADO,
+                                  status=EstruturacaoLLM.Status.FALHOU, error_message=str(exc),
+                                  duration_ms=duration_ms, updated_at=timezone.now())
+        evento("estruturacao_llm.falhou", "falhou", message=str(exc), duration_ms=duration_ms)
+        return {"status": "error", "reason": str(exc)}
+
+    duration_ms = int((perf_counter() - t0) * 1000)
+    categoria = resultado.get("categoria", "")
+    structured_data = resultado.get("structured_data")
+
+    if structured_data:
+        gravou = _gravar_se_nao_cancelado(
+            EstruturacaoLLM, execucao.id, CANCELADO,
+            status=EstruturacaoLLM.Status.CONCLUIDO, categoria=categoria,
+            structured_data=structured_data, duration_ms=duration_ms, updated_at=timezone.now(),
+        )
+        if gravou:
+            evento("estruturacao_llm.concluida", "ok", message="estruturação concluída",
+                   duration_ms=duration_ms, payload={"campos": len(structured_data)})
+    else:
+        gravou = _gravar_se_nao_cancelado(
+            EstruturacaoLLM, execucao.id, CANCELADO,
+            status=EstruturacaoLLM.Status.VAZIO, categoria=categoria,
+            duration_ms=duration_ms, updated_at=timezone.now(),
+        )
+        if gravou:
+            evento("estruturacao_llm.vazio", "vazio",
+                   message="LLM respondeu mas não produziu dado estruturado utilizável",
+                   duration_ms=duration_ms)
+
+    return {"status": "done", "estruturacao_id": str(execucao.id)}
+
+
+@shared_task(bind=True, max_retries=1)
+def comparar_llm(self, comparacao_id: str):
+    """Executa uma Comparacao(status=pendente): resolve as referências, monta o
+    snapshot das seções e chama o LLM-juiz.
+
+    O snapshot das seções fica embutido em `resultado` — a comparação sobrevive
+    a um reprocessamento que apague o DocumentText de origem (extract_text_from_mhtml
+    com forcar=True apaga e recria DocumentText, derrubando em cascata as
+    EstruturacaoLLM referenciadas).
+    """
+    from .extractors.comparador import julgar_comparacao
+    from .models import Comparacao, DocumentText, EstruturacaoLLM
+    from .policy import permite_llm_externo
+
+    try:
+        comparacao = Comparacao.objects.select_related("artifact").get(id=comparacao_id)
+    except Comparacao.DoesNotExist:
+        logger.warning("[%s] Comparacao não encontrada", comparacao_id)
+        return {"status": "error", "reason": "não encontrada"}
+
+    artifact = comparacao.artifact
+    set_correlation_id(correlacao_do_artefato(artifact.id))
+    set_tenant_id(comparacao.tenant_id)
+
+    def evento(stage, status, **kw):
+        kw.setdefault("subject_type", "artifact")
+        kw.setdefault("subject_id", artifact.id)
+        kw.setdefault("tenant_id", comparacao.tenant_id)
+        kw.setdefault("payload", {}).setdefault("comparacao_id", str(comparacao.id))
+        return emit(stage, status, **kw)
+
+    CANCELADO = Comparacao.Status.CANCELADO
+
+    if comparacao.modelo_juiz_provider == EstruturacaoLLM.Provider.ANTHROPIC and not permite_llm_externo(artifact.classification_level):
+        msg = f"LLM externo não permitido para classificação '{artifact.classification_level}'"
+        _gravar_se_nao_cancelado(Comparacao, comparacao.id, CANCELADO,
+                                  status=Comparacao.Status.FALHOU, error_message=msg)
+        evento("comparacao.bloqueada", "ignorado", message=msg,
+               payload={"modelo_juiz": comparacao.modelo_juiz_model_name})
+        return {"status": "blocked"}
+
+    if not _gravar_se_nao_cancelado(Comparacao, comparacao.id, CANCELADO,
+                                     status=Comparacao.Status.EXECUTANDO, started_at=timezone.now()):
+        logger.info("[%s] Comparacao cancelada antes de iniciar", comparacao_id)
+        return {"status": "cancelled"}
+
+    evento("comparacao.iniciada", "iniciado",
+           message=f"comparação iniciada — juiz {comparacao.modelo_juiz_provider}:{comparacao.modelo_juiz_model_name}",
+           payload={"secoes_solicitadas": len(comparacao.referencias)})
+
+    try:
+        doc_text = artifact.extracted_text
+    except DocumentText.DoesNotExist:
+        doc_text = None
+
+    secoes = []
+    for ref in comparacao.referencias:
+        if ref.get("tipo") == "campo_legado":
+            if not doc_text:
+                continue
+            dados = getattr(doc_text, ref.get("campo", ""), None)
+            if dados is None:
+                continue
+            secoes.append({"label": ref.get("label") or ref["campo"], "origem": ref, "dados": dados})
+        elif ref.get("tipo") == "estruturacao_llm":
+            execucao = EstruturacaoLLM.objects.filter(
+                id=ref.get("id"), status=EstruturacaoLLM.Status.CONCLUIDO
+            ).first()
+            if not execucao:
+                continue
+            secoes.append({
+                "label": ref.get("label") or f"{execucao.provider}:{execucao.model_name}",
+                "origem": ref, "dados": execucao.structured_data,
+            })
+
+    if len(secoes) < 2:
+        msg = "menos de 2 seções válidas para comparar (referências ausentes ou incompletas)"
+        _gravar_se_nao_cancelado(Comparacao, comparacao.id, CANCELADO,
+                                  status=Comparacao.Status.FALHOU, error_message=msg)
+        evento("comparacao.falhou", "falhou", message=msg)
+        return {"status": "error", "reason": msg}
+
+    t0 = perf_counter()
+    try:
+        veredito = julgar_comparacao(
+            comparacao.modelo_juiz_provider, comparacao.modelo_juiz_model_name,
+            [{"label": s["label"], "dados": s["dados"]} for s in secoes],
+        )
+    except Exception as exc:
+        duration_ms = int((perf_counter() - t0) * 1000)
+        _gravar_se_nao_cancelado(Comparacao, comparacao.id, CANCELADO,
+                                  status=Comparacao.Status.FALHOU, error_message=str(exc),
+                                  duration_ms=duration_ms)
+        evento("comparacao.falhou", "falhou", message=str(exc), duration_ms=duration_ms)
+        return {"status": "error", "reason": str(exc)}
+
+    duration_ms = int((perf_counter() - t0) * 1000)
+    gravou = _gravar_se_nao_cancelado(
+        Comparacao, comparacao.id, CANCELADO,
+        status=Comparacao.Status.CONCLUIDO, resultado={"veredito": veredito, "secoes": secoes},
+        duration_ms=duration_ms,
+    )
+    if gravou:
+        evento("comparacao.concluida", "ok", message="comparação concluída",
+               duration_ms=duration_ms, payload={"secoes": len(secoes)})
+    return {"status": "done", "comparacao_id": str(comparacao.id)}

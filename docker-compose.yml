@@ -13,6 +13,11 @@ services:
       redis:
         condition: service_started
     env_file: .env
+    # Ollama roda nativo no host (fora do Docker) para estruturação manual e
+    # comparação. No Linux, host.docker.internal não resolve automaticamente
+    # (diferente de Docker Desktop Mac/Windows) — precisa deste mapeamento.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
   orchestrator:
     build: ./services/orchestrator
@@ -64,6 +69,10 @@ services:
       minio:
         condition: service_started
     env_file: .env
+    # Ver comentário em `portal` — o worker é quem de fato chama o Ollama nativo
+    # do host ao processar as tasks de estruturação manual/comparação.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
   beat:
     build: ./services/portal

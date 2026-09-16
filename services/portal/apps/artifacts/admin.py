@@ -1,5 +1,8 @@
 from django.contrib import admin
-from .models import Artifact, ArtifactLineage, AuditLog, DocumentFragment, DocumentText, Sharing, URLPatternCache
+from .models import (
+    Artifact, ArtifactLineage, AuditLog, Comparacao, DocumentFragment, DocumentText,
+    EstruturacaoLLM, Sharing, URLPatternCache,
+)
 
 
 @admin.register(Artifact)
@@ -72,3 +75,39 @@ class URLPatternCacheAdmin(admin.ModelAdmin):
     search_fields = ("domain", "path_pattern")
     readonly_fields = ("id", "hit_count", "divergence_count", "last_seen_at", "created_at")
     ordering = ("-last_seen_at",)
+
+
+@admin.register(EstruturacaoLLM)
+class EstruturacaoLLMAdmin(admin.ModelAdmin):
+    list_display = ("id", "document_text", "provider", "model_name", "status", "triggered_by", "created_at")
+    list_filter = ("provider", "status", "tenant")
+    search_fields = ("document_text__document__id", "model_name")
+    readonly_fields = (
+        "id", "document_text", "tenant", "provider", "model_name", "status",
+        "categoria", "structured_data", "error_message", "triggered_by",
+        "celery_task_id", "started_at", "duration_ms", "created_at", "updated_at",
+    )
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(Comparacao)
+class ComparacaoAdmin(admin.ModelAdmin):
+    list_display = ("id", "artifact", "modelo_juiz_provider", "modelo_juiz_model_name", "status", "triggered_by", "created_at")
+    list_filter = ("modelo_juiz_provider", "status", "tenant")
+    search_fields = ("artifact__id",)
+    readonly_fields = (
+        "id", "artifact", "tenant", "referencias", "modelo_juiz_provider",
+        "modelo_juiz_model_name", "status", "resultado", "error_message",
+        "triggered_by", "celery_task_id", "started_at", "duration_ms", "created_at",
+    )
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False

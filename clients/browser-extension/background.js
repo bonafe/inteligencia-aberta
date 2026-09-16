@@ -61,6 +61,9 @@ async function captureAndUpload(config = {}) {
         formData.append('file', mhtmlData, 'capture.mhtml');
         formData.append('url', tab.url);
         formData.append('title', tab.title || '');
+        // O ícone da aba (favicon) — o orchestrator baixa e guarda; se a URL não
+        // for buscável dali (ex.: chrome://favicon interno), ele só ignora.
+        formData.append('favicon_url', tab.favIconUrl || '');
         formData.append('timestamp', new Date().toISOString());
         formData.append('classification_level', config.classification_level || 'restrito');
         formData.append('allow_external_llm', config.allow_external_llm ? 'true' : 'false');

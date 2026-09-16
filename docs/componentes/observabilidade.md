@@ -127,6 +127,20 @@ Quando o WebSocket cai, o painel passa a fazer polling em `/eventos/api/v1/event
 3. **Detalhe** (`/eventos/<correlation_id>/`): linha do tempo completa, com payload expansível, nó e processo executor, e botão de reprocessamento.
 4. **Fluxo bruto**: todos os eventos, filtráveis por etapa, status e serviço, com pausa.
 
+## Mapa Vivo
+
+`/artifacts/mapa/` é outra leitura do mesmo log de eventos — em vez de uma tabela de execuções, um grafo (vis-network) que nasce e se conecta em tempo real conforme os eventos chegam, com fallback de polling igual ao painel.
+
+Hierarquia fixa dos nós (montada em `services/portal/apps/artifacts/graph.py:montar_grafo` na carga inicial, espelhada em tempo real por `mapa_vivo.js` a partir do evento `captura.registrada`):
+
+```
+navegador → domínio → captura (artifact) → document_text → fragmentos / estruturação LLM / comparação
+```
+
+`navegador` é um nó sintético único, sem equivalente no schema — representa a extensão Chrome, origem de toda captura. `domínio` também é sintético, um por host distinto (`urlparse(url).netloc`, sem `www.`).
+
+**Convenção visual: o nó é a imagem, não uma forma genérica, sempre que houver uma imagem disponível.** Artefato e domínio usam o favicon da página (`Artifact.content["favicon_data_uri"]`, baixado pelo orchestrator na captura — `services/orchestrator/main.py:baixar_favicon_data_uri`, nunca levanta: favicon é cosmético); o domínio usa o favicon da primeira captura daquele domínio que a montagem do grafo encontrar. O navegador usa um ícone fixo (`static/img/navegador.svg`). O dot colorido com emoji (`ICONES`/`shape: 'dot'` em `mapa_vivo.js`) é só o fallback para quando não há imagem nenhuma — ao adicionar um novo tipo de nó, prefira dar a ele uma imagem própria em vez de reaproveitar o dot genérico.
+
 ## Diagnóstico e reprocessamento
 
 ```bash

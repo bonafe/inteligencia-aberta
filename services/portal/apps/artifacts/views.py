@@ -21,7 +21,11 @@ from minio.error import S3Error
 
 from apps.accounts.models import Membership, Organization, User
 from apps.accounts.views import orgs_do_usuario
-from .models import Artifact, DocumentText
+from apps.events.context import set_correlation_id, set_tenant_id
+from apps.events.emit import emit
+from .graph import artifacts_para_mapa, montar_grafo
+from .models import Artifact, Comparacao, DocumentText, EstruturacaoLLM
+from .policy import permite_llm_externo
 
 @method_decorator(csrf_exempt, name="dispatch")
 class ArtefatoCreateAPIView(View):
@@ -181,7 +185,8 @@ class ArtifactGalleryView(View):
                 valid_artifacts.append(artifact)
 
         context = {
-            "artifacts": valid_artifacts
+            "artifacts": valid_artifacts,
+            "llm_extractor_model": getattr(settings, "LLM_EXTRACTOR_MODEL", "claude-sonnet-5"),
         }
         return render(request, "artifacts/gallery.html", context)
 
@@ -265,6 +270,22 @@ class ServeMHTMLView(View):
             raise Http404("Erro ao converter MHTML para visualização.")
 
 
+class ArtifactFaviconView(View):
+    """Favicon salvo em Artifact.content (usado pelo Mapa Vivo para hidratar
+    nós criados ao vivo via WebSocket).
+
+    O evento `captura.registrada` não carrega o favicon no payload — payload
+    de evento tem teto de 8 KB e não é lugar para guardar uma imagem; o nó
+    nasce sem imagem e busca aqui logo em seguida."""
+
+    def get(self, request, artifact_id):
+        artifact = get_object_or_404(Artifact, id=artifact_id, tenant__in=orgs_do_usuario(request.user))
+        favicon = (artifact.content or {}).get("favicon_data_uri", "")
+        if not favicon:
+            raise Http404("Sem favicon para este artefato.")
+        return JsonResponse({"favicon_data_uri": favicon})
+
+
 class ArtifactContentView(View):
     """Retorna texto extraído e dados estruturados de um artefato (usado via AJAX pelo visualizador)."""
 
@@ -289,3 +310,300 @@ class ArtifactContentView(View):
             "dados_estruturados_extruct": doc_text.dados_estruturados_extruct,
             "dom_representation": doc_text.dom_representation,
         })
+
+
+def _estruturacao_json(e: EstruturacaoLLM) -> dict:
+    return {
+        "id": str(e.id),
+        "provider": e.provider,
+        "model_name": e.model_name,
+        "status": e.status,
+        "categoria": e.categoria,
+        "structured_data": e.structured_data,
+        "error_message": e.error_message,
+        "duration_ms": e.duration_ms,
+        "created_at": e.created_at.isoformat(),
+        "started_at": e.started_at.isoformat() if e.started_at else None,
+    }
+
+
+class EstruturarLLMView(View):
+    """Dispara manualmente uma estruturação via LLM (Claude ou Ollama) para um
+    artefato já capturado. Estritamente aditivo: acumula uma execução por
+    disparo, nunca sobrescreve DocumentText."""
+
+    def post(self, request, artifact_id):
+        from .tasks import correlacao_do_artefato, estruturar_llm_manual
+
+        artifact = get_object_or_404(Artifact, id=artifact_id, tenant__in=orgs_do_usuario(request.user))
+        try:
+            doc_text = artifact.extracted_text
+        except DocumentText.DoesNotExist:
+            return JsonResponse({"error": "Texto ainda não extraído para este artefato."}, status=400)
+
+        try:
+            data = json.loads(request.body)
+        except json.JSONDecodeError:
+            return JsonResponse({"error": "JSON inválido"}, status=400)
+
+        provider = data.get("provider")
+        model_name = (data.get("model_name") or "").strip()
+        if provider not in EstruturacaoLLM.Provider.values or not model_name:
+            return JsonResponse({"error": "provider e model_name são obrigatórios"}, status=400)
+
+        if provider == EstruturacaoLLM.Provider.ANTHROPIC and not permite_llm_externo(artifact.classification_level):
+            return JsonResponse(
+                {"error": f"LLM externo não permitido para classificação '{artifact.classification_level}'"},
+                status=403,
+            )
+
+        execucao = EstruturacaoLLM.objects.create(
+            document_text=doc_text,
+            tenant=artifact.tenant,
+            provider=provider,
+            model_name=model_name,
+            triggered_by=request.user,
+        )
+
+        correlation = correlacao_do_artefato(artifact.id)
+        emit(
+            "estruturacao_llm.solicitada", "ok",
+            correlation_id=correlation,
+            subject_type="artifact", subject_id=artifact.id,
+            tenant_id=artifact.tenant_id, user_id=request.user.id,
+            source="portal",
+            message=f"estruturação manual pedida por {request.user.username} — {provider}:{model_name}",
+            payload={"provider": provider, "model_name": model_name, "estruturacao_id": str(execucao.id)},
+        )
+        # O contextvar precisa estar definido ANTES do .delay() — mesmo padrão
+        # de ReprocessarView (apps/events/views.py).
+        set_correlation_id(correlation)
+        set_tenant_id(artifact.tenant_id)
+        async_result = estruturar_llm_manual.delay(str(execucao.id))
+        # Guardado para permitir cancelamento (revoke) a partir da tela de execuções.
+        execucao.celery_task_id = async_result.id
+        execucao.save(update_fields=["celery_task_id"])
+
+        return JsonResponse({"status": "enfileirado", "estruturacao_id": str(execucao.id)})
+
+
+class EstruturacoesListView(View):
+    """Lista as execuções de estruturação manual de um artefato, mais recentes primeiro."""
+
+    def get(self, request, artifact_id):
+        artifact = get_object_or_404(Artifact, id=artifact_id, tenant__in=orgs_do_usuario(request.user))
+        execucoes = EstruturacaoLLM.objects.filter(
+            document_text__document=artifact
+        ).order_by("-created_at")
+        return JsonResponse({"execucoes": [_estruturacao_json(e) for e in execucoes]})
+
+
+class EstruturacaoCancelarView(View):
+    """Interrompe uma execução na fila ou em andamento.
+
+    revoke(terminate=True) manda SIGKILL no processo do worker que está preso
+    na chamada HTTP ao provider — é a única forma confiável de interromper uma
+    requisição síncrona e bloqueante no meio do caminho. O worker prefork sobe
+    um processo novo automaticamente para as próximas tasks."""
+
+    def post(self, request, artifact_id, estruturacao_id):
+        from .tasks import correlacao_do_artefato
+
+        artifact = get_object_or_404(Artifact, id=artifact_id, tenant__in=orgs_do_usuario(request.user))
+        execucao = get_object_or_404(
+            EstruturacaoLLM, id=estruturacao_id, document_text__document=artifact
+        )
+        if execucao.status not in (EstruturacaoLLM.Status.PENDENTE, EstruturacaoLLM.Status.EXECUTANDO):
+            return JsonResponse({"error": "execução já finalizada"}, status=400)
+
+        if execucao.celery_task_id:
+            from celery import current_app
+            current_app.control.revoke(execucao.celery_task_id, terminate=True, signal="SIGKILL")
+
+        execucao.status = EstruturacaoLLM.Status.CANCELADO
+        execucao.error_message = f"cancelado por {request.user.username}"
+        execucao.save(update_fields=["status", "error_message", "updated_at"])
+
+        emit(
+            "estruturacao_llm.cancelada", "ignorado",
+            correlation_id=correlacao_do_artefato(artifact.id),
+            subject_type="artifact", subject_id=artifact.id,
+            tenant_id=artifact.tenant_id, user_id=request.user.id,
+            source="portal", message=execucao.error_message,
+            payload={"provider": execucao.provider, "model_name": execucao.model_name,
+                     "estruturacao_id": str(execucao.id)},
+        )
+        return JsonResponse({"status": "cancelado"})
+
+
+class OllamaModelosView(View):
+    """Proxy leve de GET /api/tags do Ollama — degrada graciosamente se o
+    Ollama estiver offline (a UI precisa desabilitar a opção, não quebrar)."""
+
+    def get(self, request):
+        from .extractors.ollama_client import listar_modelos
+
+        modelos = listar_modelos()
+        return JsonResponse({"disponivel": bool(modelos), "modelos": modelos})
+
+
+_CAMPOS_LEGADOS_PERMITIDOS = {"structured_data", "dados_estruturados_dom2parser", "dados_estruturados_extruct"}
+
+
+def _comparacao_json(c: Comparacao) -> dict:
+    return {
+        "id": str(c.id),
+        "referencias": c.referencias,
+        "modelo_juiz_provider": c.modelo_juiz_provider,
+        "modelo_juiz_model_name": c.modelo_juiz_model_name,
+        "status": c.status,
+        "resultado": c.resultado,
+        "error_message": c.error_message,
+        "duration_ms": c.duration_ms,
+        "created_at": c.created_at.isoformat(),
+        "started_at": c.started_at.isoformat() if c.started_at else None,
+    }
+
+
+class CompararView(View):
+    """Dispara uma comparação entre 2+ seções de dado estruturado, julgada por
+    um LLM-juiz escolhido no momento."""
+
+    def post(self, request, artifact_id):
+        from .tasks import comparar_llm, correlacao_do_artefato
+
+        artifact = get_object_or_404(Artifact, id=artifact_id, tenant__in=orgs_do_usuario(request.user))
+
+        try:
+            data = json.loads(request.body)
+        except json.JSONDecodeError:
+            return JsonResponse({"error": "JSON inválido"}, status=400)
+
+        referencias = data.get("referencias") or []
+        if not isinstance(referencias, list) or len(referencias) < 2:
+            return JsonResponse({"error": "selecione ao menos 2 seções para comparar"}, status=400)
+
+        referencias_validadas = []
+        for ref in referencias:
+            tipo = ref.get("tipo") if isinstance(ref, dict) else None
+            if tipo == "campo_legado":
+                if ref.get("campo") not in _CAMPOS_LEGADOS_PERMITIDOS:
+                    return JsonResponse({"error": f"campo legado inválido: {ref.get('campo')}"}, status=400)
+                referencias_validadas.append({
+                    "tipo": "campo_legado", "campo": ref["campo"], "label": ref.get("label", ref["campo"]),
+                })
+            elif tipo == "estruturacao_llm":
+                execucao = EstruturacaoLLM.objects.filter(
+                    id=ref.get("id"),
+                    document_text__document=artifact,
+                    status=EstruturacaoLLM.Status.CONCLUIDO,
+                ).first()
+                if not execucao:
+                    return JsonResponse(
+                        {"error": f"execução LLM inválida ou não concluída: {ref.get('id')}"}, status=400
+                    )
+                referencias_validadas.append({
+                    "tipo": "estruturacao_llm", "id": str(execucao.id),
+                    "label": ref.get("label") or f"{execucao.provider}:{execucao.model_name}",
+                })
+            else:
+                return JsonResponse({"error": f"referência inválida: {ref}"}, status=400)
+
+        modelo_juiz = data.get("modelo_juiz") or {}
+        juiz_provider = modelo_juiz.get("provider")
+        juiz_model = (modelo_juiz.get("model_name") or "").strip()
+        if juiz_provider not in EstruturacaoLLM.Provider.values or not juiz_model:
+            return JsonResponse({"error": "modelo_juiz.provider e model_name são obrigatórios"}, status=400)
+
+        if juiz_provider == EstruturacaoLLM.Provider.ANTHROPIC and not permite_llm_externo(artifact.classification_level):
+            return JsonResponse(
+                {"error": f"LLM externo não permitido para classificação '{artifact.classification_level}'"},
+                status=403,
+            )
+
+        comparacao = Comparacao.objects.create(
+            artifact=artifact,
+            tenant=artifact.tenant,
+            referencias=referencias_validadas,
+            modelo_juiz_provider=juiz_provider,
+            modelo_juiz_model_name=juiz_model,
+            triggered_by=request.user,
+        )
+
+        correlation = correlacao_do_artefato(artifact.id)
+        emit(
+            "comparacao.solicitada", "ok",
+            correlation_id=correlation,
+            subject_type="artifact", subject_id=artifact.id,
+            tenant_id=artifact.tenant_id, user_id=request.user.id,
+            source="portal",
+            message=f"comparação pedida por {request.user.username} — juiz {juiz_provider}:{juiz_model}",
+            payload={"comparacao_id": str(comparacao.id), "secoes": len(referencias_validadas)},
+        )
+        set_correlation_id(correlation)
+        set_tenant_id(artifact.tenant_id)
+        async_result = comparar_llm.delay(str(comparacao.id))
+        comparacao.celery_task_id = async_result.id
+        comparacao.save(update_fields=["celery_task_id"])
+
+        return JsonResponse({"status": "enfileirado", "comparacao_id": str(comparacao.id)})
+
+
+class ComparacoesListView(View):
+    """Histórico de comparações de um artefato, mais recentes primeiro."""
+
+    def get(self, request, artifact_id):
+        artifact = get_object_or_404(Artifact, id=artifact_id, tenant__in=orgs_do_usuario(request.user))
+        comparacoes = Comparacao.objects.filter(artifact=artifact).order_by("-created_at")
+        return JsonResponse({"comparacoes": [_comparacao_json(c) for c in comparacoes]})
+
+
+class ComparacaoCancelarView(View):
+    """Interrompe uma comparação na fila ou em andamento — ver EstruturacaoCancelarView."""
+
+    def post(self, request, artifact_id, comparacao_id):
+        from .tasks import correlacao_do_artefato
+
+        artifact = get_object_or_404(Artifact, id=artifact_id, tenant__in=orgs_do_usuario(request.user))
+        comparacao = get_object_or_404(Comparacao, id=comparacao_id, artifact=artifact)
+        if comparacao.status not in (Comparacao.Status.PENDENTE, Comparacao.Status.EXECUTANDO):
+            return JsonResponse({"error": "comparação já finalizada"}, status=400)
+
+        if comparacao.celery_task_id:
+            from celery import current_app
+            current_app.control.revoke(comparacao.celery_task_id, terminate=True, signal="SIGKILL")
+
+        comparacao.status = Comparacao.Status.CANCELADO
+        comparacao.error_message = f"cancelado por {request.user.username}"
+        comparacao.save(update_fields=["status", "error_message"])
+
+        emit(
+            "comparacao.cancelada", "ignorado",
+            correlation_id=correlacao_do_artefato(artifact.id),
+            subject_type="artifact", subject_id=artifact.id,
+            tenant_id=artifact.tenant_id, user_id=request.user.id,
+            source="portal", message=comparacao.error_message,
+            payload={"comparacao_id": str(comparacao.id)},
+        )
+        return JsonResponse({"status": "cancelado"})
+
+
+class MapaVivoView(View):
+    """Tela do mapa vivo — grafo inicial embutido, atualizações via /ws/eventos/."""
+
+    def get(self, request):
+        orgs = orgs_do_usuario(request.user)
+        limite = getattr(settings, "MAPA_VIVO_LIMITE_ARTEFATOS", 150)
+        artifacts = artifacts_para_mapa(orgs, limite=limite)
+        return render(request, "artifacts/mapa_vivo.html", {"dados_iniciais": montar_grafo(artifacts)})
+
+
+class MapaVivoGrafoView(View):
+    """GET .../grafo/?antes=<iso>&limite=<n> — carga inicial via fetch, paginação
+    'carregar mais antigos' e full-resync do fallback de polling do mapa vivo."""
+
+    def get(self, request):
+        orgs = orgs_do_usuario(request.user)
+        limite = min(int(request.GET.get("limite", 150)), 300)
+        artifacts = artifacts_para_mapa(orgs, limite=limite, antes=request.GET.get("antes") or None)
+        return JsonResponse(montar_grafo(artifacts))

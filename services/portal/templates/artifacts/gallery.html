@@ -49,7 +49,7 @@
             flex-shrink: 0;
         }
         header h1 { font-size: 1.2rem; font-weight: 600; }
-        header .header-left { display: flex; align-items: center; gap: 1rem; }
+        header .header-left, header .header-right { display: flex; align-items: center; gap: 1rem; }
         .btn-back {
             color: var(--text-muted);
             font-size: 0.85rem;
@@ -301,6 +301,112 @@
 
         /* As classes .json-tree/.jt-* vêm de static/css/json-tree.css,
            compartilhadas com o painel de eventos. */
+
+        /* Estruturação LLM / Comparação */
+        .llm-toolbar {
+            display: flex;
+            align-items: center;
+            gap: 0.6rem;
+            flex-wrap: wrap;
+            margin-bottom: 1rem;
+            padding-bottom: 1rem;
+            border-bottom: 1px solid var(--border);
+        }
+        .llm-toolbar select {
+            background: var(--hover);
+            color: var(--text-main);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            padding: 0.35rem 0.5rem;
+            font-family: inherit;
+            font-size: 0.82rem;
+        }
+        .btn-primary {
+            font-size: 0.82rem;
+            padding: 0.4rem 0.9rem;
+            background: var(--accent);
+            border: none;
+            border-radius: 4px;
+            color: #000;
+            font-weight: 600;
+            cursor: pointer;
+            font-family: inherit;
+        }
+        .btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
+        .llm-status-msg { font-size: 0.78rem; color: var(--text-muted); }
+
+        .selecao-checkbox {
+            display: flex;
+            align-items: center;
+            gap: 0.35rem;
+            font-size: 0.78rem;
+            color: var(--text-muted);
+            cursor: pointer;
+        }
+
+        .llm-card {
+            background: var(--bg-panel);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 0.75rem 1rem;
+            margin-bottom: 0.75rem;
+        }
+        .llm-card-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.75rem;
+            font-size: 0.85rem;
+        }
+        .llm-card-title { font-weight: 600; }
+        .llm-card-meta { color: var(--text-muted); font-size: 0.78rem; }
+        .llm-badge {
+            font-size: 0.72rem;
+            padding: 0.12rem 0.5rem;
+            border-radius: 999px;
+            font-family: 'JetBrains Mono', monospace;
+        }
+        .llm-badge-pendente { background: #3d3212; color: #ffd479; }
+        .llm-badge-executando { background: #123049; color: var(--accent); }
+        .llm-badge-concluido { background: #123d1e; color: var(--json-string); }
+        .llm-badge-vazio { background: #2a2a2a; color: var(--text-muted); }
+        .llm-badge-falhou { background: #3d1212; color: var(--json-null); }
+        .llm-badge-cancelado { background: #2a2a2a; color: var(--text-muted); }
+        .llm-card-body { margin-top: 0.6rem; }
+        .llm-card-error { color: var(--json-null); font-size: 0.8rem; margin-top: 0.4rem; }
+        .llm-elapsed { font-size: 0.78rem; color: var(--text-muted); }
+        .llm-elapsed.alerta { color: #ffd479; }
+        .btn-parar {
+            font-size: 0.72rem;
+            padding: 0.15rem 0.55rem;
+            background: transparent;
+            border: 1px solid var(--json-null);
+            border-radius: 4px;
+            color: var(--json-null);
+            cursor: pointer;
+            font-family: inherit;
+        }
+        .btn-parar:hover { background: var(--json-null); color: #000; }
+
+        .comparacao-veredito {
+            background: var(--bg-panel);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 1rem;
+            margin-bottom: 1rem;
+            font-size: 0.88rem;
+            line-height: 1.6;
+        }
+        .comparacao-veredito h4 { font-size: 0.85rem; margin-bottom: 0.4rem; color: var(--accent); }
+        .comparacao-discrepancia { margin: 0.3rem 0; padding-left: 0.75rem; border-left: 2px solid var(--border); }
+        .comparacao-historico-item {
+            font-size: 0.78rem;
+            color: var(--text-muted);
+            padding: 0.4rem 0;
+            border-bottom: 1px solid var(--border);
+            cursor: pointer;
+        }
+        .comparacao-historico-item:hover { color: var(--text-main); }
     </style>
     <link rel="stylesheet" href="{% static 'css/json-tree.css' %}">
 </head>
@@ -311,12 +417,16 @@
         <a href="{% url 'dashboard' %}" class="btn-back">← Painel</a>
         <h1>Inteligência Aberta — Visualizador de Capturas</h1>
     </div>
+    <div class="header-right">
+        <a href="{% url 'artifacts:mapa_vivo' %}" class="btn-back">Mapa Vivo</a>
+        <a href="{% url 'events:painel' %}" class="btn-back">Eventos</a>
+    </div>
 </header>
 
 <div class="carousel-container" id="carousel">
     {% for artifact in artifacts %}
         <div class="card"
-             onclick="selectArtifact(this, '{{ artifact.id }}', '{{ artifact.content.url|escapejs }}', '{{ artifact.content.capture_timestamp }}', '{{ artifact.get_classification_level_display }}')"
+             onclick="selectArtifact(this, '{{ artifact.id }}', '{{ artifact.content.url|escapejs }}', '{{ artifact.content.capture_timestamp }}', '{{ artifact.get_classification_level_display }}', '{{ artifact.classification_level }}')"
              data-id="{{ artifact.id }}">
             <div class="card-title">{{ artifact.content.title|default:"Sem Título" }}</div>
             <div class="card-meta">
@@ -373,6 +483,8 @@
             <button class="tab-btn disabled" id="tab-json_dom2parser" onclick="switchTab('json_dom2parser')">dom2parser</button>
             <button class="tab-btn disabled" id="tab-json_extruct" onclick="switchTab('json_extruct')">extruct</button>
             <button class="tab-btn disabled" id="tab-dom" onclick="switchTab('dom')">HTML Reduzido</button>
+            <button class="tab-btn disabled" id="tab-llm" onclick="switchTab('llm')">Execuções LLM</button>
+            <button class="tab-btn disabled" id="tab-comparacao" onclick="switchTab('comparacao')">Comparação</button>
         </div>
 
         <!-- MHTML Panel -->
@@ -399,6 +511,10 @@
                     <div class="json-toolbar">
                         <span class="json-toolbar-title" id="json-type-label"></span>
                         <button class="btn-copy" id="btn-copy-json" onclick="copyJson('json')">Copiar JSON</button>
+                        <label class="selecao-checkbox">
+                            <input type="checkbox" data-tipo="campo_legado" data-campo="structured_data" data-label="Dados Estruturados (cascata)" onchange="toggleSelecao(this)">
+                            Selecionar para comparar
+                        </label>
                     </div>
                     <div class="json-tree" id="json-tree"></div>
                 </div>
@@ -412,6 +528,10 @@
                     <div class="json-toolbar">
                         <span class="json-toolbar-title" id="json-type-label_dom2parser"></span>
                         <button class="btn-copy" id="btn-copy-json_dom2parser" onclick="copyJson('json_dom2parser')">Copiar JSON</button>
+                        <label class="selecao-checkbox">
+                            <input type="checkbox" data-tipo="campo_legado" data-campo="dados_estruturados_dom2parser" data-label="dom2parser" onchange="toggleSelecao(this)">
+                            Selecionar para comparar
+                        </label>
                     </div>
                     <div class="json-tree" id="json-tree_dom2parser"></div>
                 </div>
@@ -425,6 +545,10 @@
                     <div class="json-toolbar">
                         <span class="json-toolbar-title" id="json-type-label_extruct"></span>
                         <button class="btn-copy" id="btn-copy-json_extruct" onclick="copyJson('json_extruct')">Copiar JSON</button>
+                        <label class="selecao-checkbox">
+                            <input type="checkbox" data-tipo="campo_legado" data-campo="dados_estruturados_extruct" data-label="extruct" onchange="toggleSelecao(this)">
+                            Selecionar para comparar
+                        </label>
                     </div>
                     <div class="json-tree" id="json-tree_extruct"></div>
                 </div>
@@ -439,14 +563,54 @@
             </div>
         </div>
 
+        <!-- Execuções LLM Panel -->
+        <div class="tab-panel" id="panel-llm">
+            <div class="json-panel-inner">
+                <div class="llm-toolbar">
+                    <select id="llm-provider-select" onchange="atualizarModelSelect()">
+                        <option value="anthropic">Claude (externo)</option>
+                        <option value="ollama">Ollama (local)</option>
+                    </select>
+                    <select id="llm-model-select"></select>
+                    <button class="btn-primary" id="btn-estruturar" onclick="dispararEstruturacao()">Estruturar com LLM</button>
+                    <span class="llm-status-msg" id="llm-status-msg"></span>
+                </div>
+                <div id="llm-execucoes-list"></div>
+            </div>
+        </div>
+
+        <!-- Comparação Panel -->
+        <div class="tab-panel" id="panel-comparacao">
+            <div class="json-panel-inner">
+                <div id="comparacao-atual"></div>
+                <h3 style="font-size:.8rem;color:var(--text-muted);text-transform:uppercase;margin:1rem 0 .5rem">Histórico de comparações</h3>
+                <div id="comparacao-historico"></div>
+            </div>
+        </div>
+
     </div>
+</div>
+
+<!-- Barra de comparação flutuante -->
+<div id="barra-comparar" style="display:none;position:fixed;bottom:1.5rem;left:50%;transform:translateX(-50%);background:var(--bg-panel);border:1px solid var(--accent);border-radius:var(--radius);padding:0.75rem 1rem;display:flex;align-items:center;gap:0.75rem;z-index:100;box-shadow:0 4px 16px rgba(0,0,0,.4)">
+    <span id="selecao-count" style="font-size:.85rem"></span>
+    <select id="juiz-provider-select" onchange="atualizarJuizModelSelect()">
+        <option value="anthropic">Claude (externo)</option>
+        <option value="ollama">Ollama (local)</option>
+    </select>
+    <select id="juiz-model-select"></select>
+    <button class="btn-primary" onclick="dispararComparacao()">Comparar</button>
+    <button class="btn-copy" onclick="limparSelecao()">Limpar seleção</button>
 </div>
 
 <script src="{% static 'js/json_tree.js' %}"></script>
 <script>
     // ─── State ───────────────────────────────────────────────────────────────
+    const CSRF_TOKEN = "{{ csrf_token }}";
+    const LLM_EXTRACTOR_MODEL = "{{ llm_extractor_model }}";
     let currentArtifactId = null;
     let currentTab = 'mhtml';
+    let currentClassificationLevel = '';
     // Cache: keyed by artifact_id → {text, structured_data, page_type, ...} or null if 404
     const contentCache = {};
     // Uma aba por fonte de dados estruturados: "structured_data" é a vencedora da
@@ -460,11 +624,20 @@
     const rawJsonByTab = {};
 
     // ─── Artifact Selection ───────────────────────────────────────────────────
-    function selectArtifact(element, id, url, date, classification) {
+    function selectArtifact(element, id, url, date, classification, classificationLevel) {
         document.querySelectorAll('.card').forEach(c => c.classList.remove('active'));
         element.classList.add('active');
 
         currentArtifactId = id;
+        currentClassificationLevel = classificationLevel || '';
+        limparSelecao();
+        document.getElementById('llm-execucoes-list').innerHTML = '';
+        document.getElementById('comparacao-atual').innerHTML = '';
+        document.getElementById('comparacao-historico').innerHTML = '';
+        setTabState('tab-llm', true);
+        setTabState('tab-comparacao', true);
+        atualizarModelSelect();
+        atualizarJuizModelSelect();
 
         // Reset content cache load for this artifact (keep cache entry if already loaded)
         document.getElementById('text-content').style.display = 'none';
@@ -516,7 +689,7 @@
         if (document.getElementById(`tab-${tab}`).classList.contains('disabled')) return;
 
         currentTab = tab;
-        ['mhtml', 'texto', 'json', 'json_dom2parser', 'json_extruct', 'dom'].forEach(t => {
+        ['mhtml', 'texto', 'json', 'json_dom2parser', 'json_extruct', 'dom', 'llm', 'comparacao'].forEach(t => {
             document.getElementById(`tab-${t}`).classList.toggle('active', t === tab);
             document.getElementById(`panel-${t}`).classList.toggle('active', t === tab);
         });
@@ -525,6 +698,8 @@
         if (tab !== 'mhtml' && currentArtifactId && contentCache[currentArtifactId]) {
             renderContent(contentCache[currentArtifactId]);
         }
+        if (tab === 'llm' && currentArtifactId) carregarExecucoes();
+        if (tab === 'comparacao' && currentArtifactId) carregarComparacoes();
     }
 
     function setTabState(tabId, enabled) {
@@ -622,6 +797,345 @@
 
     // O renderizador de árvore JSON vive em static/js/json_tree.js — é o
     // mesmo usado pelo painel de eventos para exibir o payload de cada etapa.
+
+    // ─── Estruturação manual via LLM ───────────────────────────────────────────
+    let ollamaModelosCache = null; // null = ainda não buscado; [] = buscado, vazio/indisponível
+
+    function classificacaoBloqueiaExterno() {
+        return currentClassificationLevel === 'restrito' || currentClassificationLevel === 'confidencial';
+    }
+
+    function fetchOllamaModelos(callback) {
+        if (ollamaModelosCache !== null) { callback(ollamaModelosCache); return; }
+        fetch('/artifacts/api/v1/ollama/modelos/')
+            .then(r => r.ok ? r.json() : {disponivel: false, modelos: []})
+            .then(data => { ollamaModelosCache = data.modelos || []; callback(ollamaModelosCache); })
+            .catch(() => { ollamaModelosCache = []; callback(ollamaModelosCache); });
+    }
+
+    function _popularProviderSelect(providerSelectId) {
+        const select = document.getElementById(providerSelectId);
+        const opt = select.querySelector('option[value="anthropic"]');
+        if (opt) opt.disabled = classificacaoBloqueiaExterno();
+        if (classificacaoBloqueiaExterno() && select.value === 'anthropic') select.value = 'ollama';
+    }
+
+    function _popularModelSelect(providerSelectId, modelSelectId) {
+        _popularProviderSelect(providerSelectId);
+        const provider = document.getElementById(providerSelectId).value;
+        const modelSelect = document.getElementById(modelSelectId);
+        modelSelect.innerHTML = '';
+        if (provider === 'anthropic') {
+            const opt = document.createElement('option');
+            opt.value = LLM_EXTRACTOR_MODEL;
+            opt.textContent = LLM_EXTRACTOR_MODEL;
+            modelSelect.appendChild(opt);
+            return;
+        }
+        fetchOllamaModelos(modelos => {
+            modelSelect.innerHTML = '';
+            if (!modelos.length) {
+                const opt = document.createElement('option');
+                opt.textContent = 'Ollama indisponível';
+                opt.disabled = true;
+                modelSelect.appendChild(opt);
+                return;
+            }
+            modelos.forEach(m => {
+                const opt = document.createElement('option');
+                opt.value = m; opt.textContent = m;
+                modelSelect.appendChild(opt);
+            });
+        });
+    }
+
+    function atualizarModelSelect() { _popularModelSelect('llm-provider-select', 'llm-model-select'); }
+    function atualizarJuizModelSelect() { _popularModelSelect('juiz-provider-select', 'juiz-model-select'); }
+
+    // Não há corte automático por timeout — passado este limiar, a UI só avisa
+    // que está demorando mais que o esperado; interromper é sempre uma decisão
+    // manual (botão "Parar"), porque modelos "thinking" grandes podem legitimamente
+    // levar minutos num prompt de extração real.
+    const ALERTA_DEMORA_S = 60;
+    const EM_ANDAMENTO = new Set(['pendente', 'executando']);
+
+    function formatarElapsed(desdeIso) {
+        const s = Math.max(0, Math.floor((Date.now() - new Date(desdeIso).getTime()) / 1000));
+        if (s < 60) return `${s}s`;
+        return `${Math.floor(s / 60)}min ${s % 60}s`;
+    }
+
+    function formatarDuracao(ms) {
+        const s = Math.floor(ms / 1000);
+        if (s < 60) return `${s}s`;
+        return `${Math.floor(s / 60)}min ${s % 60}s`;
+    }
+
+    function dispararEstruturacao() {
+        if (!currentArtifactId) return;
+        const provider = document.getElementById('llm-provider-select').value;
+        const modelSelect = document.getElementById('llm-model-select');
+        const modelName = modelSelect.value;
+        if (!modelName) return;
+
+        const btn = document.getElementById('btn-estruturar');
+        const msg = document.getElementById('llm-status-msg');
+        btn.disabled = true;
+        msg.textContent = 'Enfileirando…';
+
+        fetch(`/artifacts/${currentArtifactId}/estruturar-llm/`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json', 'X-CSRFToken': CSRF_TOKEN},
+            body: JSON.stringify({provider, model_name: modelName}),
+        })
+            .then(r => r.json().then(data => ({ok: r.ok, data})))
+            .then(({ok, data}) => {
+                msg.textContent = ok ? '' : (data.error || 'erro ao enfileirar');
+                if (ok) carregarExecucoes();
+            })
+            .catch(() => { msg.textContent = 'erro de rede'; })
+            .finally(() => { btn.disabled = false; });
+    }
+
+    // Autoatualização: enquanto houver algo pendente/executando e a aba estiver
+    // aberta, refaz o fetch a cada 3s. Para sozinha quando tudo termina ou o
+    // usuário sai da aba/troca de artefato — sem limite de tentativas, porque
+    // um modelo grande pode legitimamente levar vários minutos.
+    function carregarExecucoes() {
+        if (!currentArtifactId) return;
+        const artifactId = currentArtifactId;
+        fetch(`/artifacts/${artifactId}/estruturacoes/`)
+            .then(r => r.json())
+            .then(data => {
+                if (artifactId !== currentArtifactId || currentTab !== 'llm') return;
+                const execucoes = data.execucoes || [];
+                renderExecucoesList(execucoes);
+                if (execucoes.some(e => EM_ANDAMENTO.has(e.status))) {
+                    setTimeout(carregarExecucoes, 3000);
+                }
+            })
+            .catch(() => {});
+    }
+
+    function cancelarEstruturacao(id) {
+        if (!currentArtifactId) return;
+        fetch(`/artifacts/${currentArtifactId}/estruturacoes/${id}/cancelar/`, {
+            method: 'POST', headers: {'X-CSRFToken': CSRF_TOKEN},
+        }).then(() => carregarExecucoes()).catch(() => {});
+    }
+
+    function renderExecucoesList(execucoes) {
+        const container = document.getElementById('llm-execucoes-list');
+        const idsSelecionados = new Set(selecaoComparacao.filter(s => s.tipo === 'estruturacao_llm').map(s => s.id));
+        container.innerHTML = '';
+        if (!execucoes.length) {
+            container.innerHTML = '<div class="metadata-muted">Nenhuma execução ainda. Escolha um provider/modelo acima e clique em "Estruturar com LLM".</div>';
+            return;
+        }
+        execucoes.forEach(e => {
+            const card = document.createElement('div');
+            card.className = 'llm-card';
+            const label = `${e.provider}:${e.model_name}`;
+            const duracao = e.duration_ms != null ? ` · ${formatarDuracao(e.duration_ms)}` : '';
+            let header = `
+                <div class="llm-card-header">
+                    <div>
+                        <span class="llm-card-title">${label}</span>
+                        <span class="llm-card-meta"> · ${new Date(e.created_at).toLocaleString('pt-BR')}${duracao}</span>
+                    </div>
+                    <span class="llm-badge llm-badge-${e.status}">${e.status}</span>
+                </div>`;
+
+            if (e.status === 'pendente' || e.status === 'executando') {
+                const desde = e.status === 'executando' && e.started_at ? e.started_at : e.created_at;
+                const rotulo = e.status === 'executando' ? 'rodando há' : 'na fila há';
+                const elapsedS = Math.floor((Date.now() - new Date(desde).getTime()) / 1000);
+                const alerta = e.status === 'executando' && elapsedS > ALERTA_DEMORA_S;
+                header += `<div style="display:flex;align-items:center;gap:.6rem;margin-top:.4rem">
+                    <span class="llm-elapsed${alerta ? ' alerta' : ''}">${alerta ? '⚠ ' : ''}${rotulo} ${formatarElapsed(desde)}${alerta ? ' — demorando mais que o esperado' : ''}</span>
+                    <button class="btn-parar" onclick="cancelarEstruturacao('${e.id}')">Parar</button>
+                </div>`;
+            }
+            if (e.status === 'concluido') {
+                const checked = idsSelecionados.has(e.id) ? 'checked' : '';
+                header += `<label class="selecao-checkbox" style="margin-top:.4rem">
+                    <input type="checkbox" data-tipo="estruturacao_llm" data-id="${e.id}" data-label="${label}" ${checked} onchange="toggleSelecao(this)">
+                    Selecionar para comparar
+                </label>`;
+            }
+            if ((e.status === 'falhou' || e.status === 'cancelado') && e.error_message) {
+                header += `<div class="llm-card-error">${e.error_message}</div>`;
+            }
+            card.innerHTML = header;
+            if (e.status === 'concluido' && e.structured_data) {
+                const body = document.createElement('div');
+                body.className = 'llm-card-body json-tree';
+                body.appendChild(renderJsonNode(e.structured_data));
+                card.appendChild(body);
+            }
+            container.appendChild(card);
+        });
+    }
+
+    // ─── Seleção para comparação ────────────────────────────────────────────────
+    let selecaoComparacao = [];
+
+    function toggleSelecao(checkbox) {
+        const item = {
+            tipo: checkbox.dataset.tipo,
+            label: checkbox.dataset.label,
+        };
+        if (checkbox.dataset.tipo === 'campo_legado') item.campo = checkbox.dataset.campo;
+        if (checkbox.dataset.tipo === 'estruturacao_llm') item.id = checkbox.dataset.id;
+
+        const chave = item.tipo === 'campo_legado' ? item.campo : item.id;
+        if (checkbox.checked) {
+            if (!selecaoComparacao.some(s => (s.campo || s.id) === chave)) selecaoComparacao.push(item);
+        } else {
+            selecaoComparacao = selecaoComparacao.filter(s => (s.campo || s.id) !== chave);
+        }
+        atualizarBarraComparar();
+    }
+
+    function atualizarBarraComparar() {
+        const barra = document.getElementById('barra-comparar');
+        if (selecaoComparacao.length >= 2) {
+            barra.style.display = 'flex';
+            document.getElementById('selecao-count').textContent = `${selecaoComparacao.length} seções selecionadas`;
+        } else {
+            barra.style.display = 'none';
+        }
+    }
+
+    function limparSelecao() {
+        selecaoComparacao = [];
+        document.querySelectorAll('input[type=checkbox][data-tipo]').forEach(cb => cb.checked = false);
+        atualizarBarraComparar();
+    }
+
+    let comparacaoDestaqueId = null;
+
+    function dispararComparacao() {
+        if (!currentArtifactId || selecaoComparacao.length < 2) return;
+        const provider = document.getElementById('juiz-provider-select').value;
+        const modelName = document.getElementById('juiz-model-select').value;
+        if (!modelName) return;
+
+        fetch(`/artifacts/${currentArtifactId}/comparar/`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json', 'X-CSRFToken': CSRF_TOKEN},
+            body: JSON.stringify({
+                referencias: selecaoComparacao,
+                modelo_juiz: {provider, model_name: modelName},
+            }),
+        })
+            .then(r => r.json().then(data => ({ok: r.ok, data})))
+            .then(({ok, data}) => {
+                if (!ok) { alert(data.error || 'erro ao comparar'); return; }
+                comparacaoDestaqueId = data.comparacao_id;
+                limparSelecao();
+                switchTab('comparacao');
+            })
+            .catch(() => alert('erro de rede ao disparar comparação'));
+    }
+
+    // Mesmo padrão de autoatualização das execuções LLM: refaz o fetch a cada
+    // 3s enquanto alguma comparação estiver pendente/executando e a aba aberta.
+    function carregarComparacoes() {
+        if (!currentArtifactId) return;
+        const artifactId = currentArtifactId;
+        fetch(`/artifacts/${artifactId}/comparacoes/`)
+            .then(r => r.json())
+            .then(data => {
+                if (artifactId !== currentArtifactId || currentTab !== 'comparacao') return;
+                const comparacoes = data.comparacoes || [];
+                renderComparacoes(comparacoes);
+                if (comparacoes.some(c => EM_ANDAMENTO.has(c.status))) {
+                    setTimeout(carregarComparacoes, 3000);
+                }
+            })
+            .catch(() => {});
+    }
+
+    function cancelarComparacao(id) {
+        if (!currentArtifactId) return;
+        fetch(`/artifacts/${currentArtifactId}/comparacoes/${id}/cancelar/`, {
+            method: 'POST', headers: {'X-CSRFToken': CSRF_TOKEN},
+        }).then(() => carregarComparacoes()).catch(() => {});
+    }
+
+    function renderComparacoes(comparacoes) {
+        const atualDiv = document.getElementById('comparacao-atual');
+        const historicoDiv = document.getElementById('comparacao-historico');
+        atualDiv.innerHTML = '';
+        historicoDiv.innerHTML = '';
+
+        if (!comparacoes.length) {
+            atualDiv.innerHTML = '<div class="metadata-muted">Nenhuma comparação ainda. Selecione 2+ seções nas outras abas e clique em "Comparar".</div>';
+            return;
+        }
+
+        const destaque = comparacoes.find(c => c.id === comparacaoDestaqueId) || comparacoes[0];
+        comparacaoDestaqueId = destaque.id;
+        atualDiv.appendChild(renderVeredito(destaque));
+
+        comparacoes.forEach(c => {
+            const item = document.createElement('div');
+            item.className = 'comparacao-historico-item';
+            item.textContent = `${new Date(c.created_at).toLocaleString('pt-BR')} · juiz ${c.modelo_juiz_provider}:${c.modelo_juiz_model_name} · ${c.status} · ${c.referencias.length} seções`;
+            item.onclick = () => { comparacaoDestaqueId = c.id; atualDiv.innerHTML = ''; atualDiv.appendChild(renderVeredito(c)); };
+            historicoDiv.appendChild(item);
+        });
+    }
+
+    function renderVeredito(c) {
+        const div = document.createElement('div');
+        div.className = 'comparacao-veredito';
+        if (c.status === 'pendente' || c.status === 'executando') {
+            const desde = c.status === 'executando' && c.started_at ? c.started_at : c.created_at;
+            const rotulo = c.status === 'executando' ? 'rodando há' : 'na fila há';
+            const elapsedS = Math.floor((Date.now() - new Date(desde).getTime()) / 1000);
+            const alerta = c.status === 'executando' && elapsedS > ALERTA_DEMORA_S;
+            div.innerHTML = `<div style="display:flex;align-items:center;gap:.6rem">
+                <span class="llm-elapsed${alerta ? ' alerta' : ''}">${alerta ? '⚠ ' : ''}Comparação ${rotulo} ${formatarElapsed(desde)}${alerta ? ' — demorando mais que o esperado' : ''}</span>
+                <button class="btn-parar" onclick="cancelarComparacao('${c.id}')">Parar</button>
+            </div>`;
+            return div;
+        }
+        if (c.status === 'cancelado') {
+            div.innerHTML = `<div class="llm-card-error">Cancelado: ${c.error_message || ''}</div>`;
+            return div;
+        }
+        if (c.status === 'falhou') {
+            div.innerHTML = `<div class="llm-card-error">Falhou: ${c.error_message || ''}</div>`;
+            return div;
+        }
+        const veredito = (c.resultado && c.resultado.veredito) || {};
+        let html = `<h4>Veredito — juiz ${c.modelo_juiz_provider}:${c.modelo_juiz_model_name}</h4>`;
+        html += `<p>${veredito.resumo || ''}</p>`;
+        if (veredito.mais_completo) html += `<p><strong>Mais completo:</strong> ${veredito.mais_completo}</p>`;
+        if (veredito.completude) {
+            html += '<p><strong>Completude:</strong> ' +
+                Object.entries(veredito.completude).map(([k, v]) => `${k}: ${Math.round(v * 100)}%`).join(' · ') +
+                '</p>';
+        }
+        if (veredito.discrepancias && veredito.discrepancias.length) {
+            html += '<div><strong>Discrepâncias:</strong>';
+            veredito.discrepancias.forEach(d => {
+                html += `<div class="comparacao-discrepancia"><em>${d.campo}</em>: ${d.observacao}</div>`;
+            });
+            html += '</div>';
+        }
+        div.innerHTML = html;
+
+        const bruto = document.createElement('div');
+        bruto.style.marginTop = '.75rem';
+        bruto.className = 'json-tree';
+        bruto.appendChild(renderJsonNode(c.resultado));
+        div.appendChild(bruto);
+
+        return div;
+    }
 </script>
 </body>
 </html>

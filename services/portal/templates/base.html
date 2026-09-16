@@ -78,6 +78,7 @@
         <a href="{% url 'dashboard' %}">Painel</a>
         <a href="{% url 'artifacts:busca' %}">Busca</a>
         <a href="{% url 'artifacts:gallery' %}">Galeria OSINT</a>
+        <a href="{% url 'artifacts:mapa_vivo' %}">Mapa Vivo</a>
         <a href="{% url 'events:painel' %}">Eventos</a>
         <span style="color:#94a3b8;font-size:.85rem;margin-left:1rem;">{{ user.username }}</span>
         <form method="post" action="{% url 'logout' %}">

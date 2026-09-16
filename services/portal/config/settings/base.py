@@ -151,9 +151,23 @@ EMBEDDING_DIM = int(os.environ.get("EMBEDDING_DIM", "384"))
 FRAGMENT_CHUNK_SIZE = int(os.environ.get("FRAGMENT_CHUNK_SIZE", "1000"))
 FRAGMENT_OVERLAP = int(os.environ.get("FRAGMENT_OVERLAP", "100"))
 
+# Quantos artefatos-documento mais recentes entram na carga inicial do Mapa
+# Vivo (apps/artifacts graph.py) — o restante é acessível via paginação "carregar mais antigos".
+MAPA_VIVO_LIMITE_ARTEFATOS = int(os.environ.get("MAPA_VIVO_LIMITE_ARTEFATOS", "150"))
+
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 LLM_CLASSIFIER_MODEL = os.environ.get("LLM_CLASSIFIER_MODEL", "claude-haiku-4-5")
 LLM_EXTRACTOR_MODEL = os.environ.get("LLM_EXTRACTOR_MODEL", "claude-sonnet-5")
+
+# Ollama roda nativo no host do usuário, fora do Docker — não é um serviço do
+# compose. host.docker.internal exige `extra_hosts: host-gateway` no Linux
+# (não é automático como no Docker Desktop de Mac/Windows; ver docker-compose.yml).
+OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://host.docker.internal:11434")
+OLLAMA_TIMEOUT_S = int(os.environ.get("OLLAMA_TIMEOUT_S", "120"))
+# Sem isto, o Ollama usa o default de 4096 tokens de contexto mesmo em modelos
+# que suportam muito mais — em modelos "thinking" o raciocínio sozinho estoura
+# 4096 antes de sobrar espaço para a resposta final, e a chamada volta vazia.
+OLLAMA_NUM_CTX = int(os.environ.get("OLLAMA_NUM_CTX", "4096"))
 
 # ── Segurança / Autenticação ─────────────────────────────────────────────────
 # JWT_SIGNING_KEY: segredo compartilhado com o orchestrator — o portal assina os

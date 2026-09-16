@@ -202,3 +202,99 @@ class URLPatternCache(models.Model):
 
     def __str__(self):
         return f"{self.domain}{self.path_pattern} → {self.page_type}"
+
+
+class EstruturacaoLLM(models.Model):
+    """Uma execução manual de estruturação, disparada no visualizador.
+
+    Estritamente aditiva: nunca escreve em DocumentText.structured_data nem em
+    URLPatternCache. Acumula uma linha por execução (um modelo, um disparo) para
+    permitir comparar a mesma página estruturada por modelos diferentes.
+    """
+
+    class Provider(models.TextChoices):
+        ANTHROPIC = "anthropic", "Claude (externo)"
+        OLLAMA = "ollama", "Ollama (local)"
+
+    class Status(models.TextChoices):
+        PENDENTE = "pendente", "Pendente"       # criada, na fila do Celery
+        EXECUTANDO = "executando", "Executando"  # worker pegou a task, chamando o LLM
+        CONCLUIDO = "concluido", "Concluído"
+        VAZIO = "vazio", "Vazio"
+        FALHOU = "falhou", "Falhou"
+        CANCELADO = "cancelado", "Cancelado"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    document_text = models.ForeignKey(
+        DocumentText, on_delete=models.CASCADE, related_name="estruturacoes_llm"
+    )
+    tenant = models.ForeignKey(
+        Organization, on_delete=models.CASCADE, related_name="estruturacoes_llm"
+    )
+    provider = models.CharField(max_length=20, choices=Provider.choices)
+    model_name = models.CharField(max_length=255)
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDENTE)
+    categoria = models.CharField(max_length=500, blank=True)
+    structured_data = models.JSONField(null=True, blank=True)
+    error_message = models.TextField(blank=True)
+    triggered_by = models.ForeignKey(
+        User, null=True, on_delete=models.SET_NULL, related_name="estruturacoes_llm"
+    )
+    # celery_task_id habilita cancelamento real: revoke(terminate=True) manda
+    # SIGKILL no processo do worker, a única forma confiável de interromper uma
+    # chamada HTTP síncrona e bloqueante ao Ollama/Claude no meio do caminho.
+    celery_task_id = models.CharField(max_length=155, blank=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    duration_ms = models.IntegerField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "artifacts_estruturacao_llm"
+        indexes = [Index(fields=["document_text", "-created_at"])]
+
+    def __str__(self):
+        return f"{self.provider}:{self.model_name} — {self.status} ({self.document_text_id})"
+
+
+class Comparacao(models.Model):
+    """Comparação de 2+ seções de dado estruturado, julgada por um LLM.
+
+    `referencias` identifica o que foi comparado (para navegação/auditoria),
+    mas `resultado` inclui um snapshot do conteúdo enviado ao juiz — a
+    comparação é autocontida e sobrevive a um reprocessamento que apague o
+    DocumentText de origem (extract_text_from_mhtml com forcar=True apaga e
+    recria DocumentText, o que apagaria em cascata as EstruturacaoLLM
+    referenciadas).
+    """
+
+    class Status(models.TextChoices):
+        PENDENTE = "pendente", "Pendente"
+        EXECUTANDO = "executando", "Executando"
+        CONCLUIDO = "concluido", "Concluído"
+        FALHOU = "falhou", "Falhou"
+        CANCELADO = "cancelado", "Cancelado"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    artifact = models.ForeignKey(Artifact, on_delete=models.CASCADE, related_name="comparacoes")
+    tenant = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="comparacoes")
+    referencias = models.JSONField(default=list)
+    modelo_juiz_provider = models.CharField(max_length=20, choices=EstruturacaoLLM.Provider.choices)
+    modelo_juiz_model_name = models.CharField(max_length=255)
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDENTE)
+    resultado = models.JSONField(null=True, blank=True)
+    error_message = models.TextField(blank=True)
+    triggered_by = models.ForeignKey(
+        User, null=True, on_delete=models.SET_NULL, related_name="comparacoes"
+    )
+    celery_task_id = models.CharField(max_length=155, blank=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    duration_ms = models.IntegerField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "artifacts_comparacao"
+        indexes = [Index(fields=["artifact", "-created_at"])]
+
+    def __str__(self):
+        return f"Comparação({self.artifact_id}) — {self.status} — {len(self.referencias)} seções"

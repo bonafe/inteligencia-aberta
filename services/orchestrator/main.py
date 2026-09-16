@@ -1,3 +1,4 @@
+import base64
 import os
 import time
 import uuid
@@ -67,6 +68,35 @@ minio_client = Minio(
 # Garante que o bucket existe ao iniciar
 if not minio_client.bucket_exists(MHTML_BUCKET_NAME):
     minio_client.make_bucket(MHTML_BUCKET_NAME)
+FAVICON_MAX_BYTES = 300_000
+
+
+def baixar_favicon_data_uri(favicon_url: str) -> tuple[str | None, str]:
+    """Baixa o favicon da aba e devolve (data_uri, motivo). data_uri é None se a
+    URL estiver vazia, for inacessível (ex.: chrome://favicon interno), não for
+    imagem, ou passar do limite de tamanho — `motivo` explica qual desses foi.
+    Nunca levanta — favicon é cosmético, não pode derrubar a captura."""
+    if not favicon_url:
+        return None, "extensão não enviou favicon_url"
+    # Muitos sites embutem o favicon como data URI (comum em ícones SVG
+    # minimalistas) — já vem pronto, sem precisar baixar nada.
+    if favicon_url.startswith("data:image/"):
+        return favicon_url, "data_uri_direta"
+    if not favicon_url.startswith(("http://", "https://")):
+        return None, f"esquema não suportado: {favicon_url[:40]!r}"
+    try:
+        resp = httpx.get(favicon_url, timeout=3.0, follow_redirects=True)
+        resp.raise_for_status()
+    except Exception as err:
+        return None, f"download falhou: {err}"
+    if len(resp.content) > FAVICON_MAX_BYTES:
+        return None, f"favicon maior que o limite ({len(resp.content)} bytes)"
+    content_type = resp.headers.get("content-type", "").split(";")[0].strip()
+    if not content_type.startswith("image/"):
+        return None, f"content-type inesperado: {content_type or '(vazio)'}"
+    return f"data:{content_type};base64,{base64.b64encode(resp.content).decode()}", "ok"
+
+
 class InvestigationRequest(BaseModel):
     query: str
     classification: str = "restrito"
@@ -105,6 +135,7 @@ async def capture_mhtml(
     file: UploadFile = File(...),
     url: str = Form(...),
     title: str = Form(""),
+    favicon_url: str = Form(""),
     timestamp: str = Form(...),
     classification_level: str = Form("restrito"),
     allow_external_llm: bool = Form(False),
@@ -155,6 +186,21 @@ async def capture_mhtml(
                         "bytes": file_size, "url": url},
                duration_ms=int((time.perf_counter() - t0) * 1000))
 
+        favicon_data_uri, motivo_favicon = baixar_favicon_data_uri(favicon_url)
+        evento("captura.favicon", "ok" if favicon_data_uri else "vazio",
+               message=motivo_favicon,
+               payload={"url": url, "favicon_url": (favicon_url or "")[:200]})
+
+        artifact_content = {
+            "title": title,
+            "url": url,
+            "capture_timestamp": timestamp,
+            "mhtml_bucket": MHTML_BUCKET_NAME,
+            "mhtml_path": object_name,
+        }
+        if favicon_data_uri:
+            artifact_content["favicon_data_uri"] = favicon_data_uri
+
         # Registra o artefato no Portal via API Django (dispara o pipeline automaticamente).
         # X-Internal-Token autentica o canal serviço-a-serviço; user_id/tenant_id
         # vêm do JWT já validado, então o portal pode confiar neles.
@@ -163,13 +209,7 @@ async def capture_mhtml(
                 f"{PORTAL_URL}/artifacts/api/v1/artefatos/",
                 json={
                     "artifact_type": "documento",
-                    "content": {
-                        "title": title,
-                        "url": url,
-                        "capture_timestamp": timestamp,
-                        "mhtml_bucket": MHTML_BUCKET_NAME,
-                        "mhtml_path": object_name,
-                    },
+                    "content": artifact_content,
                     "classification_level": classification_level,
                     "allow_external_llm": allow_external_llm,
                     "tenant_id": tenant_id,
