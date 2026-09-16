@@ -370,7 +370,7 @@ não alimentam busca, embeddings nem nenhum consumidor além do visualizador.
 | Campo | Biblioteca | O que captura |
 |---|---|---|
 | `dados_estruturados_dom2parser` | [`dom2parser`](https://bonafe.github.io/dom2parser/) (Estratégia A′) | Estruturas repetidas inferidas por padrão do DOM (tabelas, listas) — `{"registros": {...}}`, igual ao formato de `structured_data` quando essa é a fonte vencedora |
-| `dados_estruturados_extruct` | [`extruct`](https://github.com/scrapinghub/extruct) | Metadados que o próprio site declara: JSON-LD, Microdata, OpenGraph, RDFa e Microformats (schema.org Organization/Person/Article/Product, meta tags sociais) |
+| `dados_estruturados_extruct` | [`extruct`](https://github.com/scrapinghub/extruct) | Metadados que o próprio site declara: JSON-LD, Microdata, OpenGraph e Microformats (schema.org Organization/Person/Article/Product, meta tags sociais). RDFa fica de fora — nesta lib ele confunde `role=` de acessibilidade com metadado de conteúdo (medido: 262 itens de ruído puro numa única página) |
 
 Ambas rodam de forma determinística, sem LLM e sem rede, em **toda captura**,
 independente de `page_type`, `allow_external_llm` ou de qual estratégia venceu a
@@ -382,7 +382,11 @@ cascata (`apps/artifacts/tasks.py`, logo após `dom2parser.compress(html)`):
 - `dados_estruturados_extruct` (`apps/artifacts/extractors/extruct_extractor.py`)
   é uma extração independente; como muitos sites não declaram nenhum dos formatos
   suportados, o campo fica `null` na maioria das capturas — isso é esperado, não
-  uma falha.
+  uma falha. Quando não é `null`, tem a forma `{"resumo": {...}, "raw": {...}}`:
+  `resumo` são os campos comuns (title/description/image/url/site_name/type/
+  locale) já achatados, do primeiro formato disponível na ordem json-ld >
+  microdata > opengraph; `raw` é a saída crua de cada formato encontrado, para
+  quem quiser inspecionar o que o `resumo` deixou de fora.
 
 Complementares por natureza: `dom2parser` infere estrutura por repetição no DOM
 mesmo sem marcação alguma; `extruct` só lê o que o publicador anotou
