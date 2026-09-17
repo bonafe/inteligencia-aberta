@@ -1,11 +1,15 @@
 import base64
+import email
 import os
+import re
 import time
 import uuid
 import json
 import httpx
 import jwt
+from email import policy as email_policy
 from io import BytesIO
+from urllib.parse import urljoin
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Depends, Header
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -69,32 +73,81 @@ minio_client = Minio(
 if not minio_client.bucket_exists(MHTML_BUCKET_NAME):
     minio_client.make_bucket(MHTML_BUCKET_NAME)
 FAVICON_MAX_BYTES = 300_000
+# Tag `<link rel="icon">`/`<link rel="shortcut icon">` — procurado como texto
+# em vez de com um parser de HTML de verdade: o orchestrator não depende de
+# nenhuma lib de parsing (isso é trabalho do portal), e achar um único atributo
+# não justifica adicionar uma. Falha graciosa (favicon é cosmético) cobre o
+# caso de HTML fora do padrão que o regex não reconheça.
+_LINK_TAG_RE = re.compile(r"<link\b[^>]*>", re.IGNORECASE)
+_REL_ICON_RE = re.compile(r'rel\s*=\s*["\']?\s*(?:shortcut\s+icon|icon)\b', re.IGNORECASE)
+_HREF_RE = re.compile(r'href\s*=\s*["\']([^"\']+)["\']', re.IGNORECASE)
 
 
-def baixar_favicon_data_uri(favicon_url: str) -> tuple[str | None, str]:
-    """Baixa o favicon da aba e devolve (data_uri, motivo). data_uri é None se a
-    URL estiver vazia, for inacessível (ex.: chrome://favicon interno), não for
-    imagem, ou passar do limite de tamanho — `motivo` explica qual desses foi.
-    Nunca levanta — favicon é cosmético, não pode derrubar a captura."""
-    if not favicon_url:
-        return None, "extensão não enviou favicon_url"
-    # Muitos sites embutem o favicon como data URI (comum em ícones SVG
-    # minimalistas) — já vem pronto, sem precisar baixar nada.
+def _href_do_icone(html: str) -> str | None:
+    for tag in _LINK_TAG_RE.findall(html):
+        if _REL_ICON_RE.search(tag):
+            m = _HREF_RE.search(tag)
+            if m:
+                return m.group(1)
+    return None
+
+
+def extrair_favicon_do_mhtml(mhtml_bytes: bytes, page_url: str, favicon_url: str) -> tuple[str | None, str]:
+    """Acha o favicon dentro do próprio MHTML — o Chrome já baixou esse
+    recurso como parte de carregar a página, então não tem motivo pra buscar
+    de novo por fora. Nunca faz requisição de rede: é exatamente uma
+    requisição de rede na hora da captura (ex.: Wikimedia bloqueando com 403
+    um download feito fora do navegador) que este desenho evita.
+
+    Nunca levanta — favicon é cosmético, não pode derrubar a captura.
+    Devolve (data_uri, motivo)."""
+    # Ícone embutido como data URI de propósito (comum em SVG minimalista) —
+    # já vem pronto, nem precisa olhar o MHTML.
     if favicon_url.startswith("data:image/"):
         return favicon_url, "data_uri_direta"
-    if not favicon_url.startswith(("http://", "https://")):
-        return None, f"esquema não suportado: {favicon_url[:40]!r}"
+
     try:
-        resp = httpx.get(favicon_url, timeout=3.0, follow_redirects=True)
-        resp.raise_for_status()
+        msg = email.message_from_bytes(mhtml_bytes, policy=email_policy.default)
     except Exception as err:
-        return None, f"download falhou: {err}"
-    if len(resp.content) > FAVICON_MAX_BYTES:
-        return None, f"favicon maior que o limite ({len(resp.content)} bytes)"
-    content_type = resp.headers.get("content-type", "").split(";")[0].strip()
-    if not content_type.startswith("image/"):
-        return None, f"content-type inesperado: {content_type or '(vazio)'}"
-    return f"data:{content_type};base64,{base64.b64encode(resp.content).decode()}", "ok"
+        return None, f"MHTML ilegível: {err}"
+
+    imagens_por_local: dict[str, object] = {}
+    html = None
+    for part in msg.walk():
+        content_type = part.get_content_type()
+        if content_type == "text/html" and html is None:
+            payload = part.get_payload(decode=True)
+            if payload:
+                html = payload.decode(part.get_content_charset() or "utf-8", errors="replace")
+        local = part.get("Content-Location", "")
+        if local and content_type.startswith("image/"):
+            imagens_por_local[local] = part
+
+    if not imagens_por_local:
+        return None, "MHTML não tem nenhuma imagem embutida"
+
+    # Duas fontes de candidato, nessa ordem: a URL que a extensão reportou
+    # (tab.favIconUrl — já é a resolução do próprio Chrome), depois o que o
+    # HTML capturado declara via <link rel="icon">, caso a primeira não bata
+    # com nenhuma imagem embutida.
+    candidatos = [u for u in (favicon_url,) if u]
+    if html:
+        href = _href_do_icone(html)
+        if href:
+            candidatos.append(urljoin(page_url, href))
+
+    for candidato in candidatos:
+        part = imagens_por_local.get(candidato)
+        if part is None:
+            continue
+        payload = part.get_payload(decode=True)
+        if not payload:
+            continue
+        if len(payload) > FAVICON_MAX_BYTES:
+            return None, f"favicon maior que o limite ({len(payload)} bytes)"
+        return f"data:{part.get_content_type()};base64,{base64.b64encode(payload).decode()}", "ok"
+
+    return None, "favicon não encontrado entre as imagens embutidas no MHTML"
 
 
 class InvestigationRequest(BaseModel):
@@ -186,7 +239,7 @@ async def capture_mhtml(
                         "bytes": file_size, "url": url},
                duration_ms=int((time.perf_counter() - t0) * 1000))
 
-        favicon_data_uri, motivo_favicon = baixar_favicon_data_uri(favicon_url)
+        favicon_data_uri, motivo_favicon = extrair_favicon_do_mhtml(content, url, favicon_url)
         evento("captura.favicon", "ok" if favicon_data_uri else "vazio",
                message=motivo_favicon,
                payload={"url": url, "favicon_url": (favicon_url or "")[:200]})

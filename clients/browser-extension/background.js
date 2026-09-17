@@ -1,8 +1,45 @@
 const API_URL = 'http://localhost:8001/api/v1/capture/mhtml';
 
 const AUTH_KEY = 'auth';
+// Mesmo teto do orchestrator (services/orchestrator/main.py:FAVICON_MAX_BYTES)
+// — os dois lados concordam no limite pra não um aceitar o que o outro rejeita.
+const FAVICON_MAX_BYTES = 300_000;
 
 class NeedsLoginError extends Error {}
+
+// chrome://favicon2 lê do cache de favicon do próprio Chrome — o ícone que já
+// apareceu na aba, sem baixar nada da internet de novo. Evita dois problemas
+// do favicon_url antigo (a URL que o site declara, buscada pelo orchestrator
+// depois): sites que bloqueiam requisição sem navegador de verdade (a
+// Wikipedia devolve 403 pra isso) e o favicon simplesmente não ter sido
+// embutido no MHTML pelo Chrome. Ver
+// https://developer.chrome.com/docs/extensions/how-to/ui/favicons —
+// permissão "favicon" em manifest.json é o que habilita isto.
+function urlDoFavicon(pageUrl) {
+  const url = new URL(chrome.runtime.getURL('/_favicon/'));
+  url.searchParams.set('pageUrl', pageUrl);
+  url.searchParams.set('size', '32');
+  return url.toString();
+}
+
+// Nunca levanta — favicon é cosmético, se algo der errado a captura segue
+// sem ele (o portal já sabe emprestar o favicon de outra captura do mesmo
+// domínio nesse caso, ver apps/artifacts/graph.py).
+async function favIconParaDataUri(pageUrl) {
+  try {
+    const resp = await fetch(urlDoFavicon(pageUrl));
+    if (!resp.ok) return '';
+    const blob = await resp.blob();
+    if (!blob.type.startsWith('image/') || blob.size === 0 || blob.size > FAVICON_MAX_BYTES) return '';
+    const buffer = await blob.arrayBuffer();
+    const bytes = new Uint8Array(buffer);
+    let binario = '';
+    for (let i = 0; i < bytes.length; i++) binario += String.fromCharCode(bytes[i]);
+    return `data:${blob.type};base64,${btoa(binario)}`;
+  } catch (err) {
+    return '';
+  }
+}
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === 'capture_and_upload') {
@@ -61,9 +98,9 @@ async function captureAndUpload(config = {}) {
         formData.append('file', mhtmlData, 'capture.mhtml');
         formData.append('url', tab.url);
         formData.append('title', tab.title || '');
-        // O ícone da aba (favicon) — o orchestrator baixa e guarda; se a URL não
-        // for buscável dali (ex.: chrome://favicon interno), ele só ignora.
-        formData.append('favicon_url', tab.favIconUrl || '');
+        // O ícone da aba, já em data URI (ver favIconParaDataUri acima) — o
+        // orchestrator só guarda, não baixa nada. Vazio se não achou/não tinha.
+        formData.append('favicon_url', await favIconParaDataUri(tab.url));
         formData.append('timestamp', new Date().toISOString());
         formData.append('classification_level', config.classification_level || 'restrito');
         formData.append('allow_external_llm', config.allow_external_llm ? 'true' : 'false');
