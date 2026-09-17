@@ -954,11 +954,20 @@
             card.className = 'llm-card';
             const label = `${e.provider}:${e.model_name}`;
             const duracao = e.duration_ms != null ? ` · ${formatarDuracao(e.duration_ms)}` : '';
+            let tokens = '';
+            if (e.tokens_entrada != null || e.tokens_saida != null) {
+                const entrada = e.tokens_entrada ?? 0;
+                const saida = e.tokens_saida ?? 0;
+                tokens = ` · entrada ${entrada} · saída ${saida} · total ${entrada + saida} tokens`;
+                if (e.tokens_por_segundo != null) {
+                    tokens += ` (${e.tokens_por_segundo.toFixed(1)} tok/s)`;
+                }
+            }
             let header = `
                 <div class="llm-card-header">
                     <div>
                         <span class="llm-card-title">${label}</span>
-                        <span class="llm-card-meta"> · ${new Date(e.created_at).toLocaleString('pt-BR')}${duracao}</span>
+                        <span class="llm-card-meta"> · ${new Date(e.created_at).toLocaleString('pt-BR')}${duracao}${tokens}</span>
                     </div>
                     <span class="llm-badge llm-badge-${e.status}">${e.status}</span>
                 </div>`;

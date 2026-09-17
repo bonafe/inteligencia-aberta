@@ -308,6 +308,11 @@ class ChamadaLLM(models.Model):
     duration_ms = models.IntegerField(null=True, blank=True)
     tokens_entrada = models.IntegerField(null=True, blank=True)
     tokens_saida = models.IntegerField(null=True, blank=True)
+    # Só ollama: tokens de saída / eval_duration (tempo de geração pura
+    # reportado pelo próprio Ollama) — mais preciso que tokens_saida/duration_ms
+    # de parede, que inclui rede/fila. Vazio em anthropic (o provider não
+    # reporta tempo de geração isolado).
+    tokens_por_segundo = models.FloatField(null=True, blank=True)
     chars_enviados = models.IntegerField(null=True, blank=True)
     # "max_tokens" aqui indica resposta truncada — silenciosamente corrompe
     # structured_data/schema se ninguém checar isto.

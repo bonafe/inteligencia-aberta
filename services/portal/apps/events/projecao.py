@@ -314,6 +314,7 @@ def aplicar_chamada_llm(evento) -> "ChamadaLLM | None":  # noqa: F821
                 "maquina_id": payload.get("maquina_id") or None,
                 "tokens_entrada": payload.get("tokens_entrada"),
                 "tokens_saida": payload.get("tokens_saida"),
+                "tokens_por_segundo": payload.get("tokens_por_segundo"),
                 "chars_enviados": payload.get("chars_enviados"),
                 "stop_reason": payload.get("stop_reason", ""),
                 "request_id": payload.get("request_id", ""),

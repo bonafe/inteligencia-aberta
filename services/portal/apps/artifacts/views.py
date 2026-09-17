@@ -336,7 +336,31 @@ class ArtifactContentView(View):
         })
 
 
-def _estruturacao_json(e: EstruturacaoLLM) -> dict:
+def _parear_chamadas_llm(execucoes, chamadas):
+    """Pareia cada EstruturacaoLLM com a ChamadaLLM que ela disparou.
+
+    Não há FK direta entre as duas — ChamadaLLM só guarda subject_type/
+    subject_id (o artefato), e um artefato acumula uma execução por disparo
+    manual no visualizador (ver EstruturacaoLLM). O pareamento usa o fato de
+    que cada execução dispara exatamente uma chamada e elas acontecem em
+    sequência (um clique por vez, síncrono): ordena as duas listas no tempo e
+    casa cada execução com a primeira chamada ainda não usada que ocorreu
+    depois do seu started_at.
+    """
+    restantes = sorted(chamadas, key=lambda c: c.ocorreu_em)
+    pareadas = {}
+    for e in sorted(execucoes, key=lambda e: e.started_at or e.created_at):
+        if not e.started_at:
+            continue
+        for i, c in enumerate(restantes):
+            if c.ocorreu_em >= e.started_at:
+                pareadas[e.id] = c
+                restantes.pop(i)
+                break
+    return pareadas
+
+
+def _estruturacao_json(e: EstruturacaoLLM, chamada=None) -> dict:
     return {
         "id": str(e.id),
         "provider": e.provider,
@@ -346,6 +370,9 @@ def _estruturacao_json(e: EstruturacaoLLM) -> dict:
         "structured_data": e.structured_data,
         "error_message": e.error_message,
         "duration_ms": e.duration_ms,
+        "tokens_entrada": chamada.tokens_entrada if chamada else None,
+        "tokens_saida": chamada.tokens_saida if chamada else None,
+        "tokens_por_segundo": chamada.tokens_por_segundo if chamada else None,
         "created_at": e.created_at.isoformat(),
         "started_at": e.started_at.isoformat() if e.started_at else None,
     }
@@ -415,11 +442,20 @@ class EstruturacoesListView(View):
     """Lista as execuções de estruturação manual de um artefato, mais recentes primeiro."""
 
     def get(self, request, artifact_id):
+        from apps.events.models import ChamadaLLM, Finalidade
+
         artifact = get_object_or_404(Artifact, id=artifact_id, tenant__in=orgs_do_usuario(request.user))
-        execucoes = EstruturacaoLLM.objects.filter(
+        execucoes = list(EstruturacaoLLM.objects.filter(
             document_text__document=artifact
-        ).order_by("-created_at")
-        return JsonResponse({"execucoes": [_estruturacao_json(e) for e in execucoes]})
+        ).order_by("-created_at"))
+        chamadas = ChamadaLLM.objects.filter(
+            subject_type="artifact", subject_id=artifact.id,
+            finalidade=Finalidade.ESTRUTURACAO_MANUAL,
+        )
+        pareadas = _parear_chamadas_llm(execucoes, chamadas)
+        return JsonResponse({
+            "execucoes": [_estruturacao_json(e, pareadas.get(e.id)) for e in execucoes]
+        })
 
 
 class EstruturacaoCancelarView(View):
