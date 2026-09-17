@@ -233,6 +233,15 @@ class EstruturacaoLLM(models.Model):
     )
     provider = models.CharField(max_length=20, choices=Provider.choices)
     model_name = models.CharField(max_length=255)
+    # Referência por string ("cluster.Maquina"): evita acoplar a ordem de
+    # import de apps.artifacts.models a apps.cluster.models — Django resolve
+    # a FK depois que todo app já carregou. Só preenchido quando o roteador
+    # (apps.cluster.llm_router) escolheu uma máquina de verdade — provider
+    # anthropic, ou ollama sem cluster configurado, ficam com null (mesmo
+    # significado de sempre: "rodou localmente, sem roteamento").
+    maquina = models.ForeignKey(
+        "cluster.Maquina", null=True, blank=True, on_delete=models.SET_NULL, related_name="estruturacoes_llm",
+    )
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDENTE)
     categoria = models.CharField(max_length=500, blank=True)
     structured_data = models.JSONField(null=True, blank=True)
@@ -281,6 +290,10 @@ class Comparacao(models.Model):
     referencias = models.JSONField(default=list)
     modelo_juiz_provider = models.CharField(max_length=20, choices=EstruturacaoLLM.Provider.choices)
     modelo_juiz_model_name = models.CharField(max_length=255)
+    # Mesmo campo/mesma razão de EstruturacaoLLM.maquina.
+    maquina = models.ForeignKey(
+        "cluster.Maquina", null=True, blank=True, on_delete=models.SET_NULL, related_name="comparacoes",
+    )
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDENTE)
     resultado = models.JSONField(null=True, blank=True)
     error_message = models.TextField(blank=True)

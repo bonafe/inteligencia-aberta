@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+{% block title %}Cluster — Inteligência Aberta{% endblock %}
+
+{% block content %}
+<style>
+  .maquina-card {
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    padding: 1.25rem 1.5rem;
+    margin-top: 1.25rem;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+  }
+  .maquina-card h2 { font-size: 1.1rem; display: flex; align-items: center; gap: .5rem; }
+  .bolinha { display: inline-block; width: .6rem; height: .6rem; border-radius: 50%; }
+  .bolinha.online { background: #22c55e; }
+  .bolinha.offline { background: #d1d5db; }
+  .tag {
+    display: inline-block; font-size: .72rem; padding: .1rem .5rem; border-radius: 999px;
+    background: #eef2ff; color: #4338ca; margin-left: .35rem; font-weight: 500;
+  }
+  .tag.infra { background: #ecfdf5; color: #047857; }
+  .recursos {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: .75rem; margin-top: .9rem;
+  }
+  .recurso { background: #f9fafb; border-radius: 6px; padding: .6rem .8rem; }
+  .recurso .valor { font-size: 1.15rem; font-weight: 600; color: #1e293b; }
+  .recurso .rotulo { font-size: .75rem; color: #6b7280; }
+  table.modelos { width: 100%; margin-top: 1rem; border-collapse: collapse; font-size: .85rem; }
+  table.modelos th, table.modelos td { text-align: left; padding: .4rem .6rem; border-bottom: 1px solid #f1f5f9; }
+  table.modelos th { color: #6b7280; font-weight: 500; }
+  .sem-dado { color: #9ca3af; font-size: .85rem; margin-top: .75rem; }
+</style>
+
+<div class="card" style="margin-top:2rem;">
+  <h1>Cluster</h1>
+  <p style="color:#6b7280;margin-top:.5rem;">
+    Máquinas registradas, recursos de CPU/RAM/disco e capacidade de rodar cada modelo Ollama.
+    Ver <code>docs/operacao/escala-multimaquina.md</code> no repositório para como adicionar uma.
+  </p>
+</div>
+
+{% if not maquinas %}
+  <p class="sem-dado" style="margin-top:1.5rem;">
+    Nenhuma máquina registrada ainda — instalação de máquina única, ou nenhuma se autorregistrou.
+  </p>
+{% endif %}
+
+{% for maquina in maquinas %}
+  <div class="maquina-card">
+    <h2>
+      <span class="bolinha {% if maquina.status.online %}online{% else %}offline{% endif %}"></span>
+      {{ maquina.apelido }}
+      <span class="tag">{{ maquina.get_modo_display }}</span>
+      {% if maquina.hospeda_infra_compartilhada %}<span class="tag infra">hospeda infra</span>{% endif %}
+      {% if not maquina.ativa %}<span class="tag" style="background:#fee2e2;color:#b91c1c;">inativa</span>{% endif %}
+    </h2>
+
+    {% if maquina.status %}
+      <div class="recursos">
+        <div class="recurso">
+          <div class="valor">{{ maquina.status.cpu_percent|default:"—" }}%</div>
+          <div class="rotulo">CPU ({{ maquina.status.cpu_count|default:"?" }} núcleos)</div>
+        </div>
+        <div class="recurso">
+          <div class="valor">{{ maquina.status.ram_disponivel_mb|default:"—" }} MB</div>
+          <div class="rotulo">RAM disponível de {{ maquina.status.ram_total_mb|default:"?" }} MB</div>
+        </div>
+        <div class="recurso">
+          <div class="valor">{{ maquina.status.disco_disponivel_gb|default:"—" }} GB</div>
+          <div class="rotulo">Disco disponível</div>
+        </div>
+        <div class="recurso">
+          <div class="valor">{{ maquina.status.ultimo_heartbeat_em|timesince|default:"—" }}</div>
+          <div class="rotulo">desde o último heartbeat</div>
+        </div>
+      </div>
+    {% else %}
+      <p class="sem-dado">Nenhum heartbeat recebido ainda.</p>
+    {% endif %}
+
+    {% if maquina.ollama_endpoint %}
+      {% with modelos=maquina.modelos_ollama.all %}
+        {% if modelos %}
+          <table class="modelos">
+            <thead><tr><th>Modelo</th><th>tokens/s</th><th>amostras</th><th>threads</th><th>contexto</th><th>visto</th></tr></thead>
+            <tbody>
+              {% for m in modelos %}
+                <tr>
+                  <td>{{ m.nome_modelo }}</td>
+                  <td>{{ m.tokens_por_segundo_medio|floatformat:1|default:"—" }}</td>
+                  <td>{{ m.amostras_n }}</td>
+                  <td>{{ m.num_thread_observado|default:"—" }}</td>
+                  <td>{{ m.num_ctx_observado|default:"—" }}</td>
+                  <td>{{ m.visto_pela_ultima_vez|timesince|default:"—" }} atrás</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        {% else %}
+          <p class="sem-dado">Ollama configurado ({{ maquina.ollama_endpoint }}), nenhum modelo visto ainda.</p>
+        {% endif %}
+      {% endwith %}
+    {% endif %}
+  </div>
+{% endfor %}
+{% endblock %}

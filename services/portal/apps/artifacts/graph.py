@@ -8,9 +8,20 @@ em JSON. Nenhuma view, nenhum I/O de rede aqui.
 """
 from urllib.parse import urlparse
 
-from django.db.models import Count, QuerySet
+from django.db.models import Count, Prefetch, QuerySet
 
-from .models import Artifact
+from apps.events.context import correlacao_de_artefato
+from apps.events.models import PipelineEvent
+
+from .models import Artifact, Comparacao, EstruturacaoLLM
+
+#: Estágios cujo `hostname` (já resolvido pra apelido de `Maquina`, ver
+#: apps.events.context.identidade_execucao) atribui "em que máquina" algo
+#: aconteceu — captura.recebida é emitido pelo orchestrator (sempre a máquina
+#: que hospeda a infra, hoje), extracao.concluida pelo worker que processou
+#: (pode ser qualquer máquina do cluster).
+_ESTAGIO_CAPTURA = "captura.recebida"
+_ESTAGIO_EXTRACAO = "extracao.concluida"
 
 
 def dominio_de(url: str) -> str:
@@ -45,7 +56,14 @@ def artifacts_para_mapa(orgs, limite: int = 150, antes=None) -> QuerySet:
     qs = (
         Artifact.objects.filter(artifact_type=Artifact.Type.DOCUMENT, tenant__in=orgs)
         .select_related("extracted_text")
-        .prefetch_related("extracted_text__estruturacoes_llm", "comparacoes")
+        .prefetch_related(
+            # select_related("maquina") aninhado: sem isso, cada estruturação/
+            # comparação puxaria a Maquina numa query própria (N+1) só pra
+            # saber o apelido de quem processou.
+            Prefetch("extracted_text__estruturacoes_llm",
+                     queryset=EstruturacaoLLM.objects.select_related("maquina")),
+            Prefetch("comparacoes", queryset=Comparacao.objects.select_related("maquina")),
+        )
         .annotate(n_fragmentos=Count("extracted_text__fragments", distinct=True))
         .order_by("-created_at")
     )
@@ -69,6 +87,25 @@ def montar_grafo(artifacts) -> dict:
     edges = []
     tem_navegador = False
     dominios_criados: set[str] = set()
+    maquinas_criadas: set[str] = set()
+
+    def no_maquina(apelido: str, quando) -> str:
+        """Cria (se ainda não existe) o nó da máquina e devolve seu id — o
+        mesmo nó é reaproveitado por toda captura/execução atribuída a ela,
+        do mesmo jeito que um domínio agrupa suas capturas."""
+        maquina_id = f"maquina:{apelido}"
+        if maquina_id not in maquinas_criadas:
+            maquinas_criadas.add(maquina_id)
+            nodes.append({
+                "id": maquina_id,
+                "tipo": "maquina",
+                "status": "ok",
+                "label": apelido,
+                "meta": {"apelido": apelido},
+                "created_at": quando.isoformat(),
+                "updated_at": quando.isoformat(),
+            })
+        return maquina_id
 
     # Uma captura específica pode não ter favicon próprio (download falhou no
     # orchestrator naquele momento — timeout, favicon ausente, content-type
@@ -78,6 +115,36 @@ def montar_grafo(artifacts) -> dict:
     # ordena por -created_at, então o primeiro favicon nao-vazio encontrado
     # por domínio já é o mais recente disponível.
     artifacts = list(artifacts)
+
+    # Correlação de cada artefato (a mesma usada pelo log de eventos) — prefere
+    # a que o orchestrator gerou no clique (`content["correlation_id"]`, já em
+    # mãos, sem consulta nova); cai pro uuid5 determinístico só se faltar.
+    # Não usa `tasks.correlacao_do_artefato` aqui de propósito: aquela função
+    # faz uma query por artefato, e aqui já temos `content` carregado — bater
+    # o banco de novo pra cada um seria N+1.
+    correlacao_por_artifact: dict[str, str] = {}
+    for artifact in artifacts:
+        declarada = (artifact.content or {}).get("correlation_id")
+        correlacao_por_artifact[str(artifact.id)] = (
+            str(declarada) if declarada else str(correlacao_de_artefato(artifact.id))
+        )
+
+    # Uma query só pra descobrir em que máquina cada captura/extração
+    # aconteceu — `PipelineEvent.hostname` já é o apelido da Maquina desde
+    # apps.events.context.identidade_execucao (ADR-006).
+    apelido_por_estagio: dict[tuple[str, str], str] = {}
+    if correlacao_por_artifact:
+        eventos = (
+            PipelineEvent.objects.filter(
+                correlation_id__in=set(correlacao_por_artifact.values()),
+                stage__in=(_ESTAGIO_CAPTURA, _ESTAGIO_EXTRACAO),
+            )
+            .order_by("sequence")
+            .values("correlation_id", "stage", "hostname")
+        )
+        for evento in eventos:
+            apelido_por_estagio[(str(evento["correlation_id"]), evento["stage"])] = evento["hostname"]
+
     favicon_por_dominio: dict[str, str] = {}
     for artifact in artifacts:
         content = artifact.content or {}
@@ -139,6 +206,11 @@ def montar_grafo(artifacts) -> dict:
         })
         edges.append({"origem": dominio_id, "destino": artifact_id, "tipo": "captura"})
 
+        apelido_captura = apelido_por_estagio.get((correlacao_por_artifact[artifact_id], _ESTAGIO_CAPTURA))
+        if apelido_captura:
+            maquina_captura_id = no_maquina(apelido_captura, artifact.created_at)
+            edges.append({"origem": maquina_captura_id, "destino": artifact_id, "tipo": "captura_em"})
+
         doc_text = getattr(artifact, "extracted_text", None)
         if doc_text is None:
             continue
@@ -158,6 +230,11 @@ def montar_grafo(artifacts) -> dict:
             "updated_at": doc_text.updated_at.isoformat(),
         })
         edges.append({"origem": artifact_id, "destino": doc_text_id, "tipo": "extracao"})
+
+        apelido_extracao = apelido_por_estagio.get((correlacao_por_artifact[artifact_id], _ESTAGIO_EXTRACAO))
+        if apelido_extracao:
+            maquina_extracao_id = no_maquina(apelido_extracao, doc_text.created_at)
+            edges.append({"origem": maquina_extracao_id, "destino": doc_text_id, "tipo": "execucao_em"})
 
         n_fragmentos = getattr(artifact, "n_fragmentos", 0)
         if n_fragmentos:
@@ -198,6 +275,12 @@ def montar_grafo(artifacts) -> dict:
                 "updated_at": estruturacao.updated_at.isoformat(),
             })
             edges.append({"origem": doc_text_id, "destino": estruturacao_id, "tipo": "estruturacao"})
+            # Diferente de captura/extração (via PipelineEvent), aqui a máquina
+            # já é uma FK direta — é o roteador de LLM quem decide, registrado
+            # no momento da chamada (ver llm_common.gerar_texto).
+            if estruturacao.maquina_id:
+                maquina_llm_id = no_maquina(estruturacao.maquina.apelido, estruturacao.updated_at)
+                edges.append({"origem": maquina_llm_id, "destino": estruturacao_id, "tipo": "execucao_em"})
 
         for comparacao in artifact.comparacoes.all():
             comparacao_id = str(comparacao.id)
@@ -213,6 +296,9 @@ def montar_grafo(artifacts) -> dict:
                 "created_at": comparacao.created_at.isoformat(),
                 "updated_at": comparacao.created_at.isoformat(),
             })
+            if comparacao.maquina_id:
+                maquina_comp_id = no_maquina(comparacao.maquina.apelido, comparacao.created_at)
+                edges.append({"origem": maquina_comp_id, "destino": comparacao_id, "tipo": "execucao_em"})
             edges.append({"origem": artifact_id, "destino": comparacao_id, "tipo": "comparacao"})
 
             for referencia in comparacao.referencias or []:

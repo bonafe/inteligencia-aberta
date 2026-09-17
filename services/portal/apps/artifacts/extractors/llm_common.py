@@ -102,9 +102,15 @@ Regras para o schema:
 """
 
 
-def gerar_texto(provider: str, model_name: str, system: str, prompt: str, max_tokens: int = 4096) -> str:
+def gerar_texto(provider: str, model_name: str, system: str, prompt: str, max_tokens: int = 4096) -> tuple[str, str | None]:
     """Ponto único de chamada a um LLM, Claude ou Ollama, para prompts fora da
     cascata automática (estruturação manual e julgamento de comparação).
+
+    Devolve (texto, maquina_id) — `maquina_id` é a `Maquina` que o roteador
+    escolheu pra atender esta chamada (provider ollama com cluster
+    configurado), ou `None` (provider anthropic, ou ollama local sem
+    cluster) — é o que preenche `EstruturacaoLLM.maquina`/`Comparacao.maquina`,
+    a proveniência que o Mapa Vivo mostra.
 
     Levanta em caso de falha — quem chama decide status=falhou vs mensagem.
     """
@@ -118,7 +124,7 @@ def gerar_texto(provider: str, model_name: str, system: str, prompt: str, max_to
             system=system,
             messages=[{"role": "user", "content": prompt}],
         )
-        return message.content[0].text
+        return message.content[0].text, None
 
     if provider == "ollama":
         from .ollama_client import gerar
@@ -132,8 +138,9 @@ def gerar_texto(provider: str, model_name: str, system: str, prompt: str, max_to
 
         execucao = escolher_execucao(model_name)
         if execucao:
-            return gerar(model_name, system, prompt, host=execucao.host,
-                         num_thread=execucao.num_thread, maquina_id=execucao.maquina_id)
-        return gerar(model_name, system, prompt)
+            texto = gerar(model_name, system, prompt, host=execucao.host,
+                          num_thread=execucao.num_thread, maquina_id=execucao.maquina_id)
+            return texto, execucao.maquina_id
+        return gerar(model_name, system, prompt), None
 
     raise ValueError(f"provider desconhecido: {provider}")

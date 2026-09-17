@@ -7,15 +7,20 @@
 
 const ICONES = {
     navegador: '🌐', dominio: '🗂️', artifact: '📄', document_text: '📝', fragmentos: '🧩',
-    estruturacao_llm: '🤖', comparacao: '⚖️',
+    estruturacao_llm: '🤖', comparacao: '⚖️', maquina: '🖥️',
 };
-const TAMANHOS = { navegador: 46, dominio: 34, artifact: 28, document_text: 20, fragmentos: 18, estruturacao_llm: 18, comparacao: 18 };
-const TAMANHOS_FONTE = { navegador: 22, dominio: 15 };
+const TAMANHOS = {
+    navegador: 46, dominio: 34, artifact: 28, document_text: 20, fragmentos: 18,
+    estruturacao_llm: 18, comparacao: 18, maquina: 30,
+};
+const TAMANHOS_FONTE = { navegador: 22, dominio: 15, maquina: 14 };
 // Massa alimenta a repulsão do forceAtlas2Based (força ∝ massa₁ × massa₂):
 // artifact mais pesado repele outros artifact com mais força (as capturas de
-// um mesmo domínio se espalham) e domínio mais pesado espalha os clusters de
-// domínio entre si.
-const MASSAS = { artifact: 4, dominio: 3 };
+// um mesmo domínio se espalham), domínio mais pesado espalha os clusters de
+// domínio entre si, e máquina (também um hub — uma só conectada a muitas
+// capturas/execuções) precisa da mesma força pra não ficar espremida no meio
+// do que ela processou.
+const MASSAS = { artifact: 4, dominio: 3, maquina: 3 };
 const NAVEGADOR_ID = 'navegador';
 // Ícone fixo por tipo, para nós que não têm favicon próprio (ex.: o
 // navegador, que não é uma página). Convenção do mapa: nó é imagem sempre que
@@ -227,11 +232,18 @@ function desenharAresta(origemId, destinoId, tipo) {
         edgesPendentes.push({ origem: origemId, destino: destinoId, tipo });
         return;
     }
+    // Arestas de proveniência (em que máquina algo aconteceu) ficam numa cor
+    // à parte — são uma camada ortogonal à hierarquia navegador→domínio→
+    // captura, não outro nível dela, e precisam ser reconhecíveis à primeira
+    // vista em vez de se confundir com o resto do grafo.
+    const proveniencia = tipo === 'captura_em' || tipo === 'execucao_em';
     edgesDS.add({
         id: chave, from: origemId, to: destinoId,
         dashes: tipo === 'comparacao' || tipo === 'referencia',
-        color: { color: '#30363d', highlight: '#58a6ff', hover: '#58a6ff' },
-        width: 1.5,
+        color: proveniencia
+            ? { color: '#8957e5', highlight: '#a371f7', hover: '#a371f7' }
+            : { color: '#30363d', highlight: '#58a6ff', hover: '#58a6ff' },
+        width: proveniencia ? 1 : 1.5,
     });
 }
 

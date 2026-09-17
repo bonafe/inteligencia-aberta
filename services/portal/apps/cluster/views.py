@@ -5,10 +5,13 @@ import socket
 
 from django.conf import settings
 from django.http import JsonResponse
+from django.shortcuts import render
 from django.utils.crypto import constant_time_compare
 from django.utils.decorators import method_decorator
 from django.views import View
 from django.views.decorators.csrf import csrf_exempt
+
+from apps.accounts.views import orgs_do_usuario
 
 from .models import Maquina
 from .provisionamento import ProvisionamentoError, criar_maquina
@@ -128,3 +131,18 @@ class JoinAPIView(View):
             return JsonResponse({"error": str(exc)}, status=400)
 
         return JsonResponse({"machine_id": str(maquina.id), "machine_token": token}, status=201)
+
+
+class PainelClusterView(View):
+    """Tela `/cluster/` — lista as máquinas do cluster (das organizações do
+    usuário logado), status de recursos e capacidade de LLM de cada uma.
+    Autenticação de sessão de sempre (não está em EXEMPT_PREFIXES)."""
+
+    def get(self, request):
+        maquinas = (
+            Maquina.objects.filter(organizacao__in=orgs_do_usuario(request.user))
+            .select_related("status")
+            .prefetch_related("modelos_ollama")
+            .order_by("-hospeda_infra_compartilhada", "apelido")
+        )
+        return render(request, "cluster/painel.html", {"maquinas": maquinas})

@@ -38,6 +38,7 @@
             fragmentos: montarPainelFragmentos,
             estruturacao_llm: montarPainelEstruturacao,
             comparacao: montarPainelComparacao,
+            maquina: montarPainelMaquina,
         };
         (montadores[no.tipo] || montarPainelGenerico)(no);
     }
@@ -80,6 +81,23 @@
         card.className = 'overlay-card st-ok';
         card.textContent = `${total} captura(s) MHTML recebida(s) da extensão.`;
         painel.appendChild(card);
+    }
+
+    // ─── maquina ────────────────────────────────────────────────────────────
+    // Detalhe de recursos/modelos fica na tela dedicada (/cluster/) — aqui só
+    // o essencial de "que máquina é esta", com um link pra lá.
+    function montarPainelMaquina(no) {
+        elSub.textContent = 'Máquina do cluster — capturou e/ou processou o que está ligado a ela no mapa';
+        const painel = adicionarTab('resumo', 'Resumo', true);
+        const card = document.createElement('div');
+        card.className = 'overlay-card st-ok';
+        card.textContent = `Apelido: ${no.meta.apelido || no.label}`;
+        painel.appendChild(card);
+        const link = document.createElement('a');
+        link.href = '/cluster/';
+        link.textContent = 'Ver status e capacidade desta máquina →';
+        link.style.cssText = 'display:block;margin-top:.75rem;color:#58a6ff;';
+        painel.appendChild(link);
     }
 
     // ─── dominio ────────────────────────────────────────────────────────────

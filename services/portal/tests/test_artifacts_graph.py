@@ -14,6 +14,8 @@ from apps.artifacts.models import (
     DocumentText,
     EstruturacaoLLM,
 )
+from apps.cluster.models import Maquina
+from apps.events.emit import emit
 
 pytestmark = pytest.mark.django_db
 
@@ -187,3 +189,88 @@ def test_isolamento_de_tenant_no_grafo(tenant):
     grafo = _grafo_para(tenant)
 
     assert grafo["nodes"] == []
+
+
+# ─── Proveniência: em que máquina a captura/execução aconteceu ─────────────
+
+def _correlacao(artifact):
+    from apps.events.context import correlacao_de_artefato
+    return correlacao_de_artefato(artifact.id)
+
+
+def _apelido_deste_processo():
+    """O hostname/apelido que `emit()` grava neste processo de teste — não é
+    fixo (depende de CLUSTER_LOCAL_APELIDO/CLUSTER_MACHINE_ID, ausentes em
+    teste), então o teste lê o valor real em vez de supor uma string."""
+    from apps.events.context import identidade_execucao
+    return identidade_execucao()[0]
+
+
+def test_maquina_de_captura_vira_no_com_aresta_pro_artefato(tenant):
+    artifact = _artifact(tenant)
+    emit("captura.recebida", "ok", correlation_id=_correlacao(artifact),
+         subject_type="artifact", subject_id=artifact.id, tenant_id=tenant.id,
+         payload={"url": artifact.content["url"]})
+
+    grafo = _grafo_para(tenant)
+
+    apelido = _apelido_deste_processo()
+    no_maquina = next(n for n in grafo["nodes"] if n["tipo"] == "maquina")
+    assert no_maquina["id"] == f"maquina:{apelido}"
+    assert no_maquina["label"] == apelido
+    assert {"origem": f"maquina:{apelido}", "destino": str(artifact.id), "tipo": "captura_em"} in grafo["edges"]
+
+
+def test_maquina_de_extracao_vira_no_com_aresta_pro_document_text(tenant):
+    artifact = _artifact(tenant)
+    doc_text = _document_text(artifact)
+    emit("extracao.concluida", "ok", correlation_id=_correlacao(artifact),
+         subject_type="artifact", subject_id=artifact.id, tenant_id=tenant.id)
+
+    grafo = _grafo_para(tenant)
+
+    apelido = _apelido_deste_processo()
+    assert {"origem": f"maquina:{apelido}", "destino": str(doc_text.id), "tipo": "execucao_em"} in grafo["edges"]
+
+
+def test_maquina_de_captura_e_extracao_reaproveitam_o_mesmo_no_quando_iguais(tenant):
+    """Mesma máquina em dois papéis (capturou E processou) — um nó só, não dois."""
+    artifact = _artifact(tenant)
+    _document_text(artifact)
+    correlacao = _correlacao(artifact)
+    emit("captura.recebida", "ok", correlation_id=correlacao, subject_type="artifact",
+         subject_id=artifact.id, tenant_id=tenant.id)
+    emit("extracao.concluida", "ok", correlation_id=correlacao, subject_type="artifact",
+         subject_id=artifact.id, tenant_id=tenant.id)
+
+    grafo = _grafo_para(tenant)
+
+    nos_maquina = [n for n in grafo["nodes"] if n["tipo"] == "maquina"]
+    assert len(nos_maquina) == 1
+
+
+def test_maquina_de_estruturacao_llm_vem_da_fk_nao_do_log(tenant):
+    artifact = _artifact(tenant)
+    doc_text = _document_text(artifact)
+    maquina = Maquina.objects.create(
+        apelido="antares", organizacao=tenant, dono=tenant.owner, modo="compute", token_hash="x",
+    )
+    execucao = EstruturacaoLLM.objects.create(
+        document_text=doc_text, tenant=tenant, provider="ollama", model_name="llama3.1:8b",
+        status=EstruturacaoLLM.Status.CONCLUIDO, structured_data={"a": 1}, maquina=maquina,
+    )
+
+    grafo = _grafo_para(tenant)
+
+    assert {"origem": "maquina:antares", "destino": str(execucao.id), "tipo": "execucao_em"} in grafo["edges"]
+    no_maquina = next(n for n in grafo["nodes"] if n["id"] == "maquina:antares")
+    assert no_maquina["label"] == "antares"
+
+
+def test_sem_evento_e_sem_maquina_fk_nao_cria_no_de_maquina(tenant):
+    artifact = _artifact(tenant)
+    _document_text(artifact)
+
+    grafo = _grafo_para(tenant)
+
+    assert not [n for n in grafo["nodes"] if n["tipo"] == "maquina"]

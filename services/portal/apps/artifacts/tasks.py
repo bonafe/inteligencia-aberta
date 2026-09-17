@@ -959,12 +959,14 @@ def estruturar_llm_manual(self, estruturacao_id: str):
     duration_ms = int((perf_counter() - t0) * 1000)
     categoria = resultado.get("categoria", "")
     structured_data = resultado.get("structured_data")
+    maquina_id = resultado.get("maquina_id")
 
     if structured_data:
         gravou = _gravar_se_nao_cancelado(
             EstruturacaoLLM, execucao.id, CANCELADO,
             status=EstruturacaoLLM.Status.CONCLUIDO, categoria=categoria,
             structured_data=structured_data, duration_ms=duration_ms, updated_at=timezone.now(),
+            maquina_id=maquina_id,
         )
         if gravou:
             evento("estruturacao_llm.concluida", "ok", message="estruturação concluída",
@@ -974,6 +976,7 @@ def estruturar_llm_manual(self, estruturacao_id: str):
             EstruturacaoLLM, execucao.id, CANCELADO,
             status=EstruturacaoLLM.Status.VAZIO, categoria=categoria,
             duration_ms=duration_ms, updated_at=timezone.now(),
+            maquina_id=maquina_id,
         )
         if gravou:
             evento("estruturacao_llm.vazio", "vazio",
@@ -1080,10 +1083,13 @@ def comparar_llm(self, comparacao_id: str):
         return {"status": "error", "reason": str(exc)}
 
     duration_ms = int((perf_counter() - t0) * 1000)
+    # maquina_id vira coluna própria (Comparacao.maquina) — não fica duplicado
+    # dentro do JSON de resultado.
+    maquina_id = veredito.pop("maquina_id", None)
     gravou = _gravar_se_nao_cancelado(
         Comparacao, comparacao.id, CANCELADO,
         status=Comparacao.Status.CONCLUIDO, resultado={"veredito": veredito, "secoes": secoes},
-        duration_ms=duration_ms,
+        duration_ms=duration_ms, maquina_id=maquina_id,
     )
     if gravou:
         evento("comparacao.concluida", "ok", message="comparação concluída",
