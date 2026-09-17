@@ -23,7 +23,7 @@ from apps.accounts.models import Membership, Organization, User
 from apps.accounts.views import orgs_do_usuario
 from apps.events.context import set_correlation_id, set_tenant_id
 from apps.events.emit import emit
-from .graph import artifacts_para_mapa, montar_grafo
+from .graph import artifacts_para_mapa, dominio_de, montar_grafo
 from .models import Artifact, Comparacao, DocumentText, EstruturacaoLLM
 from .policy import permite_llm_externo
 
@@ -270,6 +270,25 @@ class ServeMHTMLView(View):
             raise Http404("Erro ao converter MHTML para visualização.")
 
 
+def _favicon_de_outra_captura_do_dominio(tenant_id, dominio: str, excluir_id) -> str:
+    """Outra captura do mesmo domínio, com favicon próprio — usado quando ESTA
+    captura não tem o dela (download falhou no orchestrator naquele momento).
+    Sem isso, o nó ficava sem imagem mesmo quando o site já é conhecido por
+    outra captura (mesmo ajuste de `apps.artifacts.graph.montar_grafo`, aqui
+    pro caminho ao vivo — o resultado das duas rotas precisa bater)."""
+    candidatos = (
+        Artifact.objects.filter(tenant_id=tenant_id, artifact_type=Artifact.Type.DOCUMENT,
+                                 content__has_key="favicon_data_uri")
+        .exclude(id=excluir_id)
+        .order_by("-created_at")
+        .values_list("content", flat=True)[:300]
+    )
+    for content in candidatos:
+        if dominio_de((content or {}).get("url", "")) == dominio:
+            return content["favicon_data_uri"]
+    return ""
+
+
 class ArtifactFaviconView(View):
     """Favicon salvo em Artifact.content (usado pelo Mapa Vivo para hidratar
     nós criados ao vivo via WebSocket).
@@ -280,9 +299,13 @@ class ArtifactFaviconView(View):
 
     def get(self, request, artifact_id):
         artifact = get_object_or_404(Artifact, id=artifact_id, tenant__in=orgs_do_usuario(request.user))
-        favicon = (artifact.content or {}).get("favicon_data_uri", "")
+        content = artifact.content or {}
+        favicon = content.get("favicon_data_uri", "")
         if not favicon:
-            raise Http404("Sem favicon para este artefato.")
+            dominio = dominio_de(content.get("url", ""))
+            favicon = _favicon_de_outra_captura_do_dominio(artifact.tenant_id, dominio, artifact.id)
+        if not favicon:
+            raise Http404("Sem favicon para este artefato nem para o domínio.")
         return JsonResponse({"favicon_data_uri": favicon})
 
 

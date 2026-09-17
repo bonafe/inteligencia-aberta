@@ -70,6 +70,23 @@ def montar_grafo(artifacts) -> dict:
     tem_navegador = False
     dominios_criados: set[str] = set()
 
+    # Uma captura específica pode não ter favicon próprio (download falhou no
+    # orchestrator naquele momento — timeout, favicon ausente, content-type
+    # inesperado) mesmo quando outras capturas do MESMO domínio têm. Sem este
+    # mapa, cada nó dependia só do seu próprio favicon, e o mapa ficava com
+    # imagem "às vezes sim, às vezes não" pro mesmo site. `artifacts_para_mapa`
+    # ordena por -created_at, então o primeiro favicon nao-vazio encontrado
+    # por domínio já é o mais recente disponível.
+    artifacts = list(artifacts)
+    favicon_por_dominio: dict[str, str] = {}
+    for artifact in artifacts:
+        content = artifact.content or {}
+        favicon = content.get("favicon_data_uri", "")
+        if not favicon:
+            continue
+        dominio = dominio_de(content.get("url", ""))
+        favicon_por_dominio.setdefault(dominio, favicon)
+
     for artifact in artifacts:
         content = artifact.content or {}
         if not content.get("mhtml_path"):
@@ -88,21 +105,17 @@ def montar_grafo(artifacts) -> dict:
             tem_navegador = True
 
         url = content.get("url", "")
-        favicon = content.get("favicon_data_uri", "")
         dominio = dominio_de(url)
+        favicon = content.get("favicon_data_uri", "") or favicon_por_dominio.get(dominio, "")
         dominio_id = f"dominio:{dominio}"
         if dominio_id not in dominios_criados:
             dominios_criados.add(dominio_id)
-            # Um domínio pode ter páginas com favicons diferentes — em vez de
-            # decidir qual "vence", usamos o da primeira captura desse domínio
-            # encontrada (a mais recente, já que `artifacts_para_mapa` ordena
-            # por -created_at).
             nodes.append({
                 "id": dominio_id,
                 "tipo": "dominio",
                 "status": "ok",
                 "label": dominio,
-                "meta": {"dominio": dominio, "favicon": favicon},
+                "meta": {"dominio": dominio, "favicon": favicon_por_dominio.get(dominio, "")},
                 "created_at": artifact.created_at.isoformat(),
                 "updated_at": artifact.created_at.isoformat(),
             })

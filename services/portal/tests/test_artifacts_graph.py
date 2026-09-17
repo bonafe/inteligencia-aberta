@@ -77,18 +77,31 @@ def test_favicon_do_artefato_vira_meta_do_no_e_do_dominio(tenant):
     assert no_dominio["meta"]["favicon"] == favicon
 
 
-def test_dominio_usa_favicon_da_captura_mais_recente_do_dominio(tenant):
-    # `artifacts_para_mapa` ordena por -created_at (mais recente primeiro); o
-    # nó de domínio nasce na primeira captura desse domínio que a iteração
-    # encontra, ou seja, a mais recente — mesmo que uma captura mais antiga do
-    # mesmo domínio tivesse favicon.
-    _artifact(tenant, content={"url": "https://exemplo.org/com-favicon",
-                               "favicon_data_uri": "data:image/png;base64,aGVsbG8="})
+def test_dominio_usa_favicon_de_qualquer_captura_do_dominio(tenant):
+    # Uma captura específica pode não ter favicon próprio (download falhou no
+    # orchestrator naquele momento) mesmo com outra captura do MESMO domínio
+    # tendo — o nó de domínio não pode depender de qual captura "nasceu"
+    # primeiro na iteração.
+    favicon = "data:image/png;base64,aGVsbG8="
+    _artifact(tenant, content={"url": "https://exemplo.org/com-favicon", "favicon_data_uri": favicon})
     _artifact(tenant, content={"url": "https://exemplo.org/sem-favicon"})
     grafo = _grafo_para(tenant)
 
     no_dominio = next(n for n in grafo["nodes"] if n["tipo"] == "dominio")
-    assert no_dominio["meta"]["favicon"] == ""
+    assert no_dominio["meta"]["favicon"] == favicon
+
+
+def test_artefato_sem_favicon_proprio_usa_favicon_do_dominio(tenant):
+    """A captura sem favicon próprio não fica com o nó "pelado" (dot+emoji)
+    se outra captura do mesmo domínio já revelou um favicon — mesma correção
+    do teste acima, aplicada ao nó do artefato em vez do nó do domínio."""
+    favicon = "data:image/png;base64,aGVsbG8="
+    _artifact(tenant, content={"url": "https://exemplo.org/com-favicon", "favicon_data_uri": favicon})
+    sem_favicon = _artifact(tenant, content={"url": "https://exemplo.org/sem-favicon"})
+    grafo = _grafo_para(tenant)
+
+    no_artifact = next(n for n in grafo["nodes"] if n["id"] == str(sem_favicon.id))
+    assert no_artifact["meta"]["favicon"] == favicon
 
 
 def test_artefato_sem_mhtml_e_ignorado(tenant):
