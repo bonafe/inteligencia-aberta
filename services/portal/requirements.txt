@@ -4,7 +4,7 @@ python-dotenv==1.0.1
 minio==7.2.7
 celery[redis]==5.4.0
 trafilatura==1.12.2
-dom2parser @ git+https://github.com/bonafe/dom2parser.git@519fd319037bd6e4a848c2a8e05bcd0427a9edf1
+dom2parser @ git+https://github.com/bonafe/dom2parser.git@faa3ff84f6acb26f3bdd9fd619696651beb41cac
 extruct==0.18.0
 beautifulsoup4==4.12.3
 fastembed==0.3.6
