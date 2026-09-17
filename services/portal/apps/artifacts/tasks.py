@@ -342,6 +342,7 @@ def extract_text_from_mhtml(self, artifact_id: str, forcar: bool = False):
             html_content, url, artifact.tenant_id,
             allow_external_llm=artifact.allow_external_llm,
             dom_representation=dom_representation,
+            artifact_id=artifact.id,
         )
         e.ok(f"{page_type} ({detection_source}, confiança {confidence:.2f})",
              page_type=page_type, confidence=round(confidence, 3),
@@ -397,7 +398,10 @@ def extract_text_from_mhtml(self, artifact_id: str, forcar: bool = False):
                 if skeleton is None:
                     import dom2parser
                     skeleton = dom2parser.compress(html_content).text
-                llm_result = llm_extract_and_schema(skeleton, url, page_type_hint=page_type)
+                llm_result = llm_extract_and_schema(
+                    skeleton, url, page_type_hint=page_type,
+                    artifact_id=artifact.id, tenant_id=tenant_id,
+                )
 
                 if llm_result and llm_result.get("structured_data"):
                     extracted = {
@@ -812,6 +816,7 @@ def estruturar_llm_manual(self, estruturacao_id: str):
         resultado = estruturar_manual(
             execucao.provider, execucao.model_name,
             doc_text.dom_representation or "", url, page_type_hint=doc_text.page_type,
+            subject_id=artifact.id, tenant_id=execucao.tenant_id,
         )
     except Exception as exc:
         duration_ms = int((perf_counter() - t0) * 1000)
@@ -938,6 +943,7 @@ def comparar_llm(self, comparacao_id: str):
         veredito = julgar_comparacao(
             comparacao.modelo_juiz_provider, comparacao.modelo_juiz_model_name,
             [{"label": s["label"], "dados": s["dados"]} for s in secoes],
+            subject_id=artifact.id, tenant_id=comparacao.tenant_id,
         )
     except Exception as exc:
         duration_ms = int((perf_counter() - t0) * 1000)

@@ -265,3 +265,76 @@ def aplicar_evento(evento, *, run=None):
             "projeção falhou para o evento %s (stage=%s)", evento.id, evento.stage
         )
         return None
+
+
+def aplicar_chamada_llm(evento) -> "ChamadaLLM | None":  # noqa: F821
+    """Reflete um evento `llm.chamada` (ou o `llm.chamada_ollama` legado, de
+    antes desta tabela existir) em `ChamadaLLM` — uma linha por chamada.
+
+    Chamada de dois lugares, como `aplicar_evento`: incrementalmente, por
+    `apps.events.llm_telemetria.registrar_chamada_llm` logo após `emit()`
+    (fora da transação do evento — ver docstring de `ChamadaLLM`); e em lote,
+    por `manage.py reconstruir_chamadas_llm`. `get_or_create` por `evento` é a
+    chave de idempotência dos dois caminhos.
+
+    Eventos `llm.chamada_ollama` legados carregam bem menos campo que os
+    `llm.chamada` novos (só existiam `modelo`/`tokens_por_segundo`/
+    `num_thread`/`num_ctx`, sem tokens de entrada/saída nem finalidade) — as
+    linhas reconstruídas a partir deles ficam com esses campos vazios; não há
+    como recuperar um dado que o payload de origem nunca gravou.
+    """
+    from .models import ChamadaLLM
+
+    if evento.stage not in ("llm.chamada", "llm.chamada_ollama"):
+        return None
+
+    try:
+        payload = evento.payload or {}
+        sucesso = evento.status != "falhou"
+
+        if evento.stage == "llm.chamada_ollama":
+            modelo = payload.get("modelo", "")
+            defaults = {
+                "finalidade": "",
+                "provider": ChamadaLLM.Provider.OLLAMA,
+                "modelo_solicitado": modelo,
+                "modelo_resposta": modelo,
+                "maquina_id": evento.subject_id if evento.subject_type == "maquina" else None,
+                "num_thread": payload.get("num_thread"),
+                "num_ctx": payload.get("num_ctx"),
+                "subject_type": "",
+                "subject_id": None,
+            }
+        else:
+            defaults = {
+                "finalidade": payload.get("finalidade", ""),
+                "provider": payload.get("provider", ""),
+                "modelo_solicitado": payload.get("modelo_solicitado", ""),
+                "modelo_resposta": payload.get("modelo_resposta", ""),
+                "maquina_id": payload.get("maquina_id") or None,
+                "tokens_entrada": payload.get("tokens_entrada"),
+                "tokens_saida": payload.get("tokens_saida"),
+                "chars_enviados": payload.get("chars_enviados"),
+                "stop_reason": payload.get("stop_reason", ""),
+                "request_id": payload.get("request_id", ""),
+                "num_thread": payload.get("num_thread"),
+                "num_ctx": payload.get("num_ctx"),
+                "subject_type": evento.subject_type,
+                "subject_id": evento.subject_id,
+            }
+
+        defaults.update({
+            "tenant_id": evento.tenant_id,
+            "ocorreu_em": evento.occurred_at,
+            "sucesso": sucesso,
+            "error_message": evento.error,
+            "duration_ms": evento.duration_ms,
+        })
+
+        chamada, _ = ChamadaLLM.objects.get_or_create(evento=evento, defaults=defaults)
+        return chamada
+    except Exception:
+        logger.exception(
+            "projeção de chamada LLM falhou para o evento %s (stage=%s)", evento.id, evento.stage
+        )
+        return None

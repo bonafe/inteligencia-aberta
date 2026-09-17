@@ -239,3 +239,102 @@ class PipelineRun(models.Model):
 
     def __str__(self):
         return f"{self.url or self.correlation_id} ({self.get_status_display()})"
+
+
+class Finalidade(models.TextChoices):
+    """Por que o sistema chamou um LLM — a mesma dupla provider/modelo serve
+    finalidades com custo e criticidade muito diferentes; sem isso, "custo
+    médio por chamada" mistura classificação barata com extração cara."""
+
+    CLASSIFICACAO_AUTOMATICA = "classificacao_automatica", "Classificação automática (page_type)"
+    EXTRACAO_AUTOMATICA = "extracao_automatica", "Extração automática (schema+dados)"
+    ESTRUTURACAO_MANUAL = "estruturacao_manual", "Estruturação manual"
+    COMPARACAO_JUIZ = "comparacao_juiz", "Comparação (juiz)"
+    GATEWAY_EXTERNO = "gateway_externo", "Gateway OpenAI-compatível"
+
+
+class ChamadaLLM(models.Model):
+    """Uma chamada real a um provider de LLM (Anthropic ou Ollama) — uma linha
+    por chamada, nunca uma média. Para "qual máquina é mais rápida" já existe
+    `cluster.MaquinaModeloOllama` (média corrida); esta tabela existe para a
+    pergunta oposta: quanto essa chamada específica custou, quando, em que
+    máquina, para quê.
+
+    Projeção de um evento `llm.chamada` (ou, para chamadas antigas, do
+    `llm.chamada_ollama` que já existia antes desta tabela), construída por
+    `apps.events.llm_telemetria.registrar_chamada_llm` logo após `emit()` —
+    fora da transação do evento, mesmo padrão de
+    `apps.cluster.projecao.aplicar_heartbeat`/`aplicar_metrica_llm`.
+    Reconstruível do zero via `manage.py reconstruir_chamadas_llm`.
+    """
+
+    class Provider(models.TextChoices):
+        ANTHROPIC = "anthropic", "Claude (externo)"
+        OLLAMA = "ollama", "Ollama"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    evento = models.OneToOneField(
+        PipelineEvent, on_delete=models.CASCADE, related_name="chamada_llm",
+    )
+    tenant = models.ForeignKey(
+        Organization, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="chamadas_llm",
+    )
+
+    # Desnormalizado de evento.occurred_at — evita um join só pra ordenar/filtrar
+    # por data, que é a consulta mais comum sobre esta tabela.
+    ocorreu_em = models.DateTimeField(db_index=True)
+    finalidade = models.CharField(max_length=30, choices=Finalidade.choices)
+    provider = models.CharField(max_length=20, choices=Provider.choices)
+    modelo_solicitado = models.CharField(max_length=255)
+    # O que o provider de fato ecoou de volta — pode divergir do solicitado
+    # (alias, versão pinned) e é o único valor confiável pra reconciliar custo.
+    modelo_resposta = models.CharField(max_length=255, blank=True)
+
+    # Ollama: a máquina EXECUTORA (a que o roteador escolheu). Anthropic: a
+    # máquina LOCAL emissora, quando o cluster está configurado — não existe
+    # "máquina executora" nossa para uma chamada que roda na nuvem do provider.
+    maquina = models.ForeignKey(
+        "cluster.Maquina", null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="chamadas_llm",
+    )
+
+    sucesso = models.BooleanField()
+    error_message = models.TextField(blank=True)
+
+    # Só a chamada HTTP/API isolada — nunca a task inteira (que inclui parse de
+    # JSON, validação de schema, escrita no banco). EstruturacaoLLM.duration_ms
+    # e Comparacao.duration_ms continuam medindo a task; este mede só o LLM.
+    duration_ms = models.IntegerField(null=True, blank=True)
+    tokens_entrada = models.IntegerField(null=True, blank=True)
+    tokens_saida = models.IntegerField(null=True, blank=True)
+    chars_enviados = models.IntegerField(null=True, blank=True)
+    # "max_tokens" aqui indica resposta truncada — silenciosamente corrompe
+    # structured_data/schema se ninguém checar isto.
+    stop_reason = models.CharField(max_length=40, blank=True)
+    # message.id da Anthropic, pra cruzar com o console/billing deles. Vazio em
+    # ollama (não existe log do lado do provider pra cruzar).
+    request_id = models.CharField(max_length=120, blank=True)
+    # Só ollama — os dois parâmetros de que a velocidade observada depende.
+    num_thread = models.IntegerField(null=True, blank=True)
+    num_ctx = models.IntegerField(null=True, blank=True)
+
+    # O que motivou a chamada — mesma convenção de PipelineEvent.subject_type/
+    # subject_id, deliberadamente sem FK direta: os 4 pontos de chamada do
+    # sistema (cascata automática, estruturação manual, comparação, gateway
+    # externo) se linkam todos do mesmo jeito, sem exceção pra nenhum.
+    subject_type = models.CharField(max_length=40, blank=True)
+    subject_id = models.UUIDField(null=True, blank=True)
+
+    class Meta:
+        db_table = "events_chamada_llm"
+        indexes = [
+            Index(fields=["-ocorreu_em"], name="chamada_llm_ocorreu_em_idx"),
+            Index(fields=["maquina", "-ocorreu_em"], name="chamada_llm_maquina_dt_idx"),
+            Index(fields=["provider", "modelo_resposta", "-ocorreu_em"], name="chamada_llm_modelo_dt_idx"),
+            Index(fields=["tenant", "-ocorreu_em"], name="chamada_llm_tenant_dt_idx"),
+            Index(fields=["subject_type", "subject_id"], name="chamada_llm_subject_idx"),
+        ]
+
+    def __str__(self):
+        return f"{self.provider}:{self.modelo_resposta or self.modelo_solicitado} ({self.finalidade})"

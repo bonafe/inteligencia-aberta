@@ -77,9 +77,24 @@ class URLPatternCacheAdmin(admin.ModelAdmin):
     ordering = ("-last_seen_at",)
 
 
+def _chamada_llm_do_artefato(artifact_id):
+    """Última ChamadaLLM ligada a este artefato (subject_type/subject_id —
+    ver apps.events.llm_telemetria). Sem FK direta de propósito: os 4 pontos
+    de chamada do sistema se linkam todos do mesmo jeito, sem exceção."""
+    from apps.events.models import ChamadaLLM
+
+    return (
+        ChamadaLLM.objects.filter(subject_type="artifact", subject_id=artifact_id)
+        .order_by("-ocorreu_em").first()
+    )
+
+
 @admin.register(EstruturacaoLLM)
 class EstruturacaoLLMAdmin(admin.ModelAdmin):
-    list_display = ("id", "document_text", "provider", "model_name", "status", "triggered_by", "created_at")
+    list_display = (
+        "id", "document_text", "provider", "model_name", "status",
+        "tokens_chamada", "duration_ms_chamada", "triggered_by", "created_at",
+    )
     list_filter = ("provider", "status", "tenant")
     search_fields = ("document_text__document__id", "model_name")
     readonly_fields = (
@@ -87,6 +102,18 @@ class EstruturacaoLLMAdmin(admin.ModelAdmin):
         "categoria", "structured_data", "error_message", "triggered_by",
         "celery_task_id", "started_at", "duration_ms", "created_at", "updated_at",
     )
+
+    @admin.display(description="tokens (chamada)")
+    def tokens_chamada(self, obj):
+        chamada = _chamada_llm_do_artefato(obj.document_text.document_id)
+        if not chamada:
+            return "—"
+        return f"{chamada.tokens_entrada or 0} → {chamada.tokens_saida or 0}"
+
+    @admin.display(description="duração da chamada (ms)")
+    def duration_ms_chamada(self, obj):
+        chamada = _chamada_llm_do_artefato(obj.document_text.document_id)
+        return chamada.duration_ms if chamada else "—"
 
     def has_add_permission(self, request):
         return False
@@ -97,7 +124,10 @@ class EstruturacaoLLMAdmin(admin.ModelAdmin):
 
 @admin.register(Comparacao)
 class ComparacaoAdmin(admin.ModelAdmin):
-    list_display = ("id", "artifact", "modelo_juiz_provider", "modelo_juiz_model_name", "status", "triggered_by", "created_at")
+    list_display = (
+        "id", "artifact", "modelo_juiz_provider", "modelo_juiz_model_name", "status",
+        "tokens_chamada", "duration_ms_chamada", "triggered_by", "created_at",
+    )
     list_filter = ("modelo_juiz_provider", "status", "tenant")
     search_fields = ("artifact__id",)
     readonly_fields = (
@@ -105,6 +135,18 @@ class ComparacaoAdmin(admin.ModelAdmin):
         "modelo_juiz_model_name", "status", "resultado", "error_message",
         "triggered_by", "celery_task_id", "started_at", "duration_ms", "created_at",
     )
+
+    @admin.display(description="tokens (chamada)")
+    def tokens_chamada(self, obj):
+        chamada = _chamada_llm_do_artefato(obj.artifact_id)
+        if not chamada:
+            return "—"
+        return f"{chamada.tokens_entrada or 0} → {chamada.tokens_saida or 0}"
+
+    @admin.display(description="duração da chamada (ms)")
+    def duration_ms_chamada(self, obj):
+        chamada = _chamada_llm_do_artefato(obj.artifact_id)
+        return chamada.duration_ms if chamada else "—"
 
     def has_add_permission(self, request):
         return False

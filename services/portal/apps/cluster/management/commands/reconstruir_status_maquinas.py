@@ -1,5 +1,6 @@
 """Reconstrói `MaquinaStatus`/`MaquinaModeloOllama` a partir do log de eventos
-(`maquina.heartbeat` e `llm.chamada_ollama`).
+(`maquina.heartbeat`, `llm.chamada_ollama` legado e `llm.chamada` unificado —
+ver `apps.events.llm_telemetria`).
 
 Mesma lógica de `manage.py reconstruir_projecoes`, aplicada ao cluster em vez
 de ao pipeline: apagar as projeções e reaplicar o log tem que devolver o
@@ -19,6 +20,7 @@ from apps.events.models import PipelineEvent
 PROJETORES = {
     "maquina.heartbeat": aplicar_heartbeat,
     "llm.chamada_ollama": aplicar_metrica_llm,
+    "llm.chamada": aplicar_metrica_llm,
 }
 
 

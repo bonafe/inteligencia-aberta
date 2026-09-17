@@ -80,6 +80,15 @@
       <p class="sem-dado">Nenhum heartbeat recebido ainda.</p>
     {% endif %}
 
+    {% if maquina.resumo_chamadas_llm %}
+      <p class="sem-dado" style="color:#374151;margin-top:.75rem;">
+        {{ maquina.resumo_chamadas_llm.chamadas }} chamada{{ maquina.resumo_chamadas_llm.chamadas|pluralize }} de LLM ·
+        {{ maquina.resumo_chamadas_llm.tokens }} tokens ·
+        {{ maquina.resumo_chamadas_llm.falhas }} falha{{ maquina.resumo_chamadas_llm.falhas|pluralize }}
+        (últimos {{ janela_resumo_dias }} dias)
+      </p>
+    {% endif %}
+
     {% if maquina.ollama_endpoint %}
       {% with modelos=maquina.modelos_ollama.all %}
         {% if modelos %}

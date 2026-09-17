@@ -45,59 +45,36 @@ def listar_modelos(host: str | None = None, timeout: float = 3.0) -> list[str]:
         return []
 
 
-def _emitir_telemetria(maquina_id, model: str, num_thread, num_ctx, resposta: dict) -> None:
-    """Registra tokens/segundo desta chamada para `apps.cluster` aprender qual
-    máquina é mais rápida para qual modelo — ver
-    apps.cluster.projecao.aplicar_metrica_llm.
-
-    Só roda quando `maquina_id` é informado (o roteador sempre informa; uma
-    chamada local sem cluster configurado não tem o que atribuir). Nunca
-    levanta — telemetria não pode derrubar uma geração que já funcionou.
-    """
-    if not maquina_id:
-        return
-    try:
-        eval_count = resposta.get("eval_count")
-        eval_duration_ns = resposta.get("eval_duration")
-        if not eval_count or not eval_duration_ns:
-            return
-        tokens_por_segundo = eval_count / (eval_duration_ns / 1e9)
-
-        from apps.cluster.models import Maquina
-        from apps.cluster.projecao import aplicar_metrica_llm
-        from apps.events.emit import emit
-
-        # tenant_id explícito, não herdado do contexto ambiente (get_tenant_id()):
-        # esta chamada pode acontecer fora de qualquer captura em andamento, e o
-        # evento é sobre a organização DESTA MÁQUINA, não sobre o que estiver no
-        # contextvar no momento.
-        organizacao_id = Maquina.objects.filter(id=maquina_id).values_list("organizacao_id", flat=True).first()
-
-        evento = emit(
-            "llm.chamada_ollama", "ok",
-            subject_type="maquina", subject_id=maquina_id, tenant_id=organizacao_id,
-            payload={"modelo": model, "tokens_por_segundo": round(tokens_por_segundo, 2),
-                     "num_thread": num_thread, "num_ctx": num_ctx},
-        )
-        if evento is not None:
-            aplicar_metrica_llm(evento)
-    except Exception:
-        logger.exception("falha ao registrar telemetria de chamada Ollama — modelo=%s", model)
+def _chars_enviados(messages: list[dict]) -> int:
+    return sum(len(m.get("content", "") or "") for m in messages)
 
 
 def _chamar(
     model: str, messages: list[dict], *,
     host: str | None = None, num_thread: int | None = None, num_ctx: int | None = None,
     maquina_id=None, timeout: float | None = None, extra_options: dict | None = None,
+    finalidade: str | None = None, subject_id=None, tenant_id=None,
 ) -> dict:
     """POST {host}/api/chat — devolve a resposta crua do Ollama (não só o
-    texto), porque quem chama pode precisar de `eval_count`/`eval_duration`
-    (telemetria, ver `_emitir_telemetria`) ou do payload inteiro (gateway
+    texto), porque quem chama pode precisar do payload inteiro (gateway
     compatível com OpenAI, `apps.cluster.gateway`).
+
+    Sempre registra a chamada via `apps.events.llm_telemetria` — sucesso ou
+    falha, com ou sem `maquina_id` (instalação single-machine sem cluster
+    também é telemetrada agora; antes, sem `maquina_id`, não gerava nenhum
+    registro). `finalidade`/`subject_id`/`tenant_id` default para o caso do
+    gateway externo, cujas chamadas não têm um artefato por trás.
 
     Levanta OllamaIndisponivel em qualquer falha de rede/timeout/status —
     quem chama decide se isso vira status=falhou.
     """
+    from time import perf_counter
+
+    from apps.events.llm_telemetria import ResultadoLLM, registrar_chamada_llm
+    from apps.events.models import Finalidade
+
+    finalidade = finalidade or Finalidade.GATEWAY_EXTERNO
+
     alvo = _host(host)
     timeout = timeout or getattr(settings, "OLLAMA_TIMEOUT_S", 120)
     num_ctx = num_ctx or getattr(settings, "OLLAMA_NUM_CTX", 4096)
@@ -108,6 +85,9 @@ def _chamar(
     options = {"num_ctx": num_ctx, **(extra_options or {})}
     if num_thread:
         options["num_thread"] = num_thread
+
+    chars_enviados = _chars_enviados(messages)
+    t0 = perf_counter()
     try:
         resp = requests.post(
             f"{alvo}/api/chat",
@@ -119,11 +99,39 @@ def _chamar(
         if "message" not in data:
             raise KeyError("message")
     except requests.RequestException as exc:
-        raise OllamaIndisponivel(f"Ollama indisponível em {alvo}: {exc}") from exc
+        erro = OllamaIndisponivel(f"Ollama indisponível em {alvo}: {exc}")
     except (ValueError, KeyError, TypeError) as exc:
-        raise OllamaIndisponivel(f"resposta inesperada do Ollama: {exc}") from exc
+        erro = OllamaIndisponivel(f"resposta inesperada do Ollama: {exc}")
+    else:
+        erro = None
 
-    _emitir_telemetria(maquina_id, model, num_thread, num_ctx, data)
+    duration_ms = int((perf_counter() - t0) * 1000)
+
+    if erro is not None:
+        registrar_chamada_llm(
+            finalidade=finalidade, duration_ms=duration_ms, maquina_id=maquina_id,
+            subject_id=subject_id, tenant_id=tenant_id,
+            resultado=ResultadoLLM(
+                provider="ollama", modelo_solicitado=model, sucesso=False,
+                num_thread=num_thread, num_ctx=num_ctx, chars_enviados=chars_enviados,
+                error_message=str(erro),
+            ),
+        )
+        raise erro
+
+    registrar_chamada_llm(
+        finalidade=finalidade, duration_ms=duration_ms, maquina_id=maquina_id,
+        subject_id=subject_id, tenant_id=tenant_id,
+        resultado=ResultadoLLM(
+            provider="ollama", modelo_solicitado=model, sucesso=True,
+            modelo_resposta=data.get("model", model),
+            tokens_entrada=data.get("prompt_eval_count"),
+            tokens_saida=data.get("eval_count"),
+            stop_reason=data.get("done_reason", ""),
+            eval_duration_ns=data.get("eval_duration"),
+            num_thread=num_thread, num_ctx=num_ctx, chars_enviados=chars_enviados,
+        ),
+    )
     return data
 
 
@@ -131,6 +139,7 @@ def gerar_chat(
     model: str, messages: list[dict], *,
     host: str | None = None, num_thread: int | None = None, num_ctx: int | None = None,
     maquina_id=None, timeout: float | None = None, extra_options: dict | None = None,
+    finalidade: str | None = None, subject_id=None, tenant_id=None,
 ) -> dict:
     """Como `_chamar`, mas nome público — usado pelo gateway compatível com
     OpenAI (`apps.cluster.gateway`), que precisa da resposta completa
@@ -138,6 +147,7 @@ def gerar_chat(
     return _chamar(
         model, messages, host=host, num_thread=num_thread, num_ctx=num_ctx,
         maquina_id=maquina_id, timeout=timeout, extra_options=extra_options,
+        finalidade=finalidade, subject_id=subject_id, tenant_id=tenant_id,
     )
 
 
@@ -145,6 +155,7 @@ def gerar(
     model: str, system: str, prompt: str, *,
     host: str | None = None, num_thread: int | None = None,
     maquina_id=None, timeout: float | None = None,
+    finalidade: str | None = None, subject_id=None, tenant_id=None,
 ) -> str:
     """Wrapper fino de `_chamar` para o caso comum (um system + um prompt,
     só o texto da resposta) — mantém a assinatura que
@@ -153,5 +164,6 @@ def gerar(
         model,
         [{"role": "system", "content": system}, {"role": "user", "content": prompt}],
         host=host, num_thread=num_thread, maquina_id=maquina_id, timeout=timeout,
+        finalidade=finalidade, subject_id=subject_id, tenant_id=tenant_id,
     )
     return data["message"]["content"]

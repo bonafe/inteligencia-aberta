@@ -102,7 +102,10 @@ Regras para o schema:
 """
 
 
-def gerar_texto(provider: str, model_name: str, system: str, prompt: str, max_tokens: int = 4096) -> tuple[str, str | None]:
+def gerar_texto(
+    provider: str, model_name: str, system: str, prompt: str, max_tokens: int = 4096,
+    *, finalidade: str, subject_id=None, tenant_id=None,
+) -> tuple[str, str | None]:
     """Ponto único de chamada a um LLM, Claude ou Ollama, para prompts fora da
     cascata automática (estruturação manual e julgamento de comparação).
 
@@ -112,17 +115,51 @@ def gerar_texto(provider: str, model_name: str, system: str, prompt: str, max_to
     cluster) — é o que preenche `EstruturacaoLLM.maquina`/`Comparacao.maquina`,
     a proveniência que o Mapa Vivo mostra.
 
+    `finalidade`/`subject_id`/`tenant_id` alimentam
+    `apps.events.llm_telemetria.registrar_chamada_llm` — obrigatório indicar
+    para quê a chamada é (`apps.events.models.Finalidade`), porque o mesmo
+    par provider/modelo serve tarefas de custo muito diferente.
+
     Levanta em caso de falha — quem chama decide status=falhou vs mensagem.
     """
     if provider == "anthropic":
+        from time import perf_counter
+
+        from apps.events.llm_telemetria import ResultadoLLM, registrar_chamada_llm
+
         client = _get_client()
         if not client:
             raise RuntimeError("ANTHROPIC_API_KEY não configurada")
-        message = client.messages.create(
-            model=model_name,
-            max_tokens=max_tokens,
-            system=system,
-            messages=[{"role": "user", "content": prompt}],
+
+        chars_enviados = len(system) + len(prompt)
+        t0 = perf_counter()
+        try:
+            message = client.messages.create(
+                model=model_name,
+                max_tokens=max_tokens,
+                system=system,
+                messages=[{"role": "user", "content": prompt}],
+            )
+        except Exception as exc:
+            registrar_chamada_llm(
+                finalidade=finalidade, duration_ms=int((perf_counter() - t0) * 1000),
+                subject_id=subject_id, tenant_id=tenant_id,
+                resultado=ResultadoLLM(
+                    provider="anthropic", modelo_solicitado=model_name, sucesso=False,
+                    chars_enviados=chars_enviados, error_message=str(exc),
+                ),
+            )
+            raise
+
+        registrar_chamada_llm(
+            finalidade=finalidade, duration_ms=int((perf_counter() - t0) * 1000),
+            subject_id=subject_id, tenant_id=tenant_id,
+            resultado=ResultadoLLM(
+                provider="anthropic", modelo_solicitado=model_name, sucesso=True,
+                modelo_resposta=message.model, tokens_entrada=message.usage.input_tokens,
+                tokens_saida=message.usage.output_tokens, stop_reason=message.stop_reason or "",
+                request_id=message.id, chars_enviados=chars_enviados,
+            ),
         )
         return message.content[0].text, None
 
@@ -136,11 +173,16 @@ def gerar_texto(provider: str, model_name: str, system: str, prompt: str, max_to
         # sempre — comportamento inalterado.
         from apps.cluster.llm_router import escolher_execucao
 
+        # Telemetria desta chamada HTTP já acontece dentro de gerar()
+        # (ollama_client._chamar) — registrar de novo aqui contaria a mesma
+        # chamada duas vezes.
         execucao = escolher_execucao(model_name)
         if execucao:
             texto = gerar(model_name, system, prompt, host=execucao.host,
-                          num_thread=execucao.num_thread, maquina_id=execucao.maquina_id)
+                          num_thread=execucao.num_thread, maquina_id=execucao.maquina_id,
+                          finalidade=finalidade, subject_id=subject_id, tenant_id=tenant_id)
             return texto, execucao.maquina_id
-        return gerar(model_name, system, prompt), None
+        return gerar(model_name, system, prompt,
+                      finalidade=finalidade, subject_id=subject_id, tenant_id=tenant_id), None
 
     raise ValueError(f"provider desconhecido: {provider}")

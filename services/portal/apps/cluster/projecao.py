@@ -69,9 +69,15 @@ def aplicar_heartbeat(evento) -> "MaquinaStatus | None":  # noqa: F821
 
 
 def aplicar_metrica_llm(evento) -> "MaquinaModeloOllama | None":  # noqa: F821
-    """Reflete um evento `llm.chamada_ollama` em `MaquinaModeloOllama` — média
-    corrida de tokens/segundo, usada por `apps.cluster.llm_router` para
-    escolher a máquina mais rápida para um modelo.
+    """Reflete um evento `llm.chamada_ollama` (legado) ou `llm.chamada`
+    (formato unificado, qualquer provider/finalidade — ver
+    `apps.events.llm_telemetria`) em `MaquinaModeloOllama` — média corrida de
+    tokens/segundo, usada por `apps.cluster.llm_router` para escolher a
+    máquina mais rápida para um modelo.
+
+    Chamadas anthropic também passam por `llm.chamada`, mas não têm máquina
+    executora nossa nem tokens_por_segundo — o guard de provider abaixo as
+    ignora, silenciosamente, sem isso virar uma exceção.
 
     Diferente de `aplicar_heartbeat`: não descarta por sequence (cada chamada
     é uma amostra independente que soma à média, não um snapshot que
@@ -82,19 +88,25 @@ def aplicar_metrica_llm(evento) -> "MaquinaModeloOllama | None":  # noqa: F821
     from .models import Maquina, MaquinaModeloOllama
 
     try:
-        if evento.subject_type != "maquina" or not evento.subject_id:
-            return None
         payload = evento.payload or {}
-        nome_modelo = payload.get("modelo")
+        if payload.get("provider") not in (None, "ollama"):
+            return None
+
+        nome_modelo = payload.get("modelo") or payload.get("modelo_resposta") or payload.get("modelo_solicitado")
         tokens_por_segundo = payload.get("tokens_por_segundo")
-        if not nome_modelo or tokens_por_segundo is None:
+        # Legado (llm.chamada_ollama): a máquina vem em subject_id/subject_type.
+        # Novo (llm.chamada): vem no próprio payload.
+        maquina_id = payload.get("maquina_id") or (
+            evento.subject_id if evento.subject_type == "maquina" else None
+        )
+        if not nome_modelo or tokens_por_segundo is None or not maquina_id:
             return None
 
         with transaction.atomic():
             try:
-                maquina = Maquina.objects.get(id=evento.subject_id)
+                maquina = Maquina.objects.get(id=maquina_id)
             except Maquina.DoesNotExist:
-                logger.warning("métrica de LLM para máquina inexistente — subject_id=%s", evento.subject_id)
+                logger.warning("métrica de LLM para máquina inexistente — subject_id=%s", maquina_id)
                 return None
 
             registro, _ = MaquinaModeloOllama.objects.select_for_update().get_or_create(
