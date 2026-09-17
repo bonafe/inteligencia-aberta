@@ -122,6 +122,18 @@ def gerar_texto(provider: str, model_name: str, system: str, prompt: str, max_to
 
     if provider == "ollama":
         from .ollama_client import gerar
+
+        # Cluster com máquina(s) registrada(s) para este modelo: usa a mais
+        # rápida conhecida (ou uma nunca testada, pra aprender). Sem cluster
+        # configurado (instalação de máquina única, caso comum hoje),
+        # escolher_execucao devolve None e a chamada cai no Ollama local de
+        # sempre — comportamento inalterado.
+        from apps.cluster.llm_router import escolher_execucao
+
+        execucao = escolher_execucao(model_name)
+        if execucao:
+            return gerar(model_name, system, prompt, host=execucao.host,
+                         num_thread=execucao.num_thread, maquina_id=execucao.maquina_id)
         return gerar(model_name, system, prompt)
 
     raise ValueError(f"provider desconhecido: {provider}")

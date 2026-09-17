@@ -19,6 +19,7 @@ channels-redis==4.2.0
 daphne==4.1.2
 whitenoise==6.7.0
 redis==5.0.7
+psutil==6.0.0
 
 # Testes (pytest, conforme CLAUDE.md)
 pytest==8.3.2

@@ -1,0 +1,20 @@
+# Compose para uma máquina que só contribui processamento (trilha "pool de
+# processamento" — ver docs/operacao/escala-multimaquina.md), sem hospedar a
+# infraestrutura compartilhada. Não sobe banco/fila/storage próprios: tudo
+# aponta, via .env desta máquina, para o nó que hospeda a infra pela VPN
+# (CLUSTER_VPN_BIND_IP lá).
+#
+# Uso (nesta máquina, com o repo clonado e um .env próprio preenchido):
+#   docker compose -f docker-compose.worker-node.yml up --build
+#
+# Pré-requisito: esta máquina só enxerga o nó de infra pela VPN; não expõe
+# nem depende de nada rodando localmente (a única exceção documentada é
+# OLLAMA_HOST, se esta máquina também tiver Ollama local — ver .env.example).
+services:
+  worker:
+    build: ./services/portal
+    command: >
+      sh -c "celery -A config worker -B -l info -Q ${CELERY_QUEUES:-celery}"
+    env_file: .env
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

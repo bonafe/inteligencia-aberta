@@ -9,3 +9,4 @@ class ArtifactsConfig(AppConfig):
 
     def ready(self):
         import apps.artifacts.signals  # noqa: F401
+        import apps.artifacts.signals_replicacao  # noqa: F401

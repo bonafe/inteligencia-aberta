@@ -1,0 +1,3 @@
+FROM qwen3.5:9b
+PARAMETER num_thread 24
+PARAMETER num_ctx 8192
