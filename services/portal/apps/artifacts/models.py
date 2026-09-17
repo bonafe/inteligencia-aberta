@@ -128,6 +128,10 @@ class DocumentText(models.Model):
         Artifact, on_delete=models.CASCADE, related_name="extracted_text"
     )
     text = models.TextField()
+    # Texto bruto de toda a página (nav, rodapé, menus inclusos) — trafilatura descarta
+    # esse boilerplate intencionalmente para curar "text"; full_text existe para quando
+    # o descarte remove algo que a busca precisava.
+    full_text = models.TextField(null=True, blank=True)
     title = models.CharField(max_length=500, blank=True)
     source_url = models.CharField(max_length=2048, blank=True)
     page_type = models.CharField(max_length=50, blank=True)

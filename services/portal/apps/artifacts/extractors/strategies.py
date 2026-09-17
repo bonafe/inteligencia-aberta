@@ -71,6 +71,24 @@ def extract_narrative_text(html: str) -> str:
     return text or ""
 
 
+# ── Texto completo — todo o texto visível da página, sem curadoria ──────────
+#
+# Complementa extract_narrative_text(): trafilatura descarta boilerplate (nav,
+# rodapé, menus, sidebars) de propósito, para produzir prosa limpa. Esse
+# descarte às vezes leva junto algo que importa (um valor solto num menu
+# lateral, um dado num rodapé). full_text guarda a página inteira sem esse
+# filtro, como rede de segurança — não substitui "text", que continua sendo o
+# campo usado para busca/fragmentação.
+
+def extract_full_text(html: str) -> str:
+    from bs4 import BeautifulSoup
+    soup = BeautifulSoup(html, "html.parser")
+    for tag in soup(["script", "style", "noscript"]):
+        tag.decompose()
+    linhas = [linha.strip() for linha in soup.get_text(separator="\n").splitlines()]
+    return "\n".join(linha for linha in linhas if linha)
+
+
 # ── Extratores — produzem apenas structured_data ─────────────────────────────
 
 def extract_financial_table(html: str, url: str, title: str) -> dict:

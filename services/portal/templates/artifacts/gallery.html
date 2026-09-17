@@ -479,6 +479,7 @@
         <div class="tab-bar">
             <button class="tab-btn active" id="tab-mhtml" onclick="switchTab('mhtml')">MHTML</button>
             <button class="tab-btn disabled" id="tab-texto" onclick="switchTab('texto')">Texto</button>
+            <button class="tab-btn disabled" id="tab-texto_completo" onclick="switchTab('texto_completo')">Texto Completo</button>
             <button class="tab-btn disabled" id="tab-json" onclick="switchTab('json')">Dados Estruturados</button>
             <button class="tab-btn disabled" id="tab-json_dom2parser" onclick="switchTab('json_dom2parser')">dom2parser</button>
             <button class="tab-btn disabled" id="tab-json_extruct" onclick="switchTab('json_extruct')">extruct</button>
@@ -500,6 +501,13 @@
             <div class="text-panel-inner">
                 <div class="loading-msg" id="text-loading" style="display:none">Carregando texto…</div>
                 <pre class="text-content" id="text-content" style="display:none"></pre>
+            </div>
+        </div>
+
+        <!-- Texto Completo Panel (página inteira, sem curadoria do trafilatura) -->
+        <div class="tab-panel" id="panel-texto_completo">
+            <div class="text-panel-inner">
+                <pre class="text-content" id="texto_completo-content" style="display:none"></pre>
             </div>
         </div>
 
@@ -642,6 +650,8 @@
         // Reset content cache load for this artifact (keep cache entry if already loaded)
         document.getElementById('text-content').style.display = 'none';
         document.getElementById('text-content').textContent = '';
+        document.getElementById('texto_completo-content').style.display = 'none';
+        document.getElementById('texto_completo-content').textContent = '';
         JSON_SOURCES.forEach(s => {
             delete rawJsonByTab[s.tab];
             document.getElementById(`json-content${s.idSuffix}`).style.display = 'none';
@@ -653,6 +663,7 @@
 
         // Disable content tabs until we know what's available
         setTabState('tab-texto', false);
+        setTabState('tab-texto_completo', false);
         JSON_SOURCES.forEach(s => setTabState(`tab-${s.tab}`, false));
         setTabState('tab-dom', false);
 
@@ -689,7 +700,7 @@
         if (document.getElementById(`tab-${tab}`).classList.contains('disabled')) return;
 
         currentTab = tab;
-        ['mhtml', 'texto', 'json', 'json_dom2parser', 'json_extruct', 'dom', 'llm', 'comparacao'].forEach(t => {
+        ['mhtml', 'texto', 'texto_completo', 'json', 'json_dom2parser', 'json_extruct', 'dom', 'llm', 'comparacao'].forEach(t => {
             document.getElementById(`tab-${t}`).classList.toggle('active', t === tab);
             document.getElementById(`panel-${t}`).classList.toggle('active', t === tab);
         });
@@ -736,6 +747,7 @@
 
     function applyTabStates(data) {
         setTabState('tab-texto', !!data.text);
+        setTabState('tab-texto_completo', !!data.full_text);
         JSON_SOURCES.forEach(s => setTabState(`tab-${s.tab}`, !!data[s.key]));
         setTabState('tab-dom', !!data.dom_representation);
     }
@@ -758,6 +770,11 @@
         if (currentTab === 'texto' && data.text) {
             const el = document.getElementById('text-content');
             el.textContent = data.text;
+            el.style.display = 'block';
+        }
+        if (currentTab === 'texto_completo' && data.full_text) {
+            const el = document.getElementById('texto_completo-content');
+            el.textContent = data.full_text;
             el.style.display = 'block';
         }
         const jsonSource = JSON_SOURCES.find(s => s.tab === currentTab);

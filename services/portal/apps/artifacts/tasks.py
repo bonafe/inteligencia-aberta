@@ -248,7 +248,7 @@ def extract_text_from_mhtml(self, artifact_id: str, forcar: bool = False):
            message=f"HTML extraído do MHTML ({len(html_content)} chars)",
            payload={"chars_html": len(html_content), "charset": charset_usado or "indeterminado"})
 
-    from .extractors import detect_page_type, route, extract_narrative_text
+    from .extractors import detect_page_type, route, extract_narrative_text, extract_full_text
 
     # Texto de busca: SEMPRE via trafilatura, independente de page_type ou de LLM.
     # Roda antes de qualquer detecção/classificação — se a página não tem prosa
@@ -269,6 +269,23 @@ def extract_text_from_mhtml(self, artifact_id: str, forcar: bool = False):
         return {"status": "skipped", "reason": "trafilatura não produziu conteúdo"}
 
     logger.info("[%s] texto extraído via trafilatura — %d chars", artifact_id, len(text))
+
+    # Texto completo: toda a página, sem a curadoria do trafilatura — rede de
+    # segurança para quando o descarte de boilerplate leva junto algo relevante.
+    # Nunca bloqueia o pipeline: se falhar, segue só com "text".
+    full_text = None
+    try:
+        with etapa("extracao.texto_completo", subject_type="artifact", subject_id=artifact.id,
+                   tenant_id=tenant_id) as e:
+            full_text = extract_full_text(html_content)
+            if not full_text:
+                e.vazio("nenhum texto visível encontrado na página")
+            else:
+                e.ok(f"texto completo extraído ({len(full_text)} chars)",
+                     chars=len(full_text))
+    except Exception:
+        logger.exception("[%s] extract_full_text falhou — seguindo sem full_text", artifact_id)
+        full_text = None
 
     # dom2parser roda uma única vez: produz a representação compacta (persistida em
     # DocumentText.dom_representation e enviada ao LLM quando necessário) e o parser
@@ -392,13 +409,13 @@ def extract_text_from_mhtml(self, artifact_id: str, forcar: bool = False):
         try:
             with etapa("extracao.llm", subject_type="artifact", subject_id=artifact.id,
                        tenant_id=tenant_id) as e:
-                from .extractors.llm_classifier import llm_extract_and_schema
+                from .extractors.llm_classifier import llm_extract
 
                 skeleton = dom_representation
                 if skeleton is None:
                     import dom2parser
                     skeleton = dom2parser.compress(html_content).text
-                llm_result = llm_extract_and_schema(
+                llm_result = llm_extract(
                     skeleton, url, page_type_hint=page_type,
                     artifact_id=artifact.id, tenant_id=tenant_id,
                 )
@@ -424,7 +441,7 @@ def extract_text_from_mhtml(self, artifact_id: str, forcar: bool = False):
                     cascata.append({"estrategia": "llm", "usada": False,
                                     "motivo": "LLM não produziu dados estruturados"})
         except Exception:
-            logger.exception("[%s] llm_extract_and_schema falhou — fallback para extrator determinístico", artifact_id)
+            logger.exception("[%s] llm_extract falhou — fallback para extrator determinístico", artifact_id)
             cascata.append({"estrategia": "llm", "usada": False, "motivo": "exceção na chamada"})
     elif extracted is None:
         cascata.append({
@@ -457,6 +474,7 @@ def extract_text_from_mhtml(self, artifact_id: str, forcar: bool = False):
     doc_text = DocumentText.objects.create(
         document=artifact,
         text=text,
+        full_text=full_text,
         title=title,
         source_url=url,
         page_type=page_type,
@@ -481,7 +499,8 @@ def extract_text_from_mhtml(self, artifact_id: str, forcar: bool = False):
                     "tem_structured_data": bool(extracted.get("structured_data")),
                     "tem_dom2parser": dados_estruturados_dom2parser is not None,
                     "tem_extruct": dados_estruturados_extruct is not None,
-                    "tem_dom_representation": dom_representation is not None})
+                    "tem_dom_representation": dom_representation is not None,
+                    "tem_full_text": bool(full_text)})
 
     logger.info("[%s] DocumentText criado — id=%s → despachando fragment_text", artifact_id, doc_text.id)
     fragment_text.delay(str(doc_text.id))

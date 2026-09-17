@@ -27,6 +27,17 @@ HTML — usá-la como fonte única do texto de busca dá resiliência ao pipelin
 mesmo que a extração estruturada falhe completamente, o documento continua
 pesquisável.
 
+### `full_text`: a página inteira, sem curadoria (2026-09-17)
+
+`extract_narrative_text()` descarta boilerplate de propósito (nav, rodapé,
+menus, sidebars) para produzir prosa limpa em `text`. Esse descarte às vezes
+leva junto algo que a busca precisava. `extract_full_text()` (BeautifulSoup,
+sem heurística de prosa) roda em paralelo e grava a página inteira em
+`DocumentText.full_text` — rede de segurança, não substituto: `text` continua
+sendo o único campo usado para fragmentação/embedding. Falha em `full_text`
+nunca bloqueia o pipeline (`text` vazio ainda ignora o artefato; `full_text`
+vazio só fica `None`).
+
 ---
 
 ## Tipos de Página Suportados
@@ -55,6 +66,9 @@ extract_text_from_mhtml(artifact_id)
     ├─ extract_narrative_text(html)                          [SEMPRE — trafilatura]
     │       └─ campo "text" do DocumentText — independente de page_type/LLM
     │       └─ sem texto → ignora artefato (nada abaixo roda)
+    │
+    ├─ extract_full_text(html)                                [SEMPRE — BeautifulSoup, sem curadoria]
+    │       └─ campo "full_text" do DocumentText — página inteira; falha não bloqueia o pipeline
     │
     ├─ detect_page_type(html, url, tenant, allow_external_llm)
     │       │
@@ -89,8 +103,8 @@ extract_text_from_mhtml(artifact_id)
     │
     ├─ 3. [SE ainda sem dados E allow_external_llm E cache sem extractor_config] → 1ª captura com LLM
     │       ├─ (reaproveita dom2parser.compress(html).text acima)  [Estratégia A]
-    │       ├─ llm_extract_and_schema(skeleton, url, hint)  [Estratégia C — Sonnet]
-    │       │       └─ retorna: categoria + page_type + structured_data + schema (sem texto)
+    │       ├─ llm_extract(skeleton, url, hint)  [Estratégia C — Sonnet]
+    │       │       └─ retorna: categoria + page_type + structured_data (sem texto, sem schema)
     │       ├─ usa structured_data como resultado da extração (imediato)
     │       └─ grava schema em URLPatternCache.extractor_config (formato 1.0)
     │
@@ -105,7 +119,7 @@ extract_text_from_mhtml(artifact_id)
     │       (todos os caminhos acima só alimentam structured_data + extractor_version —
     │        o texto já foi definido no passo extract_narrative_text, no topo)
     │
-    ├─ cria DocumentText com text (trafilatura), page_type, structured_data, extractor_version
+    ├─ cria DocumentText com text (trafilatura), full_text, page_type, structured_data, extractor_version
     └─ dispara fragment_text.delay(doc_text.id)
 ```
 
@@ -311,7 +325,7 @@ Interpreta o schema usando BeautifulSoup em capturas subsequentes. **Não usa `e
 
 ```
 1ª captura (LLM habilitado, sem schema)
-    → llm_extract_and_schema() extrai structured_data + gera schema (sem texto)
+    → llm_extract() extrai structured_data (sem texto, sem schema)
     → structured_data usado imediatamente; texto já veio de extract_narrative_text
     → schema VALIDADO contra o próprio HTML da captura
         → válido   → gravado em URLPatternCache.extractor_config
@@ -626,5 +640,6 @@ Campos registrados a cada extração:
 - [ ] `ArtifactLineage.processor` identifica o extrator e sua versão.
 - [x] Todos os campos de observabilidade registrados a cada extração, como eventos persistidos e consultáveis.
 - [ ] `DocumentText.text` é sempre produzido por `extract_narrative_text()` (trafilatura), inclusive quando `page_type` é `tabular_financeiro`, `processo_judicial` ou quando a extração roda via LLM (Estratégia C).
-- [ ] `llm_extract_and_schema()` não retorna mais campo `text`; resposta do LLM sem `structured_data` não impede a criação do `DocumentText` (o texto já foi extraído antes).
+- [ ] `llm_extract()` não retorna mais campo `text`; resposta do LLM sem `structured_data` não impede a criação do `DocumentText` (o texto já foi extraído antes).
 - [ ] Falha total do extrator estruturado (LLM indisponível, schema inválido, extrator determinístico sem dados) resulta em `structured_data=null`, mas nunca em `DocumentText.text` vazio se a página tiver conteúdo extraível por trafilatura.
+- [x] `DocumentText.full_text` é persistido a cada extração com o texto integral da página (sem curadoria do trafilatura); falha em `extract_full_text()` não interrompe o pipeline.

@@ -328,6 +328,7 @@ class ArtifactContentView(View):
             "word_count": doc_text.word_count,
             "extractor_version": doc_text.extractor_version,
             "text": doc_text.text,
+            "full_text": doc_text.full_text,
             "structured_data": doc_text.structured_data,
             "dados_estruturados_dom2parser": doc_text.dados_estruturados_dom2parser,
             "dados_estruturados_extruct": doc_text.dados_estruturados_extruct,
