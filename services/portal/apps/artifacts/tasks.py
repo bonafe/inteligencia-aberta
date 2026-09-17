@@ -126,66 +126,6 @@ def _split_text(text: str, chunk_size: int = 1000, overlap: int = 100) -> list[s
     return chunks
 
 
-# ── Saúde do schema de seletores (URLPatternCache) ───────────────────────────
-
-SCHEMA_FAILURE_THRESHOLD = 2
-
-
-def _schema_reproduces_data(schema: dict, html: str, url: str, title: str, artifact_id) -> bool:
-    """Valida um schema recém-gerado pelo LLM contra o próprio HTML da captura.
-
-    Se os seletores não extraem nada agora, não vão extrair nas capturas
-    seguintes — melhor não gravar e deixar a próxima captura regenerar.
-    """
-    try:
-        from .extractors.schema_extractor import schema_driven_extract, schema_worked
-        return schema_worked(schema_driven_extract(html, url, title, schema))
-    except Exception:
-        logger.exception("[%s] validação de schema falhou — schema não será gravado", artifact_id)
-        return False
-
-
-def _update_schema_health(cache_obj, extracted: dict, artifact_id) -> None:
-    """Realimenta o URLPatternCache com o resultado real do schema de seletores.
-
-    O extractor_version do resultado é o sinal: se não começa com
-    "schema_driven:" nem "dom2parser:", o schema_driven_extract caiu no
-    fallback — os seletores não casaram com o HTML. Após SCHEMA_FAILURE_THRESHOLD falhas consecutivas,
-    o schema é descartado e a entrada marcada para revisão; a captura seguinte
-    (com LLM habilitado) regenera o schema pagando o custo uma única vez.
-    Um sucesso zera o contador.
-    """
-    from django.db import models as django_models
-    from .extractors.schema_extractor import schema_worked
-    from .models import URLPatternCache
-
-    if schema_worked(extracted):
-        if cache_obj.schema_failure_count:
-            URLPatternCache.objects.filter(id=cache_obj.id).update(schema_failure_count=0)
-        return
-
-    URLPatternCache.objects.filter(id=cache_obj.id).update(
-        schema_failure_count=django_models.F("schema_failure_count") + 1
-    )
-    cache_obj.refresh_from_db(fields=["schema_failure_count"])
-    logger.warning(
-        "[%s] schema não extraiu dados — schema_failure_count=%d (%s%s)",
-        artifact_id, cache_obj.schema_failure_count,
-        cache_obj.domain, cache_obj.path_pattern,
-    )
-
-    if cache_obj.schema_failure_count >= SCHEMA_FAILURE_THRESHOLD:
-        URLPatternCache.objects.filter(id=cache_obj.id).update(
-            extractor_config={},
-            needs_review=True,
-        )
-        logger.warning(
-            "[%s] schema invalidado após %d falhas consecutivas — needs_review=True, "
-            "será regenerado na próxima captura com LLM",
-            artifact_id, cache_obj.schema_failure_count,
-        )
-
-
 # ── Etapa 1: extração de texto ────────────────────────────────────────────────
 
 @shared_task(bind=True, max_retries=3, default_retry_delay=60)
@@ -309,7 +249,6 @@ def extract_text_from_mhtml(self, artifact_id: str, forcar: bool = False):
            payload={"chars_html": len(html_content), "charset": charset_usado or "indeterminado"})
 
     from .extractors import detect_page_type, route, extract_narrative_text
-    from .extractors.schema_extractor import schema_worked
 
     # Texto de busca: SEMPRE via trafilatura, independente de page_type ou de LLM.
     # Roda antes de qualquer detecção/classificação — se a página não tem prosa
@@ -416,37 +355,20 @@ def extract_text_from_mhtml(self, artifact_id: str, forcar: bool = False):
         artifact_id, page_type, confidence, detection_source, cache_id,
     )
 
-    # Ordem de extração de structured_data (o texto de busca já foi definido acima):
-    #   1. schema gravado no cache (parser dom2parser 2.0 ou seletores do LLM 1.0)
-    #   2. parser verificado que o dom2parser sintetizou para ESTA página (sem LLM);
-    #      gravado no cache quando o padrão de URL ainda não tem schema
-    #   3. LLM (Estratégia C) — só na 1ª captura sem schema, quando o dom2parser
-    #      não encontrou estruturas repetidas (páginas de campos soltos: ficha de CNPJ)
-    #   4. extrator determinístico por page_type
+    # Ordem de extração de structured_data (o texto de busca já foi definido acima).
+    # Sem cache: cada captura recalcula tudo do zero, porque o dado da página pode
+    # ter mudado desde a última vez — um schema salvo só sabe extrair os campos que
+    # existiam (com valor) na captura que o gerou, e ficaria preso a isso para sempre.
+    #   1. parser verificado que o dom2parser sintetizou para ESTA página (sem LLM)
+    #   2. LLM — toda vez que o dom2parser não encontrar estruturas repetidas
+    #      (páginas de campos soltos: ficha de CNPJ), se allow_external_llm permitir
+    #   3. extrator determinístico por page_type
     extracted = None
-    cached_config = cache_obj.extractor_config if cache_obj is not None else {}
     # Trilha da cascata: por que cada estratégia foi (ou não) usada. Vira o
     # payload de `extracao.cascata` e responde "por que o dado veio daqui".
     cascata: list[dict] = []
 
-    if cached_config:
-        logger.info("[%s] extraindo com schema do cache (%s)", artifact_id, cached_config.get("generated_by", "llm"))
-        extracted = route(page_type, html_content, url, title, cache_obj=cache_obj)
-        # Realimentação do cache: se o resultado não veio do schema, os seletores
-        # não casaram — a estrutura da página provavelmente mudou.
-        _update_schema_health(cache_obj, extracted, artifact_id)
-        if not schema_worked(extracted):
-            cascata.append({"estrategia": "schema_cache", "usada": False,
-                            "motivo": "seletores gravados não casaram com o HTML"})
-            extracted = None
-        else:
-            cascata.append({"estrategia": "schema_cache", "usada": True,
-                            "generated_by": cached_config.get("generated_by", "llm")})
-    else:
-        cascata.append({"estrategia": "schema_cache", "usada": False,
-                        "motivo": "padrão de URL ainda não tem schema gravado"})
-
-    if extracted is None and dom2parser_extraction is not None:
+    if dom2parser_extraction is not None:
         # Já calculado acima — reaproveita sem reexecutar.
         extracted = dom2parser_extraction
         registros = extracted["structured_data"]["registros"]
@@ -456,51 +378,20 @@ def extract_text_from_mhtml(self, artifact_id: str, forcar: bool = False):
         )
         cascata.append({"estrategia": "dom2parser", "usada": True,
                         "registros": {k: len(v) for k, v in registros.items()}})
-        if cache_obj is not None and not cached_config:
-            config = dom_parser.config_from_spec(parser_spec)
-            if config:
-                from .models import URLPatternCache
-                URLPatternCache.objects.filter(id=cache_obj.id).update(
-                    extractor_config=config,
-                    schema_failure_count=0,
-                    needs_review=False,
-                )
-                logger.info(
-                    "[%s] parser dom2parser gravado no cache — %d registros",
-                    artifact_id, len(config["parser"]["records"]),
-                )
-                evento("extracao.schema_cache", "ok",
-                       message="parser do dom2parser gravado no cache de padrões",
-                       payload={"registros": len(config["parser"]["records"]),
-                                "cache_id": str(cache_obj.id)})
-            else:
-                evento("extracao.schema_cache", "vazio",
-                       message="nenhum registro verificado para gravar no cache",
-                       payload={"cache_id": str(cache_obj.id)})
-    elif extracted is None:
+    else:
         logger.info("[%s] dom2parser não sintetizou parser utilizável para esta página", artifact_id)
         cascata.append({"estrategia": "dom2parser", "usada": False,
                         "motivo": diag_d2p.get("motivo", "sem parser utilizável")})
 
-    # Estratégia C: na primeira captura com LLM habilitado e sem schema, o LLM entende a
-    # página, extrai os dados estruturados e gera o schema de seletores. O LLM nunca
-    # produz o texto de busca (já extraído acima); sua responsabilidade é só
-    # structured_data + schema. Resultado usado imediatamente. Fallback para route()
-    # se o LLM falhar, não estiver disponível, ou não encontrar nenhum dado estruturado.
-    first_capture_with_llm = (
-        extracted is None
-        and artifact.allow_external_llm
-        and cache_obj is not None
-        and not cached_config
-    )
-
-    if first_capture_with_llm:
-        logger.info("[%s] primeira captura com LLM — extraindo dados e gerando schema", artifact_id)
+    # LLM: quando o dom2parser não achou estrutura repetida, o LLM entende a página
+    # e extrai os dados estruturados diretamente. Roda em toda captura que precisar
+    # dele — não só na primeira — porque não há mais schema para reaproveitar depois.
+    if extracted is None and artifact.allow_external_llm:
+        logger.info("[%s] extraindo dados estruturados via LLM", artifact_id)
         try:
             with etapa("extracao.llm", subject_type="artifact", subject_id=artifact.id,
                        tenant_id=tenant_id) as e:
                 from .extractors.llm_classifier import llm_extract_and_schema
-                from .models import URLPatternCache
 
                 skeleton = dom_representation
                 if skeleton is None:
@@ -517,35 +408,11 @@ def extract_text_from_mhtml(self, artifact_id: str, forcar: bool = False):
                     if llm_result.get("page_type") and llm_result["page_type"] != "desconhecido":
                         page_type = llm_result["page_type"]
 
-                    schema = llm_result.get("schema") or {}
-                    schema_gravado = False
-                    if schema and _schema_reproduces_data(schema, html_content, url, title, artifact_id):
-                        URLPatternCache.objects.filter(id=cache_obj.id).update(
-                            extractor_config=schema,
-                            page_type=page_type,
-                            schema_failure_count=0,
-                            needs_review=False,
-                        )
-                        schema_gravado = True
-                        logger.info(
-                            "[%s] schema validado e gravado — categoria='%s' campos=%d tabelas=%d",
-                            artifact_id, schema.get("categoria", ""),
-                            len(schema.get("fields", {})), len(schema.get("tables", [])),
-                        )
-                    elif schema:
-                        logger.warning(
-                            "[%s] schema gerado pelo LLM não reproduz dados no próprio HTML — "
-                            "não gravado; esta captura usa o structured_data direto do LLM",
-                            artifact_id,
-                        )
                     e.ok("LLM extraiu dados estruturados",
                          modelo=llm_result.get("model", ""),
                          page_type=page_type,
-                         schema_gerado=bool(schema),
-                         schema_gravado=schema_gravado,
                          chars_enviados=len(skeleton or ""))
-                    cascata.append({"estrategia": "llm", "usada": True,
-                                    "schema_gravado": schema_gravado})
+                    cascata.append({"estrategia": "llm", "usada": True})
                 else:
                     logger.warning("[%s] LLM não produziu dados estruturados — fallback para extrator determinístico", artifact_id)
                     e.vazio("LLM não produziu dados estruturados",
@@ -558,14 +425,12 @@ def extract_text_from_mhtml(self, artifact_id: str, forcar: bool = False):
     elif extracted is None:
         cascata.append({
             "estrategia": "llm", "usada": False,
-            "motivo": ("LLM externo não permitido para esta classificação"
-                       if not artifact.allow_external_llm else "condições da 1ª captura não atendidas"),
+            "motivo": "LLM externo não permitido para esta classificação",
         })
 
     if extracted is None:
-        # cache_obj=None: o schema do cache (se havia) já foi tentado e realimentado acima.
         logger.info("[%s] extraindo structured_data com extrator determinístico=%s", artifact_id, page_type)
-        extracted = route(page_type, html_content, url, title, cache_obj=None)
+        extracted = route(page_type, html_content, url, title)
         cascata.append({"estrategia": "deterministico", "usada": True,
                         "extractor_version": extracted["extractor_version"]})
 
