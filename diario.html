@@ -282,6 +282,187 @@
     <div class="container">
         <div class="entries-list">
 
+            <!-- Entrada 29 -->
+            <article class="entry-card">
+                <div class="entry-header">
+                    <div class="entry-meta">
+                        <span class="entry-date">17 de setembro de 2026</span>
+                        <span class="entry-sep"></span>
+                        <span class="entry-author">Bonafé &amp; Claude Code</span>
+                    </div>
+                    <h2 class="entry-title">O bug já estava diagnosticado. Faltava a peça certa ser consertada.</h2>
+                </div>
+                <div class="entry-body">
+                    <p>Semanas atrás, quando construímos o log de eventos, uma captura sem dados do dom2parser nos levou a rastrear oito caminhos de código possíveis até a causa exata: <code>dom2parser.compress</code> levantava <code>SelectorSyntaxError</code> em páginas com classes Tailwind de valor arbitrário — algo como <code>w-[calc(...)]</code> — porque o <code>cssselect</code> não sabe parsear aquilo. Diagnosticamos e seguimos em frente, porque a correção não era nossa: <code>dom2parser</code> é uma dependência externa, mantida em outro repositório.</p>
+                    <p>Hoje ela chegou. A causa raiz, olhando o código de perto, era uma assimetria boba: <code>selector.py</code> já tinha uma guarda <code>try/except</code> em volta dos seletores de registro, prevendo que algum deles pudesse ser sintaticamente inválido. <code>fields._resolve</code> fazia a mesma coisa — montar um seletor CSS a partir de tag e classe, <code>f"{tag}.{cls}"</code> — mas sem a mesma guarda. Uma classe como <code>bg-[#F4F4F4]!</code> quebrava <code>build_spec</code> inteiro em vez de simplesmente ser descartada como candidata não resolvida, que é o comportamento correto quando um seletor não serve. Atualizamos a dependência de <code>519fd31</code> para <code>faa3ff8</code>.</p>
+                    <p>Rebuild do container portal com a versão nova, suíte completa rodada de novo: 93 testes passando, os mesmos 2 flaky pré-existentes deselecionados de sempre. Nenhuma surpresa — o que devia continuar verde continuou.</p>
+                    <p><em>Diagnosticar não é consertar. Mas sem o log de eventos apontando a linha exata semanas antes, ninguém saberia, quando a correção finalmente chegasse, se ela resolvia o problema certo — ou só um parecido.</em></p>
+                </div>
+            </article>
+
+            <!-- Entrada 28 -->
+            <article class="entry-card">
+                <div class="entry-header">
+                    <div class="entry-meta">
+                        <span class="entry-date">17 de setembro de 2026</span>
+                        <span class="entry-sep"></span>
+                        <span class="entry-author">Bonafé &amp; Claude Code</span>
+                    </div>
+                    <h2 class="entry-title">Nenhum acesso à rede depois do momento da captura — inclusive o favicon</h2>
+                </div>
+                <div class="entry-body">
+                    <p>O favicon que adicionamos ao Mapa Vivo tinha um furo específico: sites da Wikimedia devolviam 403 quando o orchestrator tentava baixar o <code>favicon_url</code> depois da captura, porque a Wikimedia rejeita requisições sem um User-Agent de navegador de verdade. Corrigir só o header resolveria a Wikipedia, mas deixaria o problema de fundo intacto — porque o problema nunca foi o header.</p>
+                    <p>O princípio que o sistema segue desde a extensão de captura é que nada deve acessar a rede depois do momento em que a página foi capturada; tudo que a investigação precisa já deve estar resolvido ali, dentro do MHTML ou no que a extensão manda junto. Baixar o favicon depois, por conta própria, era uma exceção silenciosa a essa regra — funcionava na maioria dos sites e escondia a violação até um site com uma política de acesso mais estrita expor ela.</p>
+                    <p>A correção foi em duas camadas, nenhuma delas voltando a fazer uma requisição HTTP nova. A extensão (<code>background.js</code>) passou a resolver o favicon usando o cache interno do próprio Chrome, via <code>chrome://favicon2</code> — nova permissão <code>favicon</code> no <code>manifest.json</code> — e manda pro orchestrator já como data URI: é literalmente o ícone que o navegador já tinha mostrado na aba, nada baixado de novo. Para quando essa data URI não vier pronta, o orchestrator ganhou um fallback que procura a imagem já embutida no próprio arquivo MHTML — por <code>Content-Location</code>, casando com <code>favicon_url</code> ou com o <code>&lt;link rel="icon"&gt;</code> do HTML capturado — em vez de sair buscando por HTTP.</p>
+                    <p><em>Um princípio declarado só vale alguma coisa quando é usado pra testar as próprias conveniências que a gente mesmo introduziu. O favicon parecia um detalhe cosmético pequeno demais para quebrar uma regra de captura — e foi exatamente por isso que quebrou sem ninguém perceber de início.</em></p>
+                </div>
+            </article>
+
+            <!-- Entrada 27 -->
+            <article class="entry-card">
+                <div class="entry-header">
+                    <div class="entry-meta">
+                        <span class="entry-date">17 de setembro de 2026</span>
+                        <span class="entry-sep"></span>
+                        <span class="entry-author">Bonafé &amp; Claude Code</span>
+                    </div>
+                    <h2 class="entry-title">Uma captura pode nascer numa máquina e crescer em outra</h2>
+                </div>
+                <div class="entry-body">
+                    <p>Com o cluster registrando máquinas e heartbeats, faltava um lugar para de fato olhar para elas. <code>PainelClusterView</code>, em <code>/cluster/</code>, lista cada <code>Maquina</code> com o status mais recente do heartbeat — CPU, RAM, disco — e os modelos Ollama que já foram vistos rodando nela, com tokens por segundo, threads e tamanho de contexto observados em chamadas reais, não em benchmark sintético.</p>
+                    <p>O Mapa Vivo, por outro lado, tinha um buraco de proveniência que só ficou visível depois que existiu mais de uma máquina de verdade: uma página podia ser capturada numa máquina e ter o texto estruturado por LLM em outra, e o grafo não contava essa parte da história. A correção foi dar às etapas que passam por LLM uma referência explícita a onde rodaram — <code>EstruturacaoLLM</code> e <code>Comparacao</code> ganharam um campo <code>maquina</code>, FK opcional para <code>cluster.Maquina</code>, preenchido só quando o roteador de fato escolheu uma máquina real do cluster; chamada via provider Anthropic ou via Ollama sem cluster configurado continuam com o campo vazio, o mesmo significado que sempre tiveram. <code>llm_common.gerar_texto()</code> passou a devolver a tupla <code>(texto, maquina_id)</code> só para carregar essa informação até quem persiste o resultado.</p>
+                    <p>Um efeito colateral bom veio de graça: <code>apps.events.context</code> agora resolve o apelido da máquina — <code>CLUSTER_LOCAL_APELIDO</code> ou uma consulta em <code>Maquina</code> — em vez de usar o hostname cru do contêiner. Isso não é só cosmético para o Mapa Vivo; melhora a proveniência de <em>todo</em> <code>PipelineEvent</code> que já existia no banco, não só dos novos.</p>
+                    <p>No grafo, isso virou nós "maquina" deduplicados por apelido, com arestas <code>captura_em</code> e <code>execucao_em</code> ligando artefato, texto extraído, estruturação e comparação à máquina que rodou cada etapa — numa cor distinta da hierarquia principal, para não confundir proveniência de máquina com linhagem de dado. Tudo isso com uma única query batched de <code>PipelineEvent</code>, para não abrir uma consulta por nó.</p>
+                    <p><em>Um sistema distribuído sem prova de onde cada etapa rodou não é distribuído de verdade aos olhos de quem investiga depois — é só rápido. A proveniência da máquina precisa estar no mesmo grafo que a proveniência do dado, porque para quem audita são a mesma pergunta.</em></p>
+                </div>
+            </article>
+
+            <!-- Entrada 26 -->
+            <article class="entry-card">
+                <div class="entry-header">
+                    <div class="entry-meta">
+                        <span class="entry-date">17 de setembro de 2026</span>
+                        <span class="entry-sep"></span>
+                        <span class="entry-author">Bonafé &amp; Claude Code</span>
+                    </div>
+                    <h2 class="entry-title">O site era conhecido. O nó não sabia disso.</h2>
+                </div>
+                <div class="entry-body">
+                    <p>Cada captura no Mapa Vivo guarda seu próprio favicon, baixado pelo orchestrator no momento em que ela acontece. O problema aparecia quando esse download específico falhava — timeout, site sem favicon declarado, content-type inesperado: nem o nó do artefato nem o nó do domínio olhavam para as outras capturas do mesmo site que já tinham um favicon salvo com sucesso. O resultado era um nó com o dot genérico e um emoji, mesmo quando o domínio era perfeitamente conhecido pelo sistema — havia inclusive um teste documentando esse comportamento como se fosse o esperado.</p>
+                    <p>A correção foi simples de descrever e fácil de esquecer de aplicar nos dois lugares certos: em <code>graph.py::montar_grafo</code>, calcular o primeiro favicon não vazio por domínio entre todas as capturas e usar como fallback tanto para o nó do domínio quanto para qualquer nó de artefato que não tenha o seu próprio. E na hidratação ao vivo via WebSocket (<code>ArtifactFaviconView</code>), o mesmo fallback — buscando em outra captura do mesmo domínio, mas sempre restrito ao mesmo tenant, para não vazar favicon entre organizações diferentes.</p>
+                    <p><em>Um dado que existe em algum lugar do sistema mas não é consultado por quem precisa dele não é diferente, na prática, de um dado que nunca existiu. "Já sabemos o favicon desse domínio" só vale alguma coisa se cada nó novo perguntar antes de desenhar o ícone genérico.</em></p>
+                </div>
+            </article>
+
+            <!-- Entrada 25 -->
+            <article class="entry-card">
+                <div class="entry-header">
+                    <div class="entry-meta">
+                        <span class="entry-date">16 de setembro de 2026</span>
+                        <span class="entry-sep"></span>
+                        <span class="entry-author">Bonafé &amp; Claude Code</span>
+                    </div>
+                    <h2 class="entry-title">Um cluster sem máquina primária — de propósito</h2>
+                </div>
+                <div class="entry-body">
+                    <p>Começamos a fundação de um cluster multi-máquina, mas desenhada deliberadamente para a Fase 1 mais simples que existe: dono único, confiança total entre as máquinas. O novo app <code>apps/cluster/</code> traz <code>Maquina</code> (identidade e capacidades), <code>MaquinaStatus</code> (CPU, RAM, disco, atualizados por heartbeat a cada 30 segundos) e <code>MaquinaModeloOllama</code> — modelos instalados em cada máquina, com tokens por segundo, <code>num_thread</code> e <code>num_ctx</code> aprendidos de chamadas reais, nunca de um benchmark sintético rodado à parte.</p>
+                    <p>A parte que exigiu mais cuidado foi a entrada de uma máquina nova no cluster sem nenhum passo manual em nenhuma das pontas. A descoberta usa Tailscale/Headscale via MagicDNS: uma máquina nova roda <code>scripts/entrar_no_cluster.py</code>, que encontra sozinho qual peer do tailnet hospeda a infraestrutura compartilhada e se autorregistra via <code>POST /cluster/api/v1/join/</code>, autenticado por um segredo único do cluster. E a própria máquina que hospeda a infraestrutura também se autorregistra sozinha no primeiro heartbeat — nem quem instala o cluster do zero, nem quem entra depois, precisam editar um cadastro manual em lugar nenhum.</p>
+                    <p>Em cima disso, <code>llm_router.py</code> e um gateway compatível com a API da OpenAI (<code>POST /v1/chat/completions</code>) distribuem chamadas Ollama entre as máquinas do cluster pela velocidade real observada, com fallback automático para o Ollama local quando não há cluster configurado — nenhum código que já chamava Ollama precisa saber que o cluster existe.</p>
+                    <p>A decisão mais deliberada do desenho foi não criar o conceito de "máquina primária". Existe só a capacidade <code>Maquina.hospeda_infra_compartilhada</code>, e ela não recebe tratamento especial em nenhum outro lugar do código — o roteador de LLM trata toda máquina do cluster exatamente igual. O <code>EventoReplicacao</code>, o log de saída pensado para replicação futura entre máquinas, também segue event-sourcing e não streaming replication nativo do Postgres, pela mesma razão: manter a porta aberta para um cenário multi-proprietário sem fechar nada agora. O rumo — perfis de nó por capacidade, motor de posicionamento, colaboração entre organizações — está desenhado no ADR-006, não implementado ainda.</p>
+                    <p><em>A forma mais barata de não fechar uma porta para o futuro é nunca abrir a porta errada no presente. Um cluster sem "máquina principal" custa um pouco mais de disciplina hoje — e evita reescrever tudo no dia em que duas organizações diferentes quiserem compartilhar o mesmo cluster.</em></p>
+                </div>
+            </article>
+
+            <!-- Entrada 24 -->
+            <article class="entry-card">
+                <div class="entry-header">
+                    <div class="entry-meta">
+                        <span class="entry-date">16 de setembro de 2026</span>
+                        <span class="entry-sep"></span>
+                        <span class="entry-author">Bonafé &amp; Claude Code</span>
+                    </div>
+                    <h2 class="entry-title">Acessibilidade não é conteúdo, mas a biblioteca não sabia disso</h2>
+                </div>
+                <div class="entry-body">
+                    <p>Olhando de perto o que a extração estrutural via <code>extruct</code> estava devolvendo, encontramos um formato — RDFa — se comportando muito mal em páginas comuns. RDFa trata atributos ARIA de acessibilidade (<code>role="dialog"</code>, <code>role="button"</code>, <code>role="listitem"</code> e por aí vai) como triplas RDFa válidas, porque sintaticamente elas são. Numa página de busca do Google, medimos 262 itens extraídos por esse caminho — todos ruído puro, nenhum com valor de conteúdo. Removemos RDFa de <code>SYNTAXES</code>.</p>
+                    <p>O que sobrou dos outros formatos (json-ld, microdata, opengraph, microformat) também não era fácil de consumir direto — OpenGraph em particular vem como lista de pares soltos, <code>["og:title", "valor"]</code>, em vez de um dicionário. <code>dados_estruturados_extruct</code> agora guarda <code>{"resumo": {...}, "raw": {...}}</code>: o resumo achata os campos comuns — título, descrição, imagem, URL, nome do site, tipo, locale — pegando o primeiro formato disponível numa ordem de prioridade fixa (json-ld primeiro, depois microdata, depois opengraph), enquanto a saída crua de cada formato continua disponível em <code>raw</code> para quem precisar inspecionar.</p>
+                    <p><em>Nem todo dado estruturado que uma biblioteca consegue extrair é dado que vale a pena guardar. Às vezes o trabalho certo não é extrair mais — é saber o que descartar antes que o ruído afogue o sinal.</em></p>
+                </div>
+            </article>
+
+            <!-- Entrada 23 -->
+            <article class="entry-card">
+                <div class="entry-header">
+                    <div class="entry-meta">
+                        <span class="entry-date">16 de setembro de 2026</span>
+                        <span class="entry-sep"></span>
+                        <span class="entry-author">Bonafé &amp; Claude Code</span>
+                    </div>
+                    <h2 class="entry-title">O painel contava números. Faltava ver o pipeline respirar.</h2>
+                </div>
+                <div class="entry-body">
+                    <p>O painel de eventos já mostrava uma tabela de execuções — completa, mas estática, uma linha por captura. Faltava uma leitura visual de como o pipeline se move em tempo real. O Mapa Vivo consome o mesmo log de eventos que já existia e desenha um grafo com <code>vis-network</code> que nasce e se conecta conforme as capturas acontecem de verdade, com uma timeline sincronizada ao lado.</p>
+                    <p>Para os nós do grafo mostrarem a imagem real do site em vez de um dot genérico, a extensão Chrome passou a enviar o favicon da aba junto com a captura, e o orchestrator baixa e embute esse favicon como data URI na captura — a primeira versão dessa peça, que duas entradas mais adiante precisou de ajuste fino em dois problemas diferentes que só apareceram no uso real.</p>
+                    <p>No mesmo lote entrou uma peça de política, não de visualização: dados classificados como restrito ou confidencial não podem usar LLM externo — é contrato do <code>policy_engine</code>, e continua sendo. Para não deixar esses dados sem nenhuma opção de estruturação, a estruturação e a comparação de documentos agora também podem rodar contra um Ollama local no host, fora do container — o mesmo motor que mais tarde o roteador do cluster vai aprender a distribuir entre máquinas.</p>
+                    <p><em>Um painel que só mostra números depois que tudo terminou responde "o que aconteceu". Um grafo que nasce enquanto o pipeline roda responde uma pergunta diferente e mais útil no dia a dia: "o que está acontecendo agora, e onde".</em></p>
+                </div>
+            </article>
+
+            <!-- Entrada 22 -->
+            <article class="entry-card">
+                <div class="entry-header">
+                    <div class="entry-meta">
+                        <span class="entry-date">15 de setembro de 2026</span>
+                        <span class="entry-sep"></span>
+                        <span class="entry-author">Bonafé &amp; Claude Code</span>
+                    </div>
+                    <h2 class="entry-title">Uma imagem Docker que parou de existir da noite pro dia</h2>
+                </div>
+                <div class="entry-body">
+                    <p>O <code>docker compose up</code> começou a falhar num serviço que nunca tínhamos tocado: o MinIO. A causa não estava em nada que escrevemos — a MinIO arquivou a edição community e removeu <code>minio/minio</code> do Docker Hub, e todo pull da imagem passou a devolver "pull access denied", como se a imagem nunca tivesse existido. Trocamos para o registry oficial que restou, <code>quay.io/minio/minio</code>.</p>
+                    <p><em>Uma dependência externa pode sumir sem aviso nenhum, mesmo sendo tão básica quanto o nome de uma imagem num <code>docker-compose.yml</code>. O ambiente de desenvolvimento de ninguém está imune a decisões que outro projeto toma sobre o próprio modelo de negócio.</em></p>
+                </div>
+            </article>
+
+            <!-- Entrada 21 -->
+            <article class="entry-card">
+                <div class="entry-header">
+                    <div class="entry-meta">
+                        <span class="entry-date">11 de setembro de 2026</span>
+                        <span class="entry-sep"></span>
+                        <span class="entry-author">Bonafé &amp; Claude Code</span>
+                    </div>
+                    <h2 class="entry-title">Duas portas trancadas de jeitos opostos, a mesma casa</h2>
+                </div>
+                <div class="entry-body">
+                    <p>Escrevemos um roteiro didático comparando os dois modelos de segurança que o sistema usa nas duas pontas do fluxo de captura, porque olhados lado a lado eles pareciam inconsistentes até alguém explicar por que não são. O orchestrator (FastAPI) autentica <em>opt-in</em>, rota por rota, via <code>Depends(require_jwt)</code>: cada endpoint decide explicitamente se exige token. O portal (Django) autentica <em>opt-out</em>, por um middleware global com allowlist: toda URL exige sessão por padrão, e as poucas exceções entram numa lista curta e explícita — a inversão que fizemos meses atrás justamente para parar de esquecer de proteger uma rota nova.</p>
+                    <p>O roteiro também cobre um detalhe que passa despercebido de fora: dentro do mesmo request, há dois saltos de autenticação, não um. O JWT prova quem é o usuário; o <code>X-Internal-Token</code>, separado, prova que quem está chamando o portal é de fato o orchestrator, e não qualquer cliente que descobriu o formato do JWT.</p>
+                    <p>E dois pontos que valem a pena registrar porque generalizam: autorização como filtro na queryset — em vez de buscar o objeto e checar depois se o dono bate — fecha o IDOR de uma vez e devolve 404 indistinguível de "não existe" para quem tenta acessar artefato de outra organização, sem vazar "existe, mas não é seu". E o <code>sandbox=""</code> no iframe que mostra o HTML capturado continua sendo a defesa client-side contra o próprio conteúdo que a investigação armazenou — prova OSINT, não código de confiança.</p>
+                    <p>Dias depois, o guia precisou de um adendo pequeno: o log de eventos abriu um canal de ingestão novo, <code>POST /eventos/api/v1/ingest/</code>, serviço-a-serviço — e ele repete exatamente o mesmo padrão dos outros dois, mesmo <code>X-Internal-Token</code>, mesma entrada explícita na allowlist. O roteiro só ficava incompleto por não citar o caso que mostra o padrão se repetindo numa fronteira nova.</p>
+                    <p><em>Dois modelos de segurança que parecem opostos numa primeira leitura podem ser, na verdade, a mesma decisão aplicada a dois clientes diferentes: um framework que não tem sessão embutida escolhe opt-in; um framework que já tem sessão embutida ganha mais ao inverter o padrão para opt-out.</em></p>
+                </div>
+            </article>
+
+            <!-- Entrada 20 -->
+            <article class="entry-card">
+                <div class="entry-header">
+                    <div class="entry-meta">
+                        <span class="entry-date">11 de setembro de 2026</span>
+                        <span class="entry-sep"></span>
+                        <span class="entry-author">Bonafé &amp; Claude Code</span>
+                    </div>
+                    <h2 class="entry-title">O pipeline sabia processar. Não sabia contar o que tinha feito.</h2>
+                </div>
+                <div class="entry-body">
+                    <p>O pipeline é assíncrono e distribuído por três serviços, mas não conseguia contar a própria história: todo o rastro existia como <code>logger.info</code> solto no stdout de contêineres, e sumia no primeiro restart. Nenhum campo de status em <code>Artifact</code> nem em <code>DocumentText</code> — o progresso era inferido pela ausência de linhas em outras tabelas, e uma falha não deixava marca nenhuma no banco.</p>
+                    <p>O caso que forçou a decisão: uma captura não gerou os dados do dom2parser, e havia oito caminhos de código distintos capazes de produzir exatamente esse sintoma, a maioria sem log algum. Com a instrumentação nova, a resposta apareceu já na primeira execução real: <code>dom2parser.compress</code> levantava <code>SelectorSyntaxError</code> em páginas com classes Tailwind de valor arbitrário, porque o <code>cssselect</code> não sabe parsear aquilo — em páginas comuns a mesma biblioteca funcionava sem problema. Diagnosticado ali mesmo; a correção da dependência ficaria para depois.</p>
+                    <p>O núcleo do novo app <code>apps/events/</code> é o <code>PipelineEvent</code>, append-only, com ordem total garantida pela sequência do próprio Postgres, correlação ponta a ponta e identidade do nó executor. A distinção que faltava para diagnosticar campos NULL virou explícita: <code>vazio</code> ("rodou e não produziu") não é <code>falhou</code> ("quebrou") — são estados diferentes que um NULL sozinho nunca conseguiu contar. Em cima do log, <code>PipelineRun</code> é uma projeção derivada e descartável, que <code>manage.py reconstruir_projecoes</code> regenera do zero — e um teste prova que o resultado bate exatamente com o que foi construído incrementalmente, evento por evento.</p>
+                    <p>Uma regra ficou fixada desde o primeiro commit: <code>emit()</code> e o gerenciador de contexto <code>etapa()</code> nunca propagam exceção, truncam o payload em 8 KB e descartam qualquer chave de conteúdo ou de segredo — observabilidade não pode ser o motivo de uma captura quebrar. Foi essa mesma instrumentação que revelou, de graça, um buraco silencioso que ninguém tinha ido procurar: quando o registro no portal falha, o MHTML fica órfão no MinIO e o catch-up periódico nunca o via, porque varre a tabela <code>Artifact</code>, não o bucket — agora esse caso emite <code>captura.orfa</code> e para de ser invisível.</p>
+                    <p>A parte mais reveladora só apareceu ao testar com três workers Celery rodando de verdade, ao mesmo tempo, em vez de sequencialmente: sete defeitos até então invisíveis. Um retry sendo contado como falha. Um caminho <code>already_done</code> sem evento nenhum, travando a trilha visual em "8 de 9" para sempre. Um contador que somava entre reprocessamentos em vez de zerar. Contagem de eventos brutos em vez de itens distintos processados. Eventos automáticos do próprio Celery chegando sem tenant, e por isso invisíveis no painel. Uma guarda de idempotência descartando eventos legítimos só porque chegaram fora de ordem. E uma projeção que dependia implicitamente da ordem de chegada das mensagens. Corrigidos os sete, a reconstrução da projeção passou a reproduzir exatamente o estado incremental mesmo sob concorrência real — não só no caso feliz de um worker só.</p>
+                    <p><em>Um sistema pode passar em todo teste sequencial e ainda esconder sete formas diferentes de mentir sobre o que fez. Concorrência real não é um caso extra para testar depois — é a única forma confiável de perguntar ao sistema a pergunta que ele vai enfrentar em produção.</em></p>
+                </div>
+            </article>
+
             <!-- Entrada 19 -->
             <article class="entry-card">
                 <div class="entry-header">
