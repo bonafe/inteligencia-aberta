@@ -302,6 +302,42 @@
         /* As classes .json-tree/.jt-* vêm de static/css/json-tree.css,
            compartilhadas com o painel de eventos. */
 
+        /* Tamanhos — lista compacta de medidores na barra lateral */
+        #tamanhos-chart { display: flex; flex-direction: column; gap: 0.55rem; }
+        .tam-row-head {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            gap: 0.5rem;
+            margin-bottom: 0.2rem;
+        }
+        .tam-row-label {
+            font-size: 0.76rem;
+            color: var(--text-main);
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .tam-row-value {
+            font-size: 0.72rem;
+            font-family: 'JetBrains Mono', monospace;
+            color: var(--text-muted);
+            flex-shrink: 0;
+        }
+        .tam-row-track {
+            height: 6px;
+            border-radius: 3px;
+            background-color: var(--hover);
+            overflow: hidden;
+        }
+        .tam-row-fill {
+            height: 100%;
+            border-radius: 3px;
+            min-width: 2px;
+        }
+        .tam-row.sem-dado .tam-row-value,
+        .tam-row.sem-dado .tam-row-label { opacity: 0.5; }
+
         /* Estruturação LLM / Comparação */
         .llm-toolbar {
             display: flex;
@@ -469,6 +505,11 @@
             </div>
             <div class="metadata-muted" style="margin-top:.4rem" id="meta-counts"></div>
         </div>
+        <div class="metadata-section" id="meta-tamanhos-section" style="display:none">
+            <h3>Tamanhos</h3>
+            <div class="metadata-muted" style="margin-bottom:.5rem">Bytes por etapa (escala log)</div>
+            <div id="tamanhos-chart"></div>
+        </div>
 
         <a href="#" id="btn-fullscreen" class="btn-fullscreen disabled" target="_blank">Abrir MHTML em Tela Cheia</a>
     </div>
@@ -611,7 +652,9 @@
     <button class="btn-copy" onclick="limparSelecao()">Limpar seleção</button>
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
 <script src="{% static 'js/json_tree.js' %}"></script>
+<script src="{% static 'js/tamanhos_chart.js' %}"></script>
 <script>
     // ─── State ───────────────────────────────────────────────────────────────
     const CSRF_TOKEN = "{{ csrf_token }}";
@@ -659,7 +702,9 @@
         });
         document.getElementById('dom-content').style.display = 'none';
         document.getElementById('dom-content').textContent = '';
+        document.getElementById('tamanhos-chart').innerHTML = '';
         document.getElementById('meta-extraction-section').style.display = 'none';
+        document.getElementById('meta-tamanhos-section').style.display = 'none';
 
         // Disable content tabs until we know what's available
         setTabState('tab-texto', false);
@@ -764,6 +809,11 @@
         if (data.word_count) parts.push(`${data.word_count.toLocaleString('pt-BR')} palavras`);
         if (data.char_count) parts.push(`${data.char_count.toLocaleString('pt-BR')} chars`);
         document.getElementById('meta-counts').textContent = parts.join(' · ');
+
+        if (data.tamanhos && data.tamanhos.some(d => d.bytes != null)) {
+            document.getElementById('meta-tamanhos-section').style.display = '';
+            desenharGraficoTamanhos(document.getElementById('tamanhos-chart'), data.tamanhos);
+        }
     }
 
     function renderContent(data) {
