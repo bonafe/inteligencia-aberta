@@ -36,7 +36,7 @@ TRILHA = [
     ("extracao.dom2parser", "dom2parser"),
     ("extracao.extruct", "extruct"),
     ("deteccao.page_type", "detecção"),
-    ("extracao.cascata", "estruturados"),
+    ("extracao.deterministico", "estruturados"),
     ("extracao.concluida", "extração"),
     ("fragmentacao.concluida", "fragmentos"),
     ("embedding.concluido", "embeddings"),

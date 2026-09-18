@@ -368,8 +368,8 @@ const REGRAS = {
             },
         ];
     },
-    // As subetapas de extração (dom2parser, trafilatura, extruct, cascata,
-    // llm, minio, mhtml, schema_cache...) não têm um "extracao.falhou" único —
+    // As subetapas de extração (dom2parser, trafilatura, extruct, deterministico,
+    // minio, mhtml...) não têm um "extracao.falhou" único —
     // cada uma carrega seu próprio status (ok/iniciado/retentando/falhou/
     // ignorado) na etapa em que a falha de fato ocorreu (ex.: "extracao.minio"
     // com status "falhou" quando o objeto não existe no MinIO). O nó do

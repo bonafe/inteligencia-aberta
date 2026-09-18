@@ -179,12 +179,16 @@
                 painelTexto.appendChild(pre);
 
                 // Cada estratégia de extração de structured_data fica no seu próprio
-                // painel — sem fallback silencioso — para comparar dom2parser, extruct
-                // e a vencedora da cascata (que pode ter vindo do LLM) uma a uma.
+                // painel — dom2parser, extruct e o extrator determinístico rodam
+                // sempre, sem fallback silencioso entre eles. "Dados Estruturados
+                // (final)" é o campo que o resto do app consumiria, mas fica vazio
+                // até existir um processo que decida entre as estratégias.
                 const extracoes = [
-                    { chave: 'vencedor', rotulo: `Vencedor · ${data.extractor_version || '?'}`, dados: data.structured_data },
+                    { chave: 'final', rotulo: 'Dados Estruturados (final)', dados: data.structured_data },
                     { chave: 'dom2parser', rotulo: 'DOM2Parser', dados: data.dados_estruturados_dom2parser },
                     { chave: 'extruct', rotulo: 'Extruct', dados: data.dados_estruturados_extruct },
+                    { chave: 'deterministico', rotulo: `Determinístico · ${data.extractor_version || '?'}`,
+                      dados: data.dados_estruturados_deterministico },
                 ];
                 extracoes.forEach(ex => {
                     if (!ex.dados) return;

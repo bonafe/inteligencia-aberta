@@ -310,7 +310,7 @@ def extract_text_from_mhtml(self, artifact_id: str, forcar: bool = False):
             )
 
             # O parser sintetizado é executado aqui mesmo; o resultado alimenta
-            # tanto `dados_estruturados_dom2parser` quanto a cascata abaixo.
+            # `dados_estruturados_dom2parser`.
             dom2parser_extraction = dom_parser.extract_with_spec(
                 parser_spec, html_content, diagnostico=diag_d2p
             )
@@ -333,9 +333,9 @@ def extract_text_from_mhtml(self, artifact_id: str, forcar: bool = False):
         dom2parser_extraction["structured_data"] if dom2parser_extraction else None
     )
 
-    # Extração bruta de cada biblioteca de "dados estruturados de página web", persistida
-    # à parte de `structured_data` (que carrega só a vencedora da cascata abaixo) — para
-    # comparar cobertura/qualidade entre estratégias sem precisar reprocessar o MHTML.
+    # Extração bruta de cada biblioteca de "dados estruturados de página web", cada
+    # uma no seu próprio campo (`dados_estruturados_*`) — para comparar
+    # cobertura/qualidade entre estratégias sem precisar reprocessar o MHTML.
     diag_extruct: dict = {}
     try:
         from .extractors import extruct_extractor
@@ -373,103 +373,45 @@ def extract_text_from_mhtml(self, artifact_id: str, forcar: bool = False):
         artifact_id, page_type, confidence, detection_source, cache_id,
     )
 
-    # Ordem de extração de structured_data (o texto de busca já foi definido acima).
-    # Sem cache: cada captura recalcula tudo do zero, porque o dado da página pode
-    # ter mudado desde a última vez — um schema salvo só sabe extrair os campos que
-    # existiam (com valor) na captura que o gerou, e ficaria preso a isso para sempre.
-    #   1. parser verificado que o dom2parser sintetizou para ESTA página (sem LLM)
-    #   2. LLM — toda vez que o dom2parser não encontrar estruturas repetidas
-    #      (páginas de campos soltos: ficha de CNPJ), se allow_external_llm permitir
-    #   3. extrator determinístico por page_type
-    extracted = None
-    # Trilha da cascata: por que cada estratégia foi (ou não) usada. Vira o
-    # payload de `extracao.cascata` e responde "por que o dado veio daqui".
-    cascata: list[dict] = []
-
-    if dom2parser_extraction is not None:
-        # Já calculado acima — reaproveita sem reexecutar.
-        extracted = dom2parser_extraction
-        registros = extracted["structured_data"]["registros"]
-        logger.info(
-            "[%s] parser dom2parser extraiu %d registros — %s",
-            artifact_id, len(registros), {k: len(v) for k, v in registros.items()},
+    # Extrator determinístico por page_type: roda sempre, ao lado do dom2parser e
+    # do extruct acima — cada estratégia grava seu próprio campo
+    # `dados_estruturados_*`, sem cascata escolhendo uma vencedora entre elas.
+    # `structured_data` (o campo final que o resto do app consumiria) fica de
+    # propósito sem valor por enquanto: decidir qual estratégia — ou combinação
+    # delas — o alimenta é um processo à parte, ainda não implementado.
+    #
+    # Extração por LLM não roda mais automaticamente aqui — por ora é
+    # disparada manualmente pela aba "Execuções LLM" da galeria
+    # (`estruturar_llm_manual`, ver extractors/estruturacao_manual.py).
+    try:
+        with etapa("extracao.deterministico", subject_type="artifact", subject_id=artifact.id,
+                   tenant_id=tenant_id) as e:
+            deterministico = route(page_type, html_content, url, title)
+            dados_estruturados_deterministico = deterministico.get("structured_data")
+            extractor_version = deterministico["extractor_version"]
+            if dados_estruturados_deterministico:
+                e.ok(f"extrator determinístico produziu dados ({extractor_version})",
+                     extractor_version=extractor_version)
+            else:
+                e.vazio(f"extrator determinístico não produziu dados ({extractor_version})",
+                        extractor_version=extractor_version)
+    except Exception:
+        logger.exception(
+            "[%s] extrator determinístico falhou — seguindo sem dados_estruturados_deterministico",
+            artifact_id,
         )
-        cascata.append({"estrategia": "dom2parser", "usada": True,
-                        "registros": {k: len(v) for k, v in registros.items()}})
-    else:
-        logger.info("[%s] dom2parser não sintetizou parser utilizável para esta página", artifact_id)
-        cascata.append({"estrategia": "dom2parser", "usada": False,
-                        "motivo": diag_d2p.get("motivo", "sem parser utilizável")})
-
-    # LLM: quando o dom2parser não achou estrutura repetida, o LLM entende a página
-    # e extrai os dados estruturados diretamente. Roda em toda captura que precisar
-    # dele — não só na primeira — porque não há mais schema para reaproveitar depois.
-    if extracted is None and artifact.allow_external_llm:
-        logger.info("[%s] extraindo dados estruturados via LLM", artifact_id)
-        try:
-            with etapa("extracao.llm", subject_type="artifact", subject_id=artifact.id,
-                       tenant_id=tenant_id) as e:
-                from .extractors.llm_classifier import llm_extract
-
-                skeleton = dom_representation
-                if skeleton is None:
-                    import dom2parser
-                    skeleton = dom2parser.compress(html_content).text
-                llm_result = llm_extract(
-                    skeleton, url, page_type_hint=page_type,
-                    artifact_id=artifact.id, tenant_id=tenant_id,
-                )
-
-                if llm_result and llm_result.get("structured_data"):
-                    extracted = {
-                        "structured_data": llm_result["structured_data"],
-                        "extractor_version": "llm_direct:1.0",
-                    }
-                    # Refine page_type if LLM disagrees with structural analysis
-                    if llm_result.get("page_type") and llm_result["page_type"] != "desconhecido":
-                        page_type = llm_result["page_type"]
-
-                    e.ok("LLM extraiu dados estruturados",
-                         modelo=llm_result.get("model", ""),
-                         page_type=page_type,
-                         chars_enviados=len(skeleton or ""))
-                    cascata.append({"estrategia": "llm", "usada": True})
-                else:
-                    logger.warning("[%s] LLM não produziu dados estruturados — fallback para extrator determinístico", artifact_id)
-                    e.vazio("LLM não produziu dados estruturados",
-                            chars_enviados=len(skeleton or ""))
-                    cascata.append({"estrategia": "llm", "usada": False,
-                                    "motivo": "LLM não produziu dados estruturados"})
-        except Exception:
-            logger.exception("[%s] llm_extract falhou — fallback para extrator determinístico", artifact_id)
-            cascata.append({"estrategia": "llm", "usada": False, "motivo": "exceção na chamada"})
-    elif extracted is None:
-        cascata.append({
-            "estrategia": "llm", "usada": False,
-            "motivo": "LLM externo não permitido para esta classificação",
-        })
-
-    if extracted is None:
-        logger.info("[%s] extraindo structured_data com extrator determinístico=%s", artifact_id, page_type)
-        extracted = route(page_type, html_content, url, title)
-        cascata.append({"estrategia": "deterministico", "usada": True,
-                        "extractor_version": extracted["extractor_version"]})
-
-    evento("extracao.cascata",
-           "ok" if extracted.get("structured_data") else "vazio",
-           message=f"structured_data via {extracted['extractor_version']}",
-           payload={"extractor_version": extracted["extractor_version"],
-                    "page_type": page_type, "trilha": cascata})
+        dados_estruturados_deterministico = None
+        extractor_version = ""
 
     logger.info(
-        "[%s] extração concluída — chars=%d words=%d structured_data=%s extractor=%s "
-        "dom2parser=%s extruct=%s",
+        "[%s] extração concluída — chars=%d words=%d dom2parser=%s extruct=%s deterministico=%s",
         artifact_id, len(text), len(text.split()),
-        "sim" if extracted.get("structured_data") else "não",
-        extracted["extractor_version"],
         "sim" if dados_estruturados_dom2parser else "não",
         "sim" if dados_estruturados_extruct else "não",
+        "sim" if dados_estruturados_deterministico else "não",
     )
+
+    from . import tamanhos as tamanhos_mod
 
     doc_text = DocumentText.objects.create(
         document=artifact,
@@ -481,11 +423,24 @@ def extract_text_from_mhtml(self, artifact_id: str, forcar: bool = False):
         detection_confidence=confidence,
         detection_source=detection_source,
         url_pattern_cache_id=cache_id,
-        structured_data=extracted.get("structured_data"),
+        # Vencedora entre as estratégias — decisão adiada, ver comentário acima.
+        structured_data=None,
         dados_estruturados_dom2parser=dados_estruturados_dom2parser,
         dados_estruturados_extruct=dados_estruturados_extruct,
+        dados_estruturados_deterministico=dados_estruturados_deterministico,
         dom_representation=dom_representation,
-        extractor_version=extracted["extractor_version"],
+        tamanhos=tamanhos_mod.montar(
+            mhtml_bytes=mhtml_bytes,
+            html_content=html_content,
+            text=text,
+            full_text=full_text,
+            dom_representation=dom_representation,
+            structured_data=None,
+            dados_estruturados_dom2parser=dados_estruturados_dom2parser,
+            dados_estruturados_extruct=dados_estruturados_extruct,
+            dados_estruturados_deterministico=dados_estruturados_deterministico,
+        ),
+        extractor_version=extractor_version,
         char_count=len(text),
         word_count=len(text.split()),
     )
@@ -493,12 +448,12 @@ def extract_text_from_mhtml(self, artifact_id: str, forcar: bool = False):
     evento("extracao.concluida", "ok",
            message=f"DocumentText criado ({doc_text.word_count} palavras)",
            payload={"document_text_id": str(doc_text.id),
-                    "extractor_version": extracted["extractor_version"],
+                    "extractor_version": extractor_version,
                     "page_type": page_type,
                     "palavras": doc_text.word_count,
-                    "tem_structured_data": bool(extracted.get("structured_data")),
                     "tem_dom2parser": dados_estruturados_dom2parser is not None,
                     "tem_extruct": dados_estruturados_extruct is not None,
+                    "tem_deterministico": dados_estruturados_deterministico is not None,
                     "tem_dom_representation": dom_representation is not None,
                     "tem_full_text": bool(full_text)})
 

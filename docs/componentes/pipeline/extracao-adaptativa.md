@@ -14,9 +14,10 @@ O campo `text` do `DocumentText` — usado para fragmentação e busca semântic
 `allow_external_llm` ou de qual caminho de extração estruturada rodou.
 
 Toda a classificação adaptativa (análise estrutural, classificação por LLM,
-extração+schema por LLM, extratores determinísticos por tipo,
-`schema_driven_extract`) existe **apenas** para produzir `structured_data`.
-Nenhum desses caminhos gera mais o texto usado para embedding.
+parser verificado do dom2parser, extruct, extratores determinísticos por tipo)
+existe **apenas** para produzir os campos `dados_estruturados_*` (ver "Mudança
+de estratégia" abaixo). Nenhum desses caminhos gera mais o texto usado para
+embedding.
 
 Motivação: extratores heurísticos por tipo de página e respostas de LLM são
 frágeis o suficiente para falhar silenciosamente em produzir texto completo
@@ -91,37 +92,59 @@ extract_text_from_mhtml(artifact_id)
     ├─ dom2parser.compress(html) roda uma única vez (reaproveitado pelas etapas acima)
     │       ├─ .text   → sempre gravado em DocumentText.dom_representation
     │       └─ .parser → ParserSpec verificado desta página          [Estratégia A′]
+    │               └─ dom_parser.extract_with_spec(parser, html)
+    │                       → DocumentText.dados_estruturados_dom2parser
     │
-    ├─ 1. [SE cache_obj.extractor_config presente] → schema_driven_extract(html, config)   [capturas 2+]
-    │       ├─ formato 2.0 (generated_by: dom2parser) → executor lxml do dom2parser
-    │       ├─ formato 1.0 (LLM) → seletores CSS interpretados via BeautifulSoup
-    │       └─ não extraiu nada → _update_schema_health (2 falhas → zera config) e segue
+    ├─ extruct_extractor.extract(html, url)                          [sempre, sem LLM]
+    │       └─ DocumentText.dados_estruturados_extruct (JSON-LD/Microdata/OpenGraph)
     │
-    ├─ 2. [SE ainda sem dados E .parser tem registros verificados] → dom_parser.extract_with_spec
-    │       ├─ structured_data = {"registros": {nome: [linhas]}}  (sem LLM, sem rede)
-    │       └─ cache sem extractor_config → grava ParserSpec serializado (formato 2.0)
+    ├─ route(page_type, html, url, title)                            [sempre, sem LLM]
+    │       ├─ tabular_financeiro  → extract_financial_table
+    │       ├─ tabular_generico    → extract_generic_table
+    │       ├─ processo_judicial   → extract_judicial_process
+    │       ├─ perfil_pessoa_juridica → extract_company_profile
+    │       ├─ documento_juridico  → extract_legal_document
+    │       ├─ misto               → extract_mixed
+    │       └─ artigo / desconhecido → extract_fallback (sem structured_data)
+    │       └─ DocumentText.dados_estruturados_deterministico + extractor_version
     │
-    ├─ 3. [SE ainda sem dados E allow_external_llm E cache sem extractor_config] → 1ª captura com LLM
-    │       ├─ (reaproveita dom2parser.compress(html).text acima)  [Estratégia A]
-    │       ├─ llm_extract(skeleton, url, hint)  [Estratégia C — Sonnet]
-    │       │       └─ retorna: categoria + page_type + structured_data (sem texto, sem schema)
-    │       ├─ usa structured_data como resultado da extração (imediato)
-    │       └─ grava schema em URLPatternCache.extractor_config (formato 1.0)
+    ├─ [FORA deste fluxo, sob demanda] estruturar_manual(provider, model, skeleton, url)
+    │       disparado manualmente pela aba "Execuções LLM" da galeria
+    │       (task estruturar_llm_manual → EstruturacaoLLM), Claude ou Ollama;
+    │       nunca roda dentro de extract_text_from_mhtml (2026-09-17)
     │
-    ├─ 4. [ELSE] extrator determinístico por tipo (fallback)
-    │               ├─ tabular_financeiro  → extract_financial_table
-    │               ├─ tabular_generico    → extract_generic_table
-    │               ├─ processo_judicial   → extract_judicial_process
-    │               ├─ perfil_pessoa_juridica → extract_company_profile
-    │               ├─ documento_juridico  → extract_legal_document
-    │               ├─ misto               → extract_mixed
-    │               └─ artigo / desconhecido → extract_fallback (sem structured_data)
-    │       (todos os caminhos acima só alimentam structured_data + extractor_version —
-    │        o texto já foi definido no passo extract_narrative_text, no topo)
+    ├─ DocumentText.structured_data fica None — nenhum processo decide "a vencedora"
+    │       entre dom2parser/extruct/determinístico por enquanto; a lógica que
+    │       atribui esse campo é um processo futuro, ainda não implementado
     │
-    ├─ cria DocumentText com text (trafilatura), full_text, page_type, structured_data, extractor_version
+    ├─ cria DocumentText com text (trafilatura), full_text, page_type,
+    │       dados_estruturados_dom2parser, dados_estruturados_extruct,
+    │       dados_estruturados_deterministico, structured_data=None
     └─ dispara fragment_text.delay(doc_text.id)
 ```
+
+### Mudança de estratégia (2026-09-17): sem cascata, tudo vira campo
+
+Até 2026-09-17, `structured_data` era decidido por uma cascata que rodava só uma
+estratégia por vez: parser verificado do dom2parser → LLM (`llm_extract`, ex-
+Estratégia C, se `allow_external_llm`) → extrator determinístico por
+`page_type` como último recurso. Isso escondia o resultado das estratégias que
+perdiam a cascata — só a vencedora ficava persistida.
+
+Agora dom2parser (A′), extruct e o extrator determinístico rodam **sempre**,
+incondicionalmente, cada um gravando o seu próprio campo
+(`dados_estruturados_dom2parser`, `dados_estruturados_extruct`,
+`dados_estruturados_deterministico`) — dá para comparar os três lado a lado no
+visualizador para qualquer captura, não só quando um deles "ganhou". A extração
+por LLM (ex-Estratégia C) **não roda mais automaticamente** dentro de
+`extract_text_from_mhtml`; a função `llm_extract` que a implementava foi
+removida junto com o cache de schema que a acompanhava (`extractor_config`,
+`schema_driven_extract` — já haviam sido descontinuados antes, ver "Extratores
+por Tipo" abaixo). Extração por LLM continua existindo, mas só sob demanda via
+`estruturar_manual()` (aba "Execuções LLM" da galeria), fora do pipeline de
+captura. `structured_data` continua existindo em `DocumentText`, mas fica sem
+valor por enquanto: decidir qual estratégia (ou combinação) o alimenta é um
+processo à parte, deixado para depois.
 
 ---
 
@@ -201,11 +224,11 @@ O portal usa isso como **extrator primário de `structured_data`**
 }
 ```
 
-Consequência para o LLM: a Estratégia C (abaixo) passa a rodar **apenas** quando o
-`dom2parser` não encontrou nenhuma estrutura repetida verificada — tipicamente páginas
-de campos soltos (ficha de CNPJ, cabeçalho de processo). Nesses casos o prompt avisa ao
-modelo que as linhas `selector:`/`fields:` da representação já são seletores medidos e
-devem ser reaproveitados, e que os caminhos truncados (`div.x > ul > li`) não são.
+Consequência para o LLM: quando alguém dispara extração manual (`estruturar_manual`,
+abaixo) numa página onde o `dom2parser` já achou estrutura repetida verificada, o
+prompt avisa ao modelo que as linhas `selector:`/`fields:` da representação já são
+seletores medidos e devem ser reaproveitados, e que os caminhos truncados
+(`div.x > ul > li`) não são.
 
 ---
 
@@ -242,7 +265,7 @@ Lista dos tipos de página suportados + descrições
 }
 ```
 
-O campo `hints` é opcional — o LLM o inclui quando consegue identificar seletores ou padrões estruturais relevantes para a Estratégia C.
+O campo `hints` é opcional — o LLM o inclui quando consegue identificar seletores ou padrões estruturais relevantes. Hoje não alimenta nenhuma extração automática (ver "Estruturação manual" abaixo); fica disponível para quem for estruturar a página manualmente.
 
 ### Cache e custo
 
@@ -253,107 +276,27 @@ O campo `hints` é opcional — o LLM o inclui quando consegue identificar selet
 
 ---
 
-## Estratégia C — Extração + Schema Unificados (primeira captura)
+## Estratégia C (histórico) — Extração por LLM, hoje manual
 
-Na **primeira captura** de um padrão URL novo com `allow_external_llm=True`, **e somente se o parser verificado do `dom2parser` (Estratégia A′) não produziu registros**, o LLM faz tudo em uma única chamada: categoriza a página, extrai os dados estruturados e produz o schema de seletores CSS para reuso.
+Até 2026-09-17 esta estratégia rodava automaticamente na primeira captura de um
+padrão de URL (com `allow_external_llm=True` e sem registros do parser
+verificado): o LLM categorizava a página, extraía `structured_data` e gerava um
+schema de seletores CSS (`URLPatternCache.extractor_config`) para reuso nas
+capturas seguintes via `schema_driven_extract` — já removido antes desta
+mudança (ver commit "remove reuso de schema em cache na extração de
+structured_data"). A função que fazia a chamada (`llm_extract`) foi removida
+junto com a troca de estratégia deste documento; `URLPatternCache.extractor_config`
+permanece no modelo só como campo zerado em divergências (ver "Cache de
+Padrões de URL" abaixo), sem uso na extração.
 
-Isso é fundamental: o extrator determinístico não roda na primeira captura quando LLM está habilitado e retorna `structured_data` — o LLM substitui completamente a extração estruturada, não só complementa. Mas o LLM nunca substitui um parser verificado: se o `dom2parser` já alcançou os registros da página com seletores medidos, não há chamada externa. **O LLM não gera texto de busca** — esse campo é sempre produzido separadamente por `extract_narrative_text()` (trafilatura), como descrito em "Princípio: texto de busca sempre via trafilatura" no topo deste documento. Isso limita o dano de uma resposta de LLM malformada ou incompleta: mesmo que `structured_data` saia vazio ou o schema seja inválido, o texto pesquisável do documento nunca depende do LLM.
-
-### Modelo usado
-
-`LLM_EXTRACTOR_MODEL` (padrão: `claude-sonnet-5`) — modelo de maior qualidade, justificado pelo fato de que o custo é amortizado em todas as capturas seguintes do mesmo padrão.
-
-### Input
-
-```
-URL da página
-Dica de page_type da análise estrutural (não vinculante)
-Representação estrutural comprimida via dom2parser (Estratégia A)
-```
-
-### Output esperado
-
-```json
-{
-  "categoria": "Extrato de conta corrente do Banco do Brasil, março 2025",
-  "page_type": "tabular_financeiro",
-  "structured_data": {
-    "conta": "12345-6",
-    "periodo": {"inicio": "2025-03-01", "fim": "2025-03-31"},
-    "transacoes": [
-      {"data": "2025-03-01", "descricao": "PIX recebido João Silva", "valor": 500.00, "saldo": 1500.00}
-    ]
-  },
-  "schema": {
-    "version": "1.0",
-    "generated_by": "llm",
-    "model": "claude-sonnet-5",
-    "categoria": "Extrato de conta corrente do Banco do Brasil, março 2025",
-    "generated_at": "2025-06-03T14:00:00Z",
-    "fields": {
-      "conta": {"selector": ".numero-conta", "transform": "text"}
-    },
-    "tables": [
-      {
-        "selector": "table.lancamentos",
-        "columns": {
-          "data":      {"index": 0, "transform": "date_br"},
-          "descricao": {"index": 1, "transform": "text"},
-          "valor":     {"index": 2, "transform": "brl_float"},
-          "saldo":     {"index": 3, "transform": "brl_float"}
-        }
-      }
-    ]
-  }
-}
-```
-
-### Transforms disponíveis
-
-| Transform | Comportamento |
-|-----------|---------------|
-| `text` | `element.get_text(strip=True)` |
-| `brl_float` | Parse de valor monetário BR → float (ex: `R$ 1.234,56` → `1234.56`) |
-| `date_br` | Normaliza `dd/mm/yyyy` → `yyyy-mm-dd` |
-| `attr:href` | Extrai atributo `href` do elemento |
-
-### Extrator genérico (`schema_driven_extract`)
-
-Interpreta o schema usando BeautifulSoup em capturas subsequentes. **Não usa `exec()` nem `eval()`** — o schema é dados, não código. Se um seletor falhar, o campo é omitido com warning; a extração continua.
-
-### Ciclo de vida
-
-```
-1ª captura (LLM habilitado, sem schema)
-    → llm_extract() extrai structured_data (sem texto, sem schema)
-    → structured_data usado imediatamente; texto já veio de extract_narrative_text
-    → schema VALIDADO contra o próprio HTML da captura
-        → válido   → gravado em URLPatternCache.extractor_config
-                     (schema_failure_count=0, needs_review=False)
-        → inválido → NÃO gravado; próxima captura tenta regenerar
-
-2ª+ capturas (LLM habilitado ou não)
-    → cache HIT → schema_driven_extract() — zero chamadas ao LLM
-    → sucesso (extractor_version schema_driven:*) → schema_failure_count zerado
-    → falha (caiu no fallback) → schema_failure_count incrementado
-
-≥ 2 falhas consecutivas do schema
-    → extractor_config zerado; needs_review=True
-    → próxima captura com LLM regenera o schema (custo pago uma vez)
-    → schema regenerado e validado limpa needs_review (ciclo autônomo)
-
-divergência estrutural (page_type) → divergence_count incrementado
-≥ 3 divergências → needs_review=True; extractor_config zerado; volta à 1ª captura
-
-1ª captura (LLM desabilitado ou falha do LLM)
-    → extrator determinístico como fallback
-```
-
-O contador de falhas do schema (`schema_failure_count`) é o detector mais fiel de
-mudança de estrutura: o `structure_fingerprint` mede o conteúdo visível (título,
-headings, headers de tabela), mas os seletores dependem de classes e IDs — que
-mudam de forma independente (ex: rebuild do frontend com CSS hasheado). Testar se
-os seletores ainda extraem dados é testar exatamente a pergunta que importa.
+Hoje a extração por LLM só existe sob demanda: `estruturar_manual()`
+(`apps/artifacts/extractors/estruturacao_manual.py`), disparada pela aba
+"Execuções LLM" da galeria (task `estruturar_llm_manual`, modelo
+`EstruturacaoLLM`). Aceita Claude ou Ollama, usa o mesmo prompt de extração
+(`_EXTRACT_SYSTEM` em `llm_common.py`) e o mesmo esqueleto comprimido via
+dom2parser (Estratégia A) como input — mas nunca grava schema nem é chamada
+automaticamente pelo pipeline de captura. `LLM_EXTRACTOR_MODEL` continua sendo
+o modelo padrão pré-selecionado nessa aba.
 
 ### Limitações resolvidas (2026-07-02)
 
@@ -373,22 +316,25 @@ Duas limitações registradas em 2026-06-03 foram corrigidas:
 
 ---
 
-## Extração bruta por biblioteca (comparação, 2026-09-11)
+## Extração bruta por biblioteca — dom2parser, extruct, determinístico (2026-09-17)
 
-Além de `structured_data` (a vencedora da cascata acima, usada pelo resto do app),
-`DocumentText` guarda o resultado **bruto** de cada biblioteca de extração
-estrutural que roda sobre o HTML, sem passar pela cascata de decisão. Servem para
-comparar cobertura/qualidade entre estratégias e depurar sem reprocessar o MHTML —
-não alimentam busca, embeddings nem nenhum consumidor além do visualizador.
+`DocumentText` guarda o resultado de cada estratégia de extração estrutural que
+roda sobre o HTML, cada uma no seu próprio campo, **sem** uma cascata de decisão
+escolhendo uma vencedora entre elas (ver "Mudança de estratégia" no topo deste
+documento). Servem para comparar cobertura/qualidade entre estratégias e
+depurar sem reprocessar o MHTML — não alimentam busca, embeddings nem nenhum
+consumidor além do visualizador.
 
-| Campo | Biblioteca | O que captura |
+| Campo | Fonte | O que captura |
 |---|---|---|
-| `dados_estruturados_dom2parser` | [`dom2parser`](https://bonafe.github.io/dom2parser/) (Estratégia A′) | Estruturas repetidas inferidas por padrão do DOM (tabelas, listas) — `{"registros": {...}}`, igual ao formato de `structured_data` quando essa é a fonte vencedora |
+| `dados_estruturados_dom2parser` | [`dom2parser`](https://bonafe.github.io/dom2parser/) (Estratégia A′) | Estruturas repetidas inferidas por padrão do DOM (tabelas, listas) — `{"registros": {...}}` |
 | `dados_estruturados_extruct` | [`extruct`](https://github.com/scrapinghub/extruct) | Metadados que o próprio site declara: JSON-LD, Microdata, OpenGraph e Microformats (schema.org Organization/Person/Article/Product, meta tags sociais). RDFa fica de fora — nesta lib ele confunde `role=` de acessibilidade com metadado de conteúdo (medido: 262 itens de ruído puro numa única página) |
+| `dados_estruturados_deterministico` | Extrator hardcoded por `page_type` (`route()`, ver "Extratores por Tipo" abaixo) | Formato específico por tipo — ex.: `{"tipo": "tabular_financeiro", "transacoes": [...]}` |
+| `structured_data` | Nenhuma por enquanto | Campo final que o resto do app consumiria; decisão de qual estratégia (ou combinação) o alimenta é um processo à parte, ainda não implementado |
 
-Ambas rodam de forma determinística, sem LLM e sem rede, em **toda captura**,
-independente de `page_type`, `allow_external_llm` ou de qual estratégia venceu a
-cascata (`apps/artifacts/tasks.py`, logo após `dom2parser.compress(html)`):
+Todas rodam de forma determinística, sem LLM e sem rede, em **toda captura**,
+incondicionalmente — independente de `page_type` ou `allow_external_llm`
+(`apps/artifacts/tasks.py`, logo após `dom2parser.compress(html)`):
 
 - `dados_estruturados_dom2parser` reaproveita a mesma execução de
   `dom_parser.extract_with_spec()` usada na Estratégia A′ — não há segunda passada
@@ -401,11 +347,16 @@ cascata (`apps/artifacts/tasks.py`, logo após `dom2parser.compress(html)`):
   locale) já achatados, do primeiro formato disponível na ordem json-ld >
   microdata > opengraph; `raw` é a saída crua de cada formato encontrado, para
   quem quiser inspecionar o que o `resumo` deixou de fora.
+- `dados_estruturados_deterministico` vem do mesmo `route()` que antes só rodava
+  como último recurso da cascata — agora roda sempre, e seu `extractor_version`
+  (ex.: `financial_table:1.0`, `fallback:1.0`) é o que fica em
+  `DocumentText.extractor_version`.
 
 Complementares por natureza: `dom2parser` infere estrutura por repetição no DOM
 mesmo sem marcação alguma; `extruct` só lê o que o publicador anotou
-explicitamente, mas quando presente costuma ser mais confiável que qualquer
-heurística. Nenhuma delas substitui a outra nem a cascata de `structured_data`.
+explicitamente; o determinístico aplica regras específicas por `page_type`
+(colunas de extrato, número CNJ, etc.) que nenhuma das outras duas conhece.
+Nenhuma substitui a outra.
 
 ---
 
@@ -481,13 +432,14 @@ heurística. Nenhuma delas substitui a outra nem a cascata de `structured_data`.
 |----------|------|
 | Hit, confidence ≥ 0.9, `needs_review=False` | Retorna tipo cacheado; incrementa `hit_count`; pula análise |
 | Hit, confidence < 0.9 ou `needs_review=True` | Roda análise estrutural para confirmar; compara |
-| Miss | Análise estrutural → se confidence < 0.75, aciona B+C → cria registro |
+| Miss | Análise estrutural → se confidence < 0.75, aciona classificação por LLM (Estratégia B) → cria registro |
 | Divergência (tipo diferente do cache) | Incrementa `divergence_count` |
-| `divergence_count ≥ 3` | `needs_review=True`; schema invalidado (`extractor_config={}`) |
-| Schema não extraiu dados (caiu no fallback) | Incrementa `schema_failure_count` |
-| Schema extraiu dados | Zera `schema_failure_count` |
-| `schema_failure_count ≥ 2` | `needs_review=True`; schema invalidado (`extractor_config={}`); próxima captura com LLM regenera |
-| Schema regenerado e validado com sucesso | Zera contadores; limpa `needs_review` (ciclo autônomo) |
+| `divergence_count ≥ 3` | `needs_review=True`; `extractor_config` zerado |
+
+Este cache decide só `page_type` — não decide mais extração de `structured_data`
+(ver "Estratégia C (histórico)" acima): `extractor_config`, `schema_failure_count`
+seguem no modelo por compatibilidade de dados existentes, mas nada os lê ou
+escreve fora da linha de `divergence_count` acima.
 
 O cache é **isolado por tenant**: organização A nunca acessa o cache da organização B.
 
@@ -512,13 +464,13 @@ class URLPatternCache(models.Model):
     detection_source     = models.CharField(max_length=30, default="structural_analysis")
     # "structural_analysis" | "llm_classification"
     extractor_config     = models.JSONField(default=dict)
-    # vazio → usa extrator determinístico ou LLM direto; preenchido → schema_driven_extract
-    # inclui: version, fields, tables, categoria, generated_by, model, generated_at
+    # Não alimenta mais extração de structured_data (ver "Estratégia C —
+    # histórico" acima) — só existe hoje para ser zerado quando
+    # divergence_count estoura o limite abaixo.
     hit_count            = models.PositiveIntegerField(default=1)
     divergence_count     = models.PositiveIntegerField(default=0)
     schema_failure_count = models.PositiveIntegerField(default=0)
-    # capturas consecutivas em que os seletores do schema não extraíram nada;
-    # ≥ 2 → extractor_config zerado + needs_review (regenera via LLM na próxima)
+    # Não atualizado por nenhum processo hoje — sobra do schema-caching removido.
     needs_review         = models.BooleanField(default=False)
     last_seen_at         = models.DateTimeField(auto_now=True)
     created_at           = models.DateTimeField(auto_now_add=True)
@@ -537,10 +489,11 @@ class URLPatternCache(models.Model):
   "detection_confidence": 0.90,
   "detection_source": "cache | structural_analysis | llm_classification",
   "url_pattern_cache_id": "uuid-do-cache",
-  "extractor_version": "schema_driven:1.0 | financial_table:1.0 | ...",
-  "structured_data": { ... },
+  "extractor_version": "financial_table:1.0 | fallback:1.0 | ...",
+  "structured_data": null,
   "dados_estruturados_dom2parser": { ... },
   "dados_estruturados_extruct": { ... },
+  "dados_estruturados_deterministico": { ... },
   "char_count": 1234,
   "word_count": 234
 }
@@ -550,42 +503,47 @@ class URLPatternCache(models.Model):
 
 ## Extratores por Tipo (determinísticos)
 
-Usados quando `extractor_config` está vazio — ou seja, nas primeiras capturas de padrões novos e em tipos com alta confiança estrutural. **Produzem apenas `structured_data`** — o campo `text` do `DocumentText` nunca vem daqui; é sempre `extract_narrative_text()` (trafilatura), calculado uma única vez antes da detecção de tipo (ver "Princípio: texto de busca sempre via trafilatura").
+Rodam **sempre**, em toda captura, independente de cache ou de qualquer outra
+estratégia (ver "Mudança de estratégia" no topo deste documento) — não são mais
+um fallback de último recurso. **Produzem apenas `dados_estruturados_deterministico`
+e `extractor_version`** — o campo `text` do `DocumentText` nunca vem daqui; é sempre
+`extract_narrative_text()` (trafilatura), calculado uma única vez antes da detecção
+de tipo (ver "Princípio: texto de busca sempre via trafilatura").
 
 ### `artigo`
-- **structured_data:** `null` (não há extração estruturada específica para prosa)
+- **dados_estruturados_deterministico:** `null` (não há extração estruturada específica para prosa)
 
 ### `tabular_financeiro`
 - **Lib:** BeautifulSoup + heurística de mapeamento de colunas por header
-- **structured_data:**
+- **dados_estruturados_deterministico:**
   ```json
   {"tipo": "tabular_financeiro", "transacoes": [{"data": "...", "descricao": "...", "valor": -150.0, "saldo": 2340.5}]}
   ```
 
 ### `tabular_generico`
 - **Lib:** BeautifulSoup
-- **structured_data:** `{"tipo": "tabular_generico", "tabelas": [{"cabecalho": [...], "linhas": [...]}]}`
+- **dados_estruturados_deterministico:** `{"tipo": "tabular_generico", "tabelas": [{"cabecalho": [...], "linhas": [...]}]}`
 
 ### `processo_judicial`
 - **Lib:** BeautifulSoup + regex CNJ
-- **structured_data:**
+- **dados_estruturados_deterministico:**
   ```json
   {"tipo": "processo_judicial", "numero_cnj": "...", "classe": "...", "assunto": "...", "partes": {...}, "movimentacoes": [...]}
   ```
 
 ### `perfil_pessoa_juridica`
 - **Lib:** BeautifulSoup — varre `<dl>` e tabelas 2-colunas
-- **structured_data:** `{"tipo": "perfil_pessoa_juridica", "cnpj": "...", "campos": {...}}`
+- **dados_estruturados_deterministico:** `{"tipo": "perfil_pessoa_juridica", "cnpj": "...", "campos": {...}}`
 
 ### `documento_juridico`
-- **structured_data:** `{"tipo": "documento_juridico"}` (marcador de classificação — sem extração de campos)
+- **dados_estruturados_deterministico:** `{"tipo": "documento_juridico"}` (marcador de classificação — sem extração de campos)
 
 ### `misto`
 - **Lib:** BeautifulSoup (tabelas)
-- **structured_data:** `{"tipo": "misto", "tabelas": [...]}`
+- **dados_estruturados_deterministico:** `{"tipo": "misto", "tabelas": [...]}`
 
 ### `desconhecido`
-- **structured_data:** `null`
+- **dados_estruturados_deterministico:** `null`
 
 ---
 
@@ -598,13 +556,13 @@ Campos registrados a cada extração:
 - `page_type` detectado
 - `detection_source` (`cache`, `structural_analysis`, `llm_classification`)
 - `detection_confidence`
-- `extractor_version`
+- `extractor_version` (do extrator determinístico — a única estratégia que ainda versiona assim)
 - `dom_representation` gerado/persistido (bool), sua redução percentual e o número de registros verificados / falhas do parser (`dom2parser`)
-- registros e linhas extraídos pelo parser verificado (Estratégia A′) e se o spec foi gravado no cache
-- `llm_model` (quando Estratégia B é ativada)
-- `schema_driven` (bool — se Estratégia C foi usada)
+- registros e linhas extraídos pelo parser verificado (Estratégia A′) e se produziu dados (`extracao.dom2parser`)
+- se `dados_estruturados_extruct` produziu algo (`extracao.extruct`)
+- se `dados_estruturados_deterministico` produziu algo (`extracao.deterministico`)
+- `llm_model` (quando Estratégia B, classificação de `page_type`, é ativada)
 - `divergence` (se houve divergência com cache)
-- `structured_data_keys`
 - Tempo de extração em ms
 - Nó e processo que executaram (`hostname`/`process_id`) — relevante com mais de um worker
 
@@ -612,34 +570,37 @@ Campos registrados a cada extração:
 
 ## Evolução Futura
 
-- **Confirmação humana:** interface no admin Django para revisar padrões marcados como `needs_review`, corrigir `page_type` e editar `extractor_config` manualmente.
-- **Extratores por tribunal específico:** TJSP, TJRJ, STJ, TRF têm layouts diferentes — extratores dedicados por `domain` quando `page_type == processo_judicial`, complementando o schema da Estratégia C.
-- **Extrator bancário por banco:** cada banco tem estrutura de tabela diferente — `extractor_config` no cache armazena seletores CSS por `domain`, gerados pela Estratégia C.
+- **Confirmação humana:** interface no admin Django para revisar padrões marcados como `needs_review` e corrigir `page_type`.
+- **Extratores por tribunal específico:** TJSP, TJRJ, STJ, TRF têm layouts diferentes — extratores dedicados por `domain` quando `page_type == processo_judicial`, complementando `route()`.
+- **Decisão de `structured_data`:** processo que escolhe (ou combina) entre `dados_estruturados_dom2parser`, `dados_estruturados_extruct`, `dados_estruturados_deterministico` e a estruturação manual por LLM — deixado para depois, ver "Mudança de estratégia" no topo deste documento.
 
 ---
 
 ## Critérios de Aceitação
 
 - [ ] Extrato bancário detectado como `tabular_financeiro` na primeira captura sem configuração manual.
-- [ ] `structured_data` com lista de transações gerado corretamente para página financeira.
+- [x] `dados_estruturados_deterministico` com lista de transações gerado corretamente para página financeira (`route()` roda sempre).
 - [ ] Processo judicial do TJSP detectado como `processo_judicial` com `numero_cnj` extraído.
 - [ ] Artigo de notícia detectado como `artigo`, comportamento atual preservado sem regressão.
 - [ ] Segunda captura do mesmo padrão de URL usa `detection_source: cache` e não roda análise estrutural.
 - [x] Página com `confidence < 0.75` aciona compressão via `dom2parser` (A) e classificação por LLM (B).
 - [x] Página classificada como `restrito` ou `confidencial` **não** aciona LLM externo.
 - [x] `DocumentText.dom_representation` é persistido a cada extração, independente do caminho de extração seguido.
-- [x] Página com estruturas repetidas (extrato, listagem) tem `structured_data.registros` extraído pelo parser verificado do `dom2parser`, sem chamada a LLM (A′).
-- [x] O `ParserSpec` é gravado em `extractor_config` (formato 2.0) na primeira captura e reexecutado nas seguintes via `schema_driven_extract`.
-- [x] LLM (C) só é acionado quando o parser verificado não produziu registros.
-- [ ] `extractor_config` é gerado e gravado na primeira extração pós-classificação por LLM (C).
-- [ ] Segunda captura usa `schema_driven_extract` sem nova chamada ao LLM.
-- [ ] Seletor inválido no schema produz warning sem interromper extração dos demais campos.
-- [ ] Mudança de layout (divergência) registrada em `divergence_count`; após 3 divergências, `needs_review=True` e `extractor_config` é zerado.
+- [x] Página com estruturas repetidas (extrato, listagem) tem `dados_estruturados_dom2parser.registros` extraído pelo parser verificado do `dom2parser`, sem chamada a LLM (A′).
+- [x] `dom2parser`, `extruct` e o extrator determinístico rodam sempre, cada um no seu próprio campo `dados_estruturados_*`, sem cascata escolhendo uma vencedora (2026-09-17).
+- [x] Extração por LLM (ex-Estratégia C) não roda mais automaticamente dentro de `extract_text_from_mhtml`; só existe sob demanda via `estruturar_manual()` (2026-09-17).
+- [ ] Processo que decide `DocumentText.structured_data` a partir das estratégias acima (deixado para depois — ver "Mudança de estratégia").
+- [x] ~~O `ParserSpec` é gravado em `extractor_config`... e reexecutado via `schema_driven_extract`~~ — **obsoleto**: schema-caching de `structured_data` foi removido (commit "remove reuso de schema em cache na extração de structured_data"); `dom_parser.extract_with_spec` roda a cada captura, sem cache.
+- [x] ~~LLM (C) só é acionado quando o parser verificado não produziu registros~~ — **obsoleto**: LLM não é mais acionado automaticamente em nenhuma condição (2026-09-17).
+- [ ] ~~`extractor_config` é gerado e gravado na primeira extração pós-classificação por LLM (C)~~ — **obsoleto**, ver acima.
+- [ ] ~~Segunda captura usa `schema_driven_extract` sem nova chamada ao LLM~~ — **obsoleto**, ver acima.
+- [ ] Seletor inválido no parser do `dom2parser` produz warning sem interromper extração dos demais campos.
+- [x] Mudança de layout (divergência) registrada em `divergence_count`; após 3 divergências, `needs_review=True` e `extractor_config` é zerado (afeta só o cache de `page_type`, não mais extração de dados).
 - [ ] Cache isolado por tenant: organização A não acessa registros da organização B.
 - [ ] Página não reconhecida usa `desconhecido` sem lançar exceção.
 - [ ] `ArtifactLineage.processor` identifica o extrator e sua versão.
 - [x] Todos os campos de observabilidade registrados a cada extração, como eventos persistidos e consultáveis.
-- [ ] `DocumentText.text` é sempre produzido por `extract_narrative_text()` (trafilatura), inclusive quando `page_type` é `tabular_financeiro`, `processo_judicial` ou quando a extração roda via LLM (Estratégia C).
-- [ ] `llm_extract()` não retorna mais campo `text`; resposta do LLM sem `structured_data` não impede a criação do `DocumentText` (o texto já foi extraído antes).
-- [ ] Falha total do extrator estruturado (LLM indisponível, schema inválido, extrator determinístico sem dados) resulta em `structured_data=null`, mas nunca em `DocumentText.text` vazio se a página tiver conteúdo extraível por trafilatura.
+- [x] `DocumentText.text` é sempre produzido por `extract_narrative_text()` (trafilatura), inclusive quando `page_type` é `tabular_financeiro`, `processo_judicial` ou quando alguém estrutura a página manualmente com LLM.
+- [x] ~~`llm_extract()` não retorna mais campo `text`~~ — **obsoleto**: `llm_extract()` foi removido (2026-09-17); a extração manual (`estruturar_manual()`) nunca teve esse campo.
+- [x] Falha total de qualquer estratégia estruturada resulta em campo `null`, mas nunca em `DocumentText.text` vazio se a página tiver conteúdo extraível por trafilatura.
 - [x] `DocumentText.full_text` é persistido a cada extração com o texto integral da página (sem curadoria do trafilatura); falha em `extract_full_text()` não interrompe o pipeline.

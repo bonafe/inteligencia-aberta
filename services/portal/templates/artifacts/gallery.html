@@ -521,9 +521,10 @@
             <button class="tab-btn active" id="tab-mhtml" onclick="switchTab('mhtml')">MHTML</button>
             <button class="tab-btn disabled" id="tab-texto" onclick="switchTab('texto')">Texto</button>
             <button class="tab-btn disabled" id="tab-texto_completo" onclick="switchTab('texto_completo')">Texto Completo</button>
-            <button class="tab-btn disabled" id="tab-json" onclick="switchTab('json')">Dados Estruturados</button>
+            <button class="tab-btn disabled" id="tab-json" onclick="switchTab('json')">Dados Estruturados (final)</button>
             <button class="tab-btn disabled" id="tab-json_dom2parser" onclick="switchTab('json_dom2parser')">dom2parser</button>
             <button class="tab-btn disabled" id="tab-json_extruct" onclick="switchTab('json_extruct')">extruct</button>
+            <button class="tab-btn disabled" id="tab-json_deterministico" onclick="switchTab('json_deterministico')">determinístico</button>
             <button class="tab-btn disabled" id="tab-dom" onclick="switchTab('dom')">HTML Reduzido</button>
             <button class="tab-btn disabled" id="tab-llm" onclick="switchTab('llm')">Execuções LLM</button>
             <button class="tab-btn disabled" id="tab-comparacao" onclick="switchTab('comparacao')">Comparação</button>
@@ -552,7 +553,9 @@
             </div>
         </div>
 
-        <!-- JSON Panel (structured_data — vencedor da cascata de extração) -->
+        <!-- JSON Panel (structured_data — vencedora entre as estratégias abaixo;
+             decisão adiada de propósito, ver DocumentText.structured_data — fica
+             vazio até esse processo existir) -->
         <div class="tab-panel" id="panel-json">
             <div class="json-panel-inner">
                 <div class="loading-msg" id="json-loading" style="display:none">Carregando dados…</div>
@@ -561,7 +564,7 @@
                         <span class="json-toolbar-title" id="json-type-label"></span>
                         <button class="btn-copy" id="btn-copy-json" onclick="copyJson('json')">Copiar JSON</button>
                         <label class="selecao-checkbox">
-                            <input type="checkbox" data-tipo="campo_legado" data-campo="structured_data" data-label="Dados Estruturados (cascata)" onchange="toggleSelecao(this)">
+                            <input type="checkbox" data-tipo="campo_legado" data-campo="structured_data" data-label="Dados Estruturados (final)" onchange="toggleSelecao(this)">
                             Selecionar para comparar
                         </label>
                     </div>
@@ -570,7 +573,7 @@
             </div>
         </div>
 
-        <!-- JSON Panel (dom2parser — resultado bruto, sem passar pela cascata) -->
+        <!-- JSON Panel (dom2parser — resultado bruto do parser verificado) -->
         <div class="tab-panel" id="panel-json_dom2parser">
             <div class="json-panel-inner">
                 <div id="json-content_dom2parser" style="display:none">
@@ -600,6 +603,23 @@
                         </label>
                     </div>
                     <div class="json-tree" id="json-tree_extruct"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- JSON Panel (determinístico — extrator hardcoded por page_type, roda sempre) -->
+        <div class="tab-panel" id="panel-json_deterministico">
+            <div class="json-panel-inner">
+                <div id="json-content_deterministico" style="display:none">
+                    <div class="json-toolbar">
+                        <span class="json-toolbar-title" id="json-type-label_deterministico"></span>
+                        <button class="btn-copy" id="btn-copy-json_deterministico" onclick="copyJson('json_deterministico')">Copiar JSON</button>
+                        <label class="selecao-checkbox">
+                            <input type="checkbox" data-tipo="campo_legado" data-campo="dados_estruturados_deterministico" data-label="determinístico" onchange="toggleSelecao(this)">
+                            Selecionar para comparar
+                        </label>
+                    </div>
+                    <div class="json-tree" id="json-tree_deterministico"></div>
                 </div>
             </div>
         </div>
@@ -664,13 +684,16 @@
     let currentClassificationLevel = '';
     // Cache: keyed by artifact_id → {text, structured_data, page_type, ...} or null if 404
     const contentCache = {};
-    // Uma aba por fonte de dados estruturados: "structured_data" é a vencedora da
-    // cascata de extração (usada pelo resto do app); as demais são o resultado bruto
-    // de cada biblioteca, mantidas à parte só para comparação/depuração.
+    // Uma aba por fonte de dados estruturados: dom2parser, extruct e o extrator
+    // determinístico rodam sempre, cada um no seu próprio campo, sem cascata
+    // escolhendo uma vencedora entre eles. "structured_data" é o campo final que o
+    // resto do app consumiria — decisão adiada de propósito, fica vazio por
+    // enquanto (ver DocumentText.structured_data).
     const JSON_SOURCES = [
-        { key: 'structured_data', tab: 'json', idSuffix: '', label: 'Dados Estruturados' },
+        { key: 'structured_data', tab: 'json', idSuffix: '', label: 'Dados Estruturados (final)' },
         { key: 'dados_estruturados_dom2parser', tab: 'json_dom2parser', idSuffix: '_dom2parser', label: 'dom2parser' },
         { key: 'dados_estruturados_extruct', tab: 'json_extruct', idSuffix: '_extruct', label: 'extruct' },
+        { key: 'dados_estruturados_deterministico', tab: 'json_deterministico', idSuffix: '_deterministico', label: 'determinístico' },
     ];
     const rawJsonByTab = {};
 
@@ -745,7 +768,7 @@
         if (document.getElementById(`tab-${tab}`).classList.contains('disabled')) return;
 
         currentTab = tab;
-        ['mhtml', 'texto', 'texto_completo', 'json', 'json_dom2parser', 'json_extruct', 'dom', 'llm', 'comparacao'].forEach(t => {
+        ['mhtml', 'texto', 'texto_completo', 'json', 'json_dom2parser', 'json_extruct', 'json_deterministico', 'dom', 'llm', 'comparacao'].forEach(t => {
             document.getElementById(`tab-${t}`).classList.toggle('active', t === tab);
             document.getElementById(`panel-${t}`).classList.toggle('active', t === tab);
         });

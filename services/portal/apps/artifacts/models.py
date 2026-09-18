@@ -140,10 +140,21 @@ class DocumentText(models.Model):
     url_pattern_cache = models.ForeignKey(
         "URLPatternCache", null=True, blank=True, on_delete=models.SET_NULL
     )
+    # Vencedora entre as estratégias de extração abaixo — decisão adiada de
+    # propósito (2026-09-17): nenhum processo atribui este campo por enquanto,
+    # ver apps.artifacts.tasks.extract_text_from_mhtml.
     structured_data = models.JSONField(null=True, blank=True)
     dados_estruturados_dom2parser = models.JSONField(null=True, blank=True)
     dados_estruturados_extruct = models.JSONField(null=True, blank=True)
+    # Extrator determinístico por page_type (apps/artifacts/extractors/strategies.py) —
+    # roda sempre, junto com dom2parser e extruct acima, cada um no seu próprio campo.
+    dados_estruturados_deterministico = models.JSONField(null=True, blank=True)
     dom_representation = models.TextField(null=True, blank=True)
+    # Tamanho (bytes) de cada representação que o pipeline produziu para esta
+    # página — ver apps.artifacts.tamanhos.montar(). Persistido uma vez na
+    # extração para alimentar o gráfico de tamanhos da galeria sem recalcular
+    # nem consultar o log de eventos a cada request.
+    tamanhos = models.JSONField(null=True, blank=True)
     extractor_version = models.CharField(max_length=100, blank=True)
     char_count = models.IntegerField(default=0)
     word_count = models.IntegerField(default=0)

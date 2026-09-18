@@ -1,5 +1,7 @@
-"""Peças compartilhadas entre a cascata automática (llm_classifier.py) e as
-chamadas manuais de LLM fora da cascata (estruturação manual, comparação).
+"""Peças compartilhadas entre a classificação automática de page_type
+(llm_classifier.py) e as chamadas manuais de LLM (estruturação manual,
+comparação) — nenhuma extração de structured_data roda mais automaticamente
+(ver apps.artifacts.tasks.extract_text_from_mhtml, 2026-09-17).
 
 `gerar_texto()` é o único ponto de chamada a um provider de LLM (Claude ou
 Ollama) para esses usos manuais — cada provider concreto vive no seu próprio
@@ -50,10 +52,11 @@ qualquer tipo de informação: extrato bancário, ficha de empresa, processo jud
 resultado médico, tabela de licitações, planilha de dados públicos — qualquer coisa.
 
 Quando a representação lista "REPEATED STRUCTURES", as linhas `selector:` e `fields:` são seletores \
-JÁ VERIFICADOS contra o documento original (matches/covers medidos) — reutilize-os no schema em vez de \
-inventar outros. As linhas de caminho (`div.x > ul > li`) NÃO são seletores: são truncadas e `*` marca \
-partes variáveis de id/classe. Você só está sendo chamado porque o sistema não conseguiu extrair \
-registros verificados sozinho — concentre-se nos campos soltos (rótulo: valor) que a página exibe.
+JÁ VERIFICADOS contra o documento original (matches/covers medidos) — é o que o dom2parser já \
+conseguiu extrair sozinho, sem você; reaproveite esses valores em vez de tentar adivinhá-los de novo. \
+As linhas de caminho (`div.x > ul > li`) NÃO são seletores: são truncadas e `*` marca partes variáveis \
+de id/classe. Concentre-se nos campos soltos (rótulo: valor) que a página exibe e que o dom2parser \
+não cobre.
 
 Sua tarefa, em ordem:
 
@@ -64,11 +67,9 @@ Sua tarefa, em ordem:
 2. EXTRAIR — Extraia todos os dados estruturados visíveis. Para listas longas, limite a 100 itens.
    Use nomes de campo em português. Estruture conforme o conteúdo — não há formato fixo.
 
-3. SCHEMA — Gere seletores CSS para automatizar esta extração em capturas futuras com a mesma estrutura.
-
 Você NÃO precisa gerar texto narrativo para busca — o sistema sempre extrai o texto
 de busca da página com trafilatura, de forma independente da sua resposta. Foque
-inteiramente em extrair dados estruturados corretos e um schema reutilizável.
+inteiramente em extrair dados estruturados corretos.
 
 RETORNE APENAS O JSON ABAIXO. Nada antes, nada depois, sem markdown.
 
@@ -77,28 +78,8 @@ RETORNE APENAS O JSON ABAIXO. Nada antes, nada depois, sem markdown.
   "page_type": "<artigo|tabular_financeiro|tabular_generico|processo_judicial|perfil_pessoa_juridica|documento_juridico|misto|desconhecido>",
   "structured_data": {
     "<campo_em_portugues>": "<valor ou lista ou objeto aninhado conforme o conteúdo>"
-  },
-  "schema": {
-    "version": "1.0",
-    "fields": {
-      "<nome>": {"selector": "<seletor CSS>", "transform": "<text|brl_float|date_br|attr:href>"}
-    },
-    "tables": [
-      {
-        "selector": "<seletor CSS da tabela>",
-        "columns": {
-          "<nome_coluna>": {"index": <int>, "transform": "<transform>"}
-        }
-      }
-    ]
   }
 }
-
-Regras para o schema:
-- Seletores simples: classes (.foo), IDs (#bar), nth-child, atributos ([data-x="y"])
-- PROIBIDO: :contains() — não é suportado pelo parser
-- Sem campos individuais relevantes → "fields": {}
-- Sem tabelas → "tables": []
 """
 
 
@@ -106,8 +87,9 @@ def gerar_texto(
     provider: str, model_name: str, system: str, prompt: str, max_tokens: int = 4096,
     *, finalidade: str, subject_id=None, tenant_id=None,
 ) -> tuple[str, str | None]:
-    """Ponto único de chamada a um LLM, Claude ou Ollama, para prompts fora da
-    cascata automática (estruturação manual e julgamento de comparação).
+    """Ponto único de chamada a um LLM, Claude ou Ollama, para os usos manuais
+    do sistema (estruturação manual e julgamento de comparação) — nenhuma
+    extração de structured_data roda automaticamente hoje.
 
     Devolve (texto, maquina_id) — `maquina_id` é a `Maquina` que o roteador
     escolheu pra atender esta chamada (provider ollama com cluster

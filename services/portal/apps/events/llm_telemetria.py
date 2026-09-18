@@ -1,14 +1,14 @@
 """Telemetria unificada de qualquer chamada a um provider de LLM (Anthropic ou
-Ollama), qualquer que seja o motivo — classificação/extração automática da
-cascata, estruturação manual, comparação-juiz, ou o gateway compatível com
-OpenAI (`apps.cluster.gateway`).
+Ollama), qualquer que seja o motivo — classificação automática de page_type,
+estruturação manual, comparação-juiz, ou o gateway compatível com OpenAI
+(`apps.cluster.gateway`).
 
-Ponto único chamado pelos 4 lugares reais que falam com um provider
+Ponto único chamado pelos lugares reais que falam com um provider
 (`apps.artifacts.extractors.ollama_client._chamar`,
 `apps.artifacts.extractors.llm_common.gerar_texto` [ramo anthropic],
-`apps.artifacts.extractors.llm_classifier.llm_classify` e
-`.llm_extract_and_schema`) — sempre depois que a chamada terminou, sucesso ou
-erro, porque `duration_ms` e os campos de uso só existem depois.
+`apps.artifacts.extractors.llm_classifier.llm_classify`) — sempre depois que
+a chamada terminou, sucesso ou erro, porque `duration_ms` e os campos de uso
+só existem depois.
 
 Nunca levanta — mesma garantia de `apps.events.emit.emit()`. Uma falha aqui
 nunca pode derrubar uma chamada de LLM que já terminou (bem ou mal).

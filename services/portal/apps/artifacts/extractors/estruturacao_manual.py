@@ -1,6 +1,7 @@
-"""Estruturação manual: mesmo prompt de extração da cascata automática
-(_EXTRACT_SYSTEM), mas disparado sob demanda pelo visualizador e capaz de
-falar com qualquer provider (Claude ou Ollama) via gerar_texto().
+"""Estruturação manual: extração de dados estruturados por LLM disparada sob
+demanda pelo visualizador (não roda automaticamente no pipeline de captura —
+ver apps.artifacts.tasks.extract_text_from_mhtml), capaz de falar com
+qualquer provider (Claude ou Ollama) via gerar_texto().
 
 Puramente funcional — nunca grava nada; quem chama decide onde persistir.
 """

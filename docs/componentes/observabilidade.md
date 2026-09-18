@@ -61,7 +61,7 @@ A separação entre `vazio` e `falhou` é a razão de ser deste modelo. Antes de
 |---|---|---|
 | `captura.*` | orchestrator, portal | `recebida`, `armazenada` (MinIO), `registrada`, `orfa` |
 | `artefato.*` | portal | `ignorado` — as saídas silenciosas do signal `post_save` |
-| `extracao.*` | worker | `iniciada`, `reiniciada`, `ignorada`, `minio`, `mhtml`, `trafilatura`, `dom2parser`, `extruct`, `cascata`, `schema_cache`, `llm`, `concluida` |
+| `extracao.*` | worker | `iniciada`, `reiniciada`, `ignorada`, `minio`, `mhtml`, `trafilatura`, `texto_completo`, `dom2parser`, `extruct`, `deterministico`, `concluida` |
 | `deteccao.*` | worker | `page_type` |
 | `fragmentacao.*` | worker | `concluida`, `ignorada` |
 | `embedding.*` | worker | `concluido`, `ignorado` |

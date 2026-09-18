@@ -325,9 +325,10 @@ class ChamadaLLM(models.Model):
     num_ctx = models.IntegerField(null=True, blank=True)
 
     # O que motivou a chamada — mesma convenção de PipelineEvent.subject_type/
-    # subject_id, deliberadamente sem FK direta: os 4 pontos de chamada do
-    # sistema (cascata automática, estruturação manual, comparação, gateway
-    # externo) se linkam todos do mesmo jeito, sem exceção pra nenhum.
+    # subject_id, deliberadamente sem FK direta: os pontos de chamada do
+    # sistema (classificação automática de page_type, estruturação manual,
+    # comparação, gateway externo) se linkam todos do mesmo jeito, sem
+    # exceção pra nenhum.
     subject_type = models.CharField(max_length=40, blank=True)
     subject_id = models.UUIDField(null=True, blank=True)
 

@@ -38,7 +38,7 @@ O manifesto e a visão do projeto estão no [`README.md`](../README.md) na raiz 
 | [`componentes/orquestrador.md`](componentes/orquestrador.md) | LangGraph: estados, transições, persistência, contrato |
 | [`componentes/mcp.md`](componentes/mcp.md) | MCP: registro de ferramentas, motor de políticas, executor |
 | [`componentes/pipeline-rag.md`](componentes/pipeline-rag.md) | Pipeline RAG: indexação, recuperação, isolamento por organização |
-| [`componentes/pipeline/extracao-adaptativa.md`](componentes/pipeline/extracao-adaptativa.md) | Extração adaptativa: detecção de tipo de página e cascata de estratégias |
+| [`componentes/pipeline/extracao-adaptativa.md`](componentes/pipeline/extracao-adaptativa.md) | Extração adaptativa: detecção de tipo de página e estratégias de extração estrutural (todas rodam sempre, cada uma no seu campo) |
 | [`componentes/observabilidade.md`](componentes/observabilidade.md) | Log de eventos, painel ao vivo, diagnóstico e reprocessamento |
 
 ### Agentes

@@ -8,6 +8,8 @@ from email import policy
 from django.conf import settings
 from django.http import HttpResponse, Http404, JsonResponse
 
+from . import tamanhos
+
 logger = logging.getLogger(__name__)
 from django.shortcuts import render, get_object_or_404
 from django.utils.crypto import constant_time_compare
@@ -309,51 +311,6 @@ class ArtifactFaviconView(View):
         return JsonResponse({"favicon_data_uri": favicon})
 
 
-def _bytes_de_evento(artifact_id, stage, campo):
-    """Bytes gravados no payload do último evento `ok` de uma etapa — usado para
-    tamanhos que não são persistidos em DocumentText (MHTML bruto no MinIO, HTML
-    decodificado do MHTML): esses números só existem no log de eventos."""
-    from apps.events.models import PipelineEvent
-
-    evento = (
-        PipelineEvent.objects.filter(
-            subject_type="artifact", subject_id=artifact_id, stage=stage, status="ok",
-        ).order_by("-sequence").first()
-    )
-    return (evento.payload or {}).get(campo) if evento else None
-
-
-def _bytes_utf8(texto):
-    return len(texto.encode("utf-8")) if texto else None
-
-
-def _bytes_json(valor):
-    return len(json.dumps(valor, ensure_ascii=False).encode("utf-8")) if valor else None
-
-
-def _tamanhos_extracao(artifact, doc_text) -> list[dict]:
-    """Tamanho de cada representação que o pipeline produz para a mesma página —
-    do MHTML bruto até o JSON estruturado final. `bytes: None` distingue "esta
-    etapa não rodou/não persiste" (ex.: extruct não achou nada) de um valor
-    baixo de verdade; o gráfico de barras trata os dois como "sem dado"."""
-    return [
-        {"chave": "mhtml", "label": "MHTML bruto",
-         "bytes": _bytes_de_evento(artifact.id, "extracao.minio", "bytes")},
-        {"chave": "html", "label": "HTML decodificado",
-         "bytes": _bytes_de_evento(artifact.id, "extracao.mhtml", "chars_html")},
-        {"chave": "texto", "label": "Texto (trafilatura)", "bytes": _bytes_utf8(doc_text.text)},
-        {"chave": "texto_completo", "label": "Texto completo", "bytes": _bytes_utf8(doc_text.full_text)},
-        {"chave": "dom2parser_repr", "label": "Representação dom2parser",
-         "bytes": _bytes_utf8(doc_text.dom_representation)},
-        {"chave": "structured_data", "label": "Dados estruturados (cascata)",
-         "bytes": _bytes_json(doc_text.structured_data)},
-        {"chave": "dom2parser_dados", "label": "Dados estruturados (dom2parser)",
-         "bytes": _bytes_json(doc_text.dados_estruturados_dom2parser)},
-        {"chave": "extruct_dados", "label": "Dados estruturados (extruct)",
-         "bytes": _bytes_json(doc_text.dados_estruturados_extruct)},
-    ]
-
-
 class ArtifactContentView(View):
     """Retorna texto extraído e dados estruturados de um artefato (usado via AJAX pelo visualizador)."""
 
@@ -377,8 +334,9 @@ class ArtifactContentView(View):
             "structured_data": doc_text.structured_data,
             "dados_estruturados_dom2parser": doc_text.dados_estruturados_dom2parser,
             "dados_estruturados_extruct": doc_text.dados_estruturados_extruct,
+            "dados_estruturados_deterministico": doc_text.dados_estruturados_deterministico,
             "dom_representation": doc_text.dom_representation,
-            "tamanhos": _tamanhos_extracao(artifact, doc_text),
+            "tamanhos": tamanhos.para_grafico(doc_text.tamanhos),
         })
 
 
@@ -553,7 +511,10 @@ class OllamaModelosView(View):
         return JsonResponse({"disponivel": bool(modelos), "modelos": modelos})
 
 
-_CAMPOS_LEGADOS_PERMITIDOS = {"structured_data", "dados_estruturados_dom2parser", "dados_estruturados_extruct"}
+_CAMPOS_LEGADOS_PERMITIDOS = {
+    "structured_data", "dados_estruturados_dom2parser", "dados_estruturados_extruct",
+    "dados_estruturados_deterministico",
+}
 
 
 def _comparacao_json(c: Comparacao) -> dict:
