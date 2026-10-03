@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.contrib.auth import get_user_model, login
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import redirect, render
@@ -20,6 +21,11 @@ def orgs_do_usuario(user):
 def registro(request):
     if request.user.is_authenticated:
         return redirect("dashboard")
+    User = get_user_model()
+    # Fechado depois do primeiro usuário: numa instância exposta, estranhos não
+    # podem criar conta (e organização) por conta própria. Vale para GET e POST.
+    if not settings.REGISTRO_ABERTO and User.objects.exists():
+        return render(request, "accounts/registro_fechado.html", status=403)
     if request.method == "POST":
         form = RegistrationForm(request.POST)
         if form.is_valid():
@@ -33,7 +39,6 @@ def registro(request):
             # não de código: quem sobe o ambiente deve criar sua conta antes de
             # expor a porta do portal publicamente (mesma janela de setup que
             # qualquer app self-hosted com bootstrap por primeiro-usuário).
-            User = get_user_model()
             if not User.objects.exists():
                 user.is_staff = True
                 user.is_superuser = True

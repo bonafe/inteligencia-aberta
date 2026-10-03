@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}Cadastro fechado — Inteligência Aberta{% endblock %}
+
+{% block content %}
+<div style="max-width:440px;margin:3rem auto;">
+  <div class="card">
+    <h1>Cadastro fechado</h1>
+    <p>Esta instância não aceita novos cadastros. Peça ao administrador para criar sua conta.</p>
+    <p style="margin-top:1.25rem;font-size:.875rem;text-align:center;">
+      <a href="{% url 'login' %}">Entrar</a>
+    </p>
+  </div>
+</div>
+{% endblock %}

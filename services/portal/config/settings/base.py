@@ -15,6 +15,11 @@ DEBUG = False
 
 ALLOWED_HOSTS = []
 
+# Registro público de contas. Em produção só fica aberto até existir o primeiro
+# usuário (que vira superusuário); depois, novos usuários entram pelo admin.
+# REGISTRO_ABERTO=true mantém o cadastro livre (desenvolvimento).
+REGISTRO_ABERTO = os.environ.get("REGISTRO_ABERTO", "false").lower() == "true"
+
 INSTALLED_APPS = [
     # daphne precisa vir ANTES de staticfiles: ele substitui o runserver por um
     # servidor ASGI de desenvolvimento, e é o que faz o WebSocket funcionar em dev

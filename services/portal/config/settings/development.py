@@ -1,8 +1,12 @@
+import os
 from .base import *
 
 DEBUG = True
 
 ALLOWED_HOSTS = ["*"]
+
+# Em dev o cadastro segue livre, salvo se o .env disser o contrário.
+REGISTRO_ABERTO = os.environ.get("REGISTRO_ABERTO", "true").lower() == "true"
 
 AUTH_PASSWORD_VALIDATORS = []
 
