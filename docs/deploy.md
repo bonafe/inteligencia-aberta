@@ -15,7 +15,46 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml ps   # tudo "hea
 
 O passo `bootstrap` roda a cada `up`: aplica migrations, cria os buckets do MinIO e cria o superusuário inicial. É idempotente e o portal, o worker e o beat só sobem depois dele terminar com sucesso. Não há passo manual.
 
-Critério de sucesso para a automação: `docker compose ps` sem serviço `unhealthy` e `GET /health` do portal respondendo 200 (`{"status":"ok","servico":"portal","instancia":...,"versao":...}`). `bootstrap` aparece como `Exited (0)` — é o esperado.
+Critério de sucesso para a automação: nenhum serviço `unhealthy` e `bootstrap` como `Exited (0)` (é o esperado: roda e sai). `worker` e `beat` não têm healthcheck — basta estarem `Up`. Verificar a aplicação com `/health` (ver o contrato abaixo).
+
+## Contrato para automação (Ansible)
+
+Resumo operacional para quem implanta por código. O restante deste documento explica o porquê de cada item.
+
+**Pré-requisitos no host:** `git`, Docker Engine com o plugin `docker compose` v2.
+
+**Passos, nesta ordem (todos idempotentes):**
+
+1. `git clone` (ou `git pull`) do repositório.
+2. Gerar o `.env` a partir de `.env.example` — **cada segredo aleatório e distinto por host** (tabela em "Segredos"). Permissão `0600`. Valores mínimos de produção:
+   - `DJANGO_SETTINGS_MODULE=config.settings.production`
+   - os 6 segredos, mais `DJANGO_SUPERUSER_USERNAME`, `DJANGO_SUPERUSER_EMAIL`, `DJANGO_SUPERUSER_PASSWORD`
+   - `ALLOWED_HOSTS` e `CSRF_TRUSTED_ORIGINS` (os nomes pelos quais o host é acessado; origens com `https://`)
+   - `TLS_MODE` (`proxy` com `tailscale serve`/Caddy na frente; `none` só se HTTP puro for decisão consciente)
+   - `BIND_ADDR`, `DATA_DIR`, `INSTANCIA_NOME`, `IA_VERSION` (sugestão: `git rev-parse --short HEAD`)
+   - host com domínio público: também `IA_DOMINIO` e `ACME_EMAIL`, e `--profile publico` no comando
+3. `docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build` (acrescentar `--profile publico` no host público). **Nunca sem os dois `-f`**: sem `-f` o compose carrega o `docker-compose.override.yml`, que é de desenvolvimento.
+4. Esperar e verificar (abaixo). Se `bootstrap` falhar (`docker compose ... logs bootstrap`), nada mais sobe — é a causa raiz a investigar.
+
+**Verificação de saúde:**
+
+```bash
+# Dentro do host. O header Host é necessário: o Django rejeita (400) um Host que não
+# esteja em ALLOWED_HOSTS, e localhost/127.0.0.1/portal são sempre aceitos.
+curl -fsS -H 'Host: localhost' http://${BIND_ADDR:-127.0.0.1}:8000/health   # portal
+curl -fsS http://${BIND_ADDR:-127.0.0.1}:8001/health                         # orchestrator
+```
+
+Ambos devolvem JSON com `"status": "ok"`, `servico`, `instancia` (= `INSTANCIA_NOME`) e `versao` (= `IA_VERSION`). O portal responde `503` se não alcança o banco. Conferir `instancia`/`versao` confirma que a instância certa subiu na versão esperada. O MCP não publica porta; sua saúde aparece em `docker compose ps`.
+
+**Armadilhas:**
+
+- Um segredo vazio ou `CHANGE_ME` faz o serviço recusar a subida, com a lista de variáveis na mensagem de erro.
+- `POSTGRES_PASSWORD` e `MINIO_ROOT_PASSWORD` só valem na criação dos dados em `DATA_DIR`; trocá-los depois não altera a senha já gravada. Gere uma vez por host e preserve.
+- `DJANGO_SUPERUSER_*` só é lido enquanto não existe nenhum usuário; mudá-lo depois não cria nem altera ninguém.
+- `/registro/` fica fechado (403) depois do primeiro usuário — é o comportamento desejado em produção.
+- O projeto compose se chama `inteligencia-aberta` (fixo); dois checkouts no mesmo host colidiriam.
+- Atualizar de versão é repetir os passos 1 a 4: o `bootstrap` reaplica as migrations e os dados ficam em `DATA_DIR`.
 
 ## Segredos
 
