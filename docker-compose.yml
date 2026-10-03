@@ -3,42 +3,56 @@ services:
     build: ./services/portal
     # Sobe sob daphne (ASGI) — ver Dockerfile. O painel de eventos usa WebSocket,
     # que o servidor WSGI não atende.
-    ports:
-      - "8000:8000"
+    # Portas não são publicadas aqui: dev em docker-compose.override.yml, produção
+    # em docker-compose.prod.yml (bind configurável por BIND_ADDR).
     depends_on:
       db:
         condition: service_healthy
       minio:
-        condition: service_started
+        condition: service_healthy
       redis:
-        condition: service_started
+        condition: service_healthy
     env_file: .env
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
 
   orchestrator:
     build: ./services/orchestrator
-    ports:
-      - "8001:8001"
     depends_on:
       db:
         condition: service_healthy
       qdrant:
-        condition: service_started
+        condition: service_healthy
       mcp:
-        condition: service_started
+        condition: service_healthy
     env_file: .env
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
 
   mcp:
     build: ./services/mcp
-    # Publicado para expor /docs (Swagger) para fins didáticos. As ferramentas
-    # em si (/tools/*) continuam exigindo X-Mcp-Token — ver main.py.
-    ports:
-      - "8002:8002"
+    # /docs (Swagger) é publicado só em dev, para fins didáticos. As ferramentas
+    # em si (/tools/*) exigem X-Mcp-Token — ver main.py.
     env_file: .env
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8002/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
 
   db:
     image: postgres:16-alpine
     volumes:
-      - ./data/postgres:/var/lib/postgresql/data
+      - ${DATA_DIR:-./data}/postgres:/var/lib/postgresql/data
       - ./infra/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
     env_file: .env
     healthcheck:
@@ -50,8 +64,15 @@ services:
   qdrant:
     image: qdrant/qdrant:v1.9.0
     volumes:
-      - ./data/qdrant:/qdrant/storage
+      - ${DATA_DIR:-./data}/qdrant:/qdrant/storage
       - ./infra/qdrant/config.yaml:/qdrant/config/production.yaml
+    healthcheck:
+      # A imagem não tem curl/wget; abre o socket TCP com o próprio bash.
+      test: ["CMD", "bash", "-c", ":> /dev/tcp/127.0.0.1/6333"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
   worker:
     build: ./services/portal
@@ -60,9 +81,9 @@ services:
       db:
         condition: service_healthy
       redis:
-        condition: service_started
+        condition: service_healthy
       minio:
-        condition: service_started
+        condition: service_healthy
     env_file: .env
 
   beat:
@@ -72,19 +93,28 @@ services:
       db:
         condition: service_healthy
       redis:
-        condition: service_started
+        condition: service_healthy
     env_file: .env
 
   redis:
     image: redis:7-alpine
     volumes:
-      - ./data/redis:/data
+      - ${DATA_DIR:-./data}/redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
 
   minio:
-    image: minio/minio:latest
+    image: ${MINIO_IMAGE:-minio/minio:latest}
     command: server /data --console-address ":9001"
-    ports:
-      - "9001:9001"
     volumes:
-      - ./data/minio:/data
+      - ${DATA_DIR:-./data}/minio:/data
     env_file: .env
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s

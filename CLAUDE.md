@@ -8,8 +8,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 # Subir todos os serviços (modo desenvolvimento com hot-reload)
 docker compose -f docker-compose.yml -f docker-compose.override.yml up
 
-# Subir em produção (background)
-docker compose up -d
+# Subir em produção (background) — SEM o override de dev (que o compose carregaria
+# sozinho sem -f). Host com domínio público: acrescentar --profile publico (Caddy).
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
 
 # Migrations e admin (após subir)
 docker compose exec portal python manage.py migrate

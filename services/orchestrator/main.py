@@ -42,10 +42,16 @@ def require_jwt(authorization: str = Header(None)) -> dict:
         raise HTTPException(status_code=401, detail="Token sem identidade de tenant")
     return claims
 
-# Habilitar CORS para a extensão do Chrome
+# CORS. A extensão do Chrome chama com host_permissions (fetch do service worker),
+# que não depende de CORS; origens só são necessárias para páginas web. Sem a
+# variável definida (desenvolvimento) fica aberto; em produção o compose a define,
+# e vazia significa "nenhuma origem". Ex.: https://ia.exemplo.com.br,chrome-extension://<id>
+_cors_env = os.getenv("CORS_ALLOWED_ORIGINS")
+CORS_ORIGINS = ["*"] if _cors_env is None else [o.strip() for o in _cors_env.split(",") if o.strip()]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # Na produção, restringir para o ID da extensão
+    allow_origins=CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

@@ -1,0 +1,48 @@
+# Produção: usar SEM o override de desenvolvimento (que o compose carregaria sozinho
+# se não houvesse -f):
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+name: inteligencia-aberta
+
+x-restart: &restart
+  restart: unless-stopped
+
+services:
+  portal:
+    <<: *restart
+    # BIND_ADDR padrão é loopback: nada fica exposto até o operador escolher.
+    # Atrás de `tailscale serve` ou do Caddy, manter 127.0.0.1; sem proxy, o IP
+    # da tailnet do host.
+    ports:
+      - "${BIND_ADDR:-127.0.0.1}:8000:8000"
+
+  orchestrator:
+    <<: *restart
+    ports:
+      - "${BIND_ADDR:-127.0.0.1}:8001:8001"
+    environment:
+      # Vazio = nenhuma origem web (a extensão não depende de CORS). Ver main.py.
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-}
+
+  mcp:
+    <<: *restart
+    # Sem porta publicada: só o orchestrator o alcança, pela rede do compose.
+
+  worker:
+    <<: *restart
+    volumes:
+      - ${DATA_DIR:-./data}/fastembed-cache:/root/.cache/fastembed
+
+  beat:
+    <<: *restart
+
+  db:
+    <<: *restart
+
+  qdrant:
+    <<: *restart
+
+  redis:
+    <<: *restart
+
+  minio:
+    <<: *restart

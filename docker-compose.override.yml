@@ -1,16 +1,22 @@
 # Overrides de desenvolvimento: volumes para hot-reload, sem restart policy
 services:
   portal:
+    ports:
+      - "8000:8000"
     volumes:
       - ./services/portal:/app
     command: python manage.py runserver 0.0.0.0:8000
 
   orchestrator:
+    ports:
+      - "8001:8001"
     volumes:
       - ./services/orchestrator:/app
     command: uvicorn main:app --host 0.0.0.0 --port 8001 --reload
 
   mcp:
+    ports:
+      - "8002:8002"  # Swagger didático (/docs)
     volumes:
       - ./services/mcp:/app
     command: uvicorn main:app --host 0.0.0.0 --port 8002 --reload
@@ -18,7 +24,7 @@ services:
   worker:
     volumes:
       - ./services/portal:/app
-      - ./data/fastembed-cache:/root/.cache/fastembed
+      - ${DATA_DIR:-./data}/fastembed-cache:/root/.cache/fastembed
     command: celery -A config worker -l info
 
   beat:
@@ -28,3 +34,7 @@ services:
   db:
     ports:
       - "5432:5432"
+
+  minio:
+    ports:
+      - "9001:9001"
