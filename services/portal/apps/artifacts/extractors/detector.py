@@ -184,6 +184,7 @@ def detect_page_type(
     tenant_id,
     allow_external_llm: bool = False,
     dom_representation: str | None = None,
+    artifact_id=None,
 ):
     """Detect the page type using a three-layer strategy.
 
@@ -280,7 +281,9 @@ def detect_page_type(
             if skeleton is None:
                 import dom2parser
                 skeleton = dom2parser.compress(html).text
-            llm_type, llm_confidence, _ = llm_classify(skeleton, url)
+            llm_type, llm_confidence, _ = llm_classify(
+                skeleton, url, artifact_id=artifact_id, tenant_id=tenant_id,
+            )
 
             if llm_type != "desconhecido" or llm_confidence > confidence:
                 page_type = llm_type

@@ -42,6 +42,10 @@ HEADER_TENANT = "ia_tenant_id"
 #: próprio evento (`catchup.varredura`) quando encontra algo.
 TASKS_SILENCIOSAS = {
     "apps.artifacts.tasks.scan_unprocessed_documents",
+    # Heartbeat de máquina roda a cada 30s (settings.CELERY_BEAT_SCHEDULE) — o
+    # próprio heartbeat já é um evento (`maquina.heartbeat`); não precisa de
+    # mais três (`task.enfileirada`/`iniciada`/`concluida`) por execução.
+    "apps.cluster.tasks.emitir_heartbeat_maquina",
 }
 
 

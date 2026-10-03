@@ -1,0 +1,32 @@
+# Overlay OPCIONAL para o nó que hospeda a infraestrutura compartilhada
+# (Postgres/Redis/MinIO/Qdrant), quando ele vai servir outras máquinas do
+# cluster — ver docs/operacao/escala-multimaquina.md. Não existe "máquina
+# primária" no vocabulário do cluster (ADR-006): é só a máquina que hospeda
+# esses serviços — qualquer uma pode ser, e isso não muda o tratamento dela
+# em mais nada (o roteador de LLM, por exemplo, ignora esse fato).
+#
+# Publica Postgres/Redis/MinIO/Qdrant só na interface da VPN
+# (CLUSTER_VPN_BIND_IP no .env, ex.: o IP Tailscale/WireGuard desta máquina),
+# nunca em 0.0.0.0 — uma máquina fora da VPN não alcança essas portas mesmo
+# que esteja na mesma LAN.
+#
+# Uso: docker compose -f docker-compose.yml -f docker-compose.no-infraestrutura.yml up -d
+#
+# `${CLUSTER_VPN_BIND_IP:?...}` é proposital, não cosmético: testado que, com
+# a variável vazia/ausente, o Docker Compose não falha — ele solta um aviso e
+# publica a porta em TODAS as interfaces (equivalente a 0.0.0.0), o oposto do
+# que este arquivo existe para garantir. A sintaxe `:?mensagem` faz o
+# `docker compose up` recusar subir em vez de expor a porta silenciosamente.
+services:
+  db:
+    ports:
+      - "${CLUSTER_VPN_BIND_IP:?defina CLUSTER_VPN_BIND_IP no .env antes de subir este overlay}:5432:5432"
+  redis:
+    ports:
+      - "${CLUSTER_VPN_BIND_IP:?defina CLUSTER_VPN_BIND_IP no .env antes de subir este overlay}:6379:6379"
+  minio:
+    ports:
+      - "${CLUSTER_VPN_BIND_IP:?defina CLUSTER_VPN_BIND_IP no .env antes de subir este overlay}:9000:9000"
+  qdrant:
+    ports:
+      - "${CLUSTER_VPN_BIND_IP:?defina CLUSTER_VPN_BIND_IP no .env antes de subir este overlay}:6333:6333"

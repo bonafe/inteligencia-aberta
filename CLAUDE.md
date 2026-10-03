@@ -88,7 +88,7 @@ Extensão Chrome → POST orchestrator:8001/api/v1/capture/mhtml
 - `projecao.py`: `aplicar_evento()`, a única escrita em `PipelineRun`; usada tanto no caminho incremental quanto na reconstrução.
 - `consumers.py`: WebSocket do painel; assina apenas os grupos das organizações do usuário.
 
-**Implantação** (ver `docs/deploy.md` e `docs/arquitetura/decisoes/006-implantacao-por-instancia.md`):
+**Implantação** (ver `docs/deploy.md` e `docs/arquitetura/decisoes/007-implantacao-por-instancia.md`):
 - `docker-compose.prod.yml` — restart, portas em `BIND_ADDR`, serviço `bootstrap` (one-shot) e `caddy` (profile `publico`). `infra/caddy/Caddyfile` publica só o portal e `/api/v1/capture/*`.
 - `config/settings/production.py` — `TLS_MODE` (`proxy`|`none`), `ALLOWED_HOSTS`, `CSRF_TRUSTED_ORIGINS`; valida segredos na subida (`config/segredos.py`, com cópias em `orchestrator/` e `mcp/`).
 - `config/health.py` — `/health` do portal (checa o banco); orchestrator e mcp têm o seu. Devolvem `INSTANCIA_NOME` e `IA_VERSION`.
@@ -122,7 +122,7 @@ A pasta `docs/` contém ~2 400 linhas de especificação:
 
 - `docs/roadmap.md` — 6 fases; fase 0 (MVP local) ainda em implementação
 - `docs/arquitetura/visao-geral.md` — visão de 5 camadas e fluxos de dados
-- `docs/arquitetura/decisoes/` — 6 ADRs explicando escolhas de MCP, containers, LLM local, voz, log de eventos e implantação por instância
+- `docs/arquitetura/decisoes/` — 7 ADRs explicando escolhas de MCP, containers, LLM local, voz, log de eventos, cluster multi-máquina e implantação por instância
 - `docs/componentes/agentes/` — spec detalhada de cada agente (planejador, coletor, extrator, correlacionador, validador, analista, redator)
 - `docs/seguranca/classificacao.md` — regras completas do motor de política
 - `docs/componentes/observabilidade.md` — log de eventos, taxonomia de `stage`/`status`, painel e reprocessamento

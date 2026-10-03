@@ -89,7 +89,7 @@ Gerar: `python3 -c "import secrets; print(secrets.token_urlsafe(32))"`.
 | `REGISTRO_ABERTO` | `false` (prod) | Cadastro público; em produção fecha após o primeiro usuário |
 | `BIND_ADDR` | `127.0.0.1` | Interface onde 8000/8001 são publicadas |
 | `DATA_DIR` | `./data` | Onde ficam postgres, minio, qdrant, redis (pode ser outro disco) |
-| `MINIO_IMAGE` | `minio/minio:latest` | Fixar uma tag `RELEASE.*` em produção |
+| `MINIO_IMAGE` | `quay.io/minio/minio:latest` | Fixar uma tag `RELEASE.*` em produção (a imagem do Docker Hub foi removida) |
 | `CORS_ALLOWED_ORIGINS` | vazio em prod | Origens web do orchestrator; a extensão não precisa |
 | `DJANGO_SUPERUSER_USERNAME` / `_EMAIL` | vazio | Dono inicial; sem as três, nenhum é criado |
 
@@ -115,6 +115,14 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml --profile public
 ```
 
 O Caddy obtém o certificado (Let's Encrypt; portas 80/443 abertas para a internet) e publica **apenas** o portal e `/api/v1/capture/*`. Os canais serviço-a-serviço (`/artifacts/api/v1/artefatos/`, `/eventos/api/v1/ingest/`) são bloqueados no proxy com 404. Ver `infra/caddy/Caddyfile`.
+
+## Relação com o cluster multi-máquina
+
+Este documento trata **uma instância completa por host** (stack inteira, dados próprios). O projeto também tem um cluster multi-máquina (ADR-006, `docs/operacao/escala-multimaquina.md`) com dois arranjos: *pool de processamento* (`docker-compose.worker-node.yml`, só worker/beat apontando para a infraestrutura de outro nó) e *réplica*. Os dois são camadas por cima da instância descrita aqui, não alternativas a ela.
+
+- `docker-compose.no-infraestrutura.yml` (publica Postgres/Redis/MinIO/Qdrant na interface da VPN, `CLUSTER_VPN_BIND_IP`) é um overlay opcional para o nó que hospeda a infra; combina com `docker-compose.prod.yml` (`-f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.no-infraestrutura.yml`).
+- Variáveis `CLUSTER_*`, `CELERY_QUEUES`, `LLM_GATEWAY_TOKEN` e `OLLAMA_*` do `.env.example` pertencem ao cluster e são **opcionais**: vazias, o recurso fica desligado. `CLUSTER_JOIN_SECRET` e `LLM_GATEWAY_TOKEN`, quando usados, são segredos (aleatórios, por cluster); a validação de segredos de produção não os exige.
+- Um nó `worker-node` em produção roda `config.settings.production` e, por isso, também precisa dos segredos obrigatórios no seu `.env` (os mesmos valores do nó que hospeda a infra, não novos).
 
 ## Volumes
 

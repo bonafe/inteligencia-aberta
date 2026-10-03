@@ -128,6 +128,10 @@ class DocumentText(models.Model):
         Artifact, on_delete=models.CASCADE, related_name="extracted_text"
     )
     text = models.TextField()
+    # Texto bruto de toda a página (nav, rodapé, menus inclusos) — trafilatura descarta
+    # esse boilerplate intencionalmente para curar "text"; full_text existe para quando
+    # o descarte remove algo que a busca precisava.
+    full_text = models.TextField(null=True, blank=True)
     title = models.CharField(max_length=500, blank=True)
     source_url = models.CharField(max_length=2048, blank=True)
     page_type = models.CharField(max_length=50, blank=True)
@@ -136,10 +140,21 @@ class DocumentText(models.Model):
     url_pattern_cache = models.ForeignKey(
         "URLPatternCache", null=True, blank=True, on_delete=models.SET_NULL
     )
+    # Vencedora entre as estratégias de extração abaixo — decisão adiada de
+    # propósito (2026-09-17): nenhum processo atribui este campo por enquanto,
+    # ver apps.artifacts.tasks.extract_text_from_mhtml.
     structured_data = models.JSONField(null=True, blank=True)
     dados_estruturados_dom2parser = models.JSONField(null=True, blank=True)
     dados_estruturados_extruct = models.JSONField(null=True, blank=True)
+    # Extrator determinístico por page_type (apps/artifacts/extractors/strategies.py) —
+    # roda sempre, junto com dom2parser e extruct acima, cada um no seu próprio campo.
+    dados_estruturados_deterministico = models.JSONField(null=True, blank=True)
     dom_representation = models.TextField(null=True, blank=True)
+    # Tamanho (bytes) de cada representação que o pipeline produziu para esta
+    # página — ver apps.artifacts.tamanhos.montar(). Persistido uma vez na
+    # extração para alimentar o gráfico de tamanhos da galeria sem recalcular
+    # nem consultar o log de eventos a cada request.
+    tamanhos = models.JSONField(null=True, blank=True)
     extractor_version = models.CharField(max_length=100, blank=True)
     char_count = models.IntegerField(default=0)
     word_count = models.IntegerField(default=0)
@@ -185,11 +200,12 @@ class URLPatternCache(models.Model):
     page_type = models.CharField(max_length=50)
     confidence = models.FloatField()
     detection_source = models.CharField(max_length=30, default="structural_analysis")
+    # Não usado para extrair structured_data (schema salvo ficava preso aos campos
+    # que tinham valor na captura que o gerou — errado para páginas cujo dado muda a
+    # cada visita). Mantido pelo divergence_count abaixo; sem escritor ativo, hoje.
     extractor_config = models.JSONField(default=dict)
     hit_count = models.PositiveIntegerField(default=1)
     divergence_count = models.PositiveIntegerField(default=0)
-    # Capturas consecutivas em que o schema de seletores não casou com nada —
-    # sinal mais direto de que a estrutura da página mudou sob o schema.
     schema_failure_count = models.PositiveIntegerField(default=0)
     needs_review = models.BooleanField(default=False)
     last_seen_at = models.DateTimeField(auto_now=True)
@@ -202,3 +218,112 @@ class URLPatternCache(models.Model):
 
     def __str__(self):
         return f"{self.domain}{self.path_pattern} → {self.page_type}"
+
+
+class EstruturacaoLLM(models.Model):
+    """Uma execução manual de estruturação, disparada no visualizador.
+
+    Estritamente aditiva: nunca escreve em DocumentText.structured_data nem em
+    URLPatternCache. Acumula uma linha por execução (um modelo, um disparo) para
+    permitir comparar a mesma página estruturada por modelos diferentes.
+    """
+
+    class Provider(models.TextChoices):
+        ANTHROPIC = "anthropic", "Claude (externo)"
+        OLLAMA = "ollama", "Ollama (local)"
+
+    class Status(models.TextChoices):
+        PENDENTE = "pendente", "Pendente"       # criada, na fila do Celery
+        EXECUTANDO = "executando", "Executando"  # worker pegou a task, chamando o LLM
+        CONCLUIDO = "concluido", "Concluído"
+        VAZIO = "vazio", "Vazio"
+        FALHOU = "falhou", "Falhou"
+        CANCELADO = "cancelado", "Cancelado"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    document_text = models.ForeignKey(
+        DocumentText, on_delete=models.CASCADE, related_name="estruturacoes_llm"
+    )
+    tenant = models.ForeignKey(
+        Organization, on_delete=models.CASCADE, related_name="estruturacoes_llm"
+    )
+    provider = models.CharField(max_length=20, choices=Provider.choices)
+    model_name = models.CharField(max_length=255)
+    # Referência por string ("cluster.Maquina"): evita acoplar a ordem de
+    # import de apps.artifacts.models a apps.cluster.models — Django resolve
+    # a FK depois que todo app já carregou. Só preenchido quando o roteador
+    # (apps.cluster.llm_router) escolheu uma máquina de verdade — provider
+    # anthropic, ou ollama sem cluster configurado, ficam com null (mesmo
+    # significado de sempre: "rodou localmente, sem roteamento").
+    maquina = models.ForeignKey(
+        "cluster.Maquina", null=True, blank=True, on_delete=models.SET_NULL, related_name="estruturacoes_llm",
+    )
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDENTE)
+    categoria = models.CharField(max_length=500, blank=True)
+    structured_data = models.JSONField(null=True, blank=True)
+    error_message = models.TextField(blank=True)
+    triggered_by = models.ForeignKey(
+        User, null=True, on_delete=models.SET_NULL, related_name="estruturacoes_llm"
+    )
+    # celery_task_id habilita cancelamento real: revoke(terminate=True) manda
+    # SIGKILL no processo do worker, a única forma confiável de interromper uma
+    # chamada HTTP síncrona e bloqueante ao Ollama/Claude no meio do caminho.
+    celery_task_id = models.CharField(max_length=155, blank=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    duration_ms = models.IntegerField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "artifacts_estruturacao_llm"
+        indexes = [Index(fields=["document_text", "-created_at"])]
+
+    def __str__(self):
+        return f"{self.provider}:{self.model_name} — {self.status} ({self.document_text_id})"
+
+
+class Comparacao(models.Model):
+    """Comparação de 2+ seções de dado estruturado, julgada por um LLM.
+
+    `referencias` identifica o que foi comparado (para navegação/auditoria),
+    mas `resultado` inclui um snapshot do conteúdo enviado ao juiz — a
+    comparação é autocontida e sobrevive a um reprocessamento que apague o
+    DocumentText de origem (extract_text_from_mhtml com forcar=True apaga e
+    recria DocumentText, o que apagaria em cascata as EstruturacaoLLM
+    referenciadas).
+    """
+
+    class Status(models.TextChoices):
+        PENDENTE = "pendente", "Pendente"
+        EXECUTANDO = "executando", "Executando"
+        CONCLUIDO = "concluido", "Concluído"
+        FALHOU = "falhou", "Falhou"
+        CANCELADO = "cancelado", "Cancelado"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    artifact = models.ForeignKey(Artifact, on_delete=models.CASCADE, related_name="comparacoes")
+    tenant = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="comparacoes")
+    referencias = models.JSONField(default=list)
+    modelo_juiz_provider = models.CharField(max_length=20, choices=EstruturacaoLLM.Provider.choices)
+    modelo_juiz_model_name = models.CharField(max_length=255)
+    # Mesmo campo/mesma razão de EstruturacaoLLM.maquina.
+    maquina = models.ForeignKey(
+        "cluster.Maquina", null=True, blank=True, on_delete=models.SET_NULL, related_name="comparacoes",
+    )
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDENTE)
+    resultado = models.JSONField(null=True, blank=True)
+    error_message = models.TextField(blank=True)
+    triggered_by = models.ForeignKey(
+        User, null=True, on_delete=models.SET_NULL, related_name="comparacoes"
+    )
+    celery_task_id = models.CharField(max_length=155, blank=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    duration_ms = models.IntegerField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "artifacts_comparacao"
+        indexes = [Index(fields=["artifact", "-created_at"])]
+
+    def __str__(self):
+        return f"Comparação({self.artifact_id}) — {self.status} — {len(self.referencias)} seções"

@@ -34,6 +34,10 @@ _tenant_id: contextvars.ContextVar[str | None] = contextvars.ContextVar(
 )
 
 _HOSTNAME = socket.gethostname()
+#: Cache por processo do apelido da máquina (evita consultar o banco a cada
+#: emit() — computado uma vez, na primeira chamada). `None` = ainda não
+#: resolvido; string vazia seria um valor de cache válido (sem apelido).
+_APELIDO_MAQUINA: str | None = None
 
 
 def correlacao_de_artefato(artifact_id) -> uuid.UUID:
@@ -81,8 +85,37 @@ def limpar() -> None:
 
 
 def identidade_execucao() -> tuple[str, int]:
-    """(hostname, pid) — quem está executando. Essencial em cluster."""
-    return _HOSTNAME, os.getpid()
+    """(hostname, pid) — quem está executando. Essencial em cluster.
+
+    `hostname` prefere o apelido registrado da `Maquina` (`CLUSTER_LOCAL_APELIDO`
+    ou `Maquina.apelido` de `CLUSTER_MACHINE_ID`) ao hostname bruto do
+    container — dentro do Docker esse hostname é um id aleatório que muda a
+    cada `docker compose up`, inútil pra correlacionar eventos com uma
+    máquina do cluster (ver apps.cluster). Sem cluster configurado, cai no
+    hostname de sempre — comportamento inalterado.
+    """
+    return _apelido_da_maquina(), os.getpid()
+
+
+def _apelido_da_maquina() -> str:
+    global _APELIDO_MAQUINA
+    if _APELIDO_MAQUINA is not None:
+        return _APELIDO_MAQUINA
+
+    apelido = os.environ.get("CLUSTER_LOCAL_APELIDO", "")
+    if not apelido:
+        machine_id = os.environ.get("CLUSTER_MACHINE_ID", "")
+        if machine_id:
+            try:
+                # Import tardio: apps.cluster depende de apps.events (emit()),
+                # importar no topo do módulo criaria um ciclo.
+                from apps.cluster.models import Maquina
+                apelido = Maquina.objects.filter(id=machine_id).values_list("apelido", flat=True).first() or ""
+            except Exception:
+                apelido = ""
+
+    _APELIDO_MAQUINA = apelido or _HOSTNAME
+    return _APELIDO_MAQUINA
 
 
 def source_padrao() -> str:

@@ -5,7 +5,7 @@ Este arquivo documenta as alterações, configurações e implementações feita
 ## [03-10-2026] - Implantação por instância: compose de produção, HTTPS/Caddy, registro fechado, bootstrap e segredos
 
 **Contexto e motivação:**
-- O dono implanta o projeto na "rede_papagaio" (5 hosts numa tailnet, Ansible em outro repositório, uma instância por host com segredos próprios; um host com IP público e domínio). O repositório só tinha modo de desenvolvimento. Decisões e alternativas em `docs/arquitetura/decisoes/006-implantacao-por-instancia.md`.
+- O dono implanta o projeto na "rede_papagaio" (5 hosts numa tailnet, Ansible em outro repositório, uma instância por host com segredos próprios; um host com IP público e domínio). O repositório só tinha modo de desenvolvimento. Decisões e alternativas em `docs/arquitetura/decisoes/007-implantacao-por-instancia.md`.
 - Decisões validadas com o usuário: HTTPS em todos os hosts (`tailscale serve` nos só-tailnet, Caddy no host público), captura remota pela extensão necessária, registro fechado após o primeiro usuário.
 
 **O que foi implementado:**

@@ -1,4 +1,4 @@
-# Decisão-006: Implantação por instância, HTTPS em todos os hosts e exposição mínima
+# Decisão-007: Implantação por instância, HTTPS em todos os hosts e exposição mínima
 
 **Status:** Aceito  
 **Data:** 2026-10-03

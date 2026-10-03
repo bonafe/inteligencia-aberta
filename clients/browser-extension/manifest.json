@@ -6,7 +6,8 @@
   "permissions": [
     "activeTab",
     "pageCapture",
-    "storage"
+    "storage",
+    "favicon"
   ],
   "host_permissions": [
     "http://localhost:8001/*",

@@ -71,6 +71,25 @@ A revogação não garante que o destinatário não tem cópias locais (limitaç
 - Equipe pode ler, líder pode aprovar ou rejeitar.
 - Dados não saem da organização — é compartilhamento interno.
 
+## Projeto — colaboração contínua entre organizações diferentes
+
+`Sharing` (acima) resolve um grant pontual: um dono compartilha UM artefato com UM destinatário, por um prazo, revogável. Não resolve um caso diferente: duas ou mais pessoas de **organizações diferentes** que querem colaborar de forma contínua — decidir juntas o que fica disponível entre elas, incluindo capacidade de computação (usar o LLM local da máquina uma da outra), não só leitura de documento.
+
+Para isso existe `Projeto` ([ADR-006](../arquitetura/decisoes/006-cluster-adaptativo-multiproprietario.md)), ainda não implementado — só desenhado. Diferenças deliberadas em relação aos dois mecanismos que já existem:
+
+| | `Sharing` | `Organization` | `Projeto` |
+|---|---|---|---|
+| Escopo | um artefato | todos os dados de uma organização | o que cada membro decidir trazer |
+| Membros | um destinatário (usuário/grupo/organização) | usuários da mesma organização | usuários de organizações diferentes |
+| Duração | pontual, com validade | permanente (é a identidade) | contínua, enquanto o membro participar |
+| O que concede | ler | acesso pleno interno | o que for explicitamente marcado por item/categoria |
+
+Um `Projeto` **nunca** implica confiança automática entre as organizações dos seus membros — participar de um projeto não torna visível nenhum dado que o membro não tenha explicitamente marcado como elegível para aquele projeto. A mesma regra de negação por padrão desta página vale aqui: sem marcação explícita, nada de uma organização atravessa para outra através de um projeto.
+
+Dois usos previstos para `Projeto`:
+- **Replicação seletiva**: o motor de posicionamento (`apps/cluster/replicacao.py::eventos_para_peer`, ADR-006) considera participação em projeto em comum como um dos critérios para elegibilidade de réplica — ao lado de propriedade do destino e espaço disponível.
+- **Computação de LLM compartilhada**: o roteador de LLM (`apps/cluster/llm_router.py`) pode incluir máquina de outro membro do projeto, quando ambos os donos autorizarem reciprocidade — nunca por padrão.
+
 ## Controles de Rede por Organização
 
 Para organizações com dados `confidencial`:

@@ -1,0 +1,170 @@
+"""Peças compartilhadas entre a classificação automática de page_type
+(llm_classifier.py) e as chamadas manuais de LLM (estruturação manual,
+comparação) — nenhuma extração de structured_data roda mais automaticamente
+(ver apps.artifacts.tasks.extract_text_from_mhtml, 2026-09-17).
+
+`gerar_texto()` é o único ponto de chamada a um provider de LLM (Claude ou
+Ollama) para esses usos manuais — cada provider concreto vive no seu próprio
+módulo (llm_classifier.py para Anthropic, ollama_client.py para Ollama).
+"""
+import json
+import re
+
+from django.conf import settings
+
+_CODE_FENCE_RE = re.compile(r"```(?:json)?\s*([\s\S]*?)```", re.IGNORECASE)
+_JSON_OBJECT_RE = re.compile(r"\{[\s\S]*\}", re.DOTALL)
+
+
+def _extract_json(text: str) -> dict:
+    """Parse JSON from LLM output, tolerating markdown code fences and surrounding text."""
+    text = text.strip()
+
+    fence = _CODE_FENCE_RE.search(text)
+    if fence:
+        text = fence.group(1).strip()
+
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+
+    match = _JSON_OBJECT_RE.search(text)
+    if match:
+        return json.loads(match.group(0))
+
+    raise json.JSONDecodeError("no JSON object found", text, 0)
+
+
+def _get_client():
+    api_key = getattr(settings, "ANTHROPIC_API_KEY", None)
+    if not api_key:
+        return None
+    import anthropic
+    return anthropic.Anthropic(api_key=api_key)
+
+
+_EXTRACT_SYSTEM = """\
+Você é um extrator de dados inteligente para uma plataforma de jornalismo investigativo brasileiro.
+
+Você recebe uma representação estrutural comprimida (via dom2parser) de uma página capturada. A página pode conter \
+qualquer tipo de informação: extrato bancário, ficha de empresa, processo judicial, notícia, \
+resultado médico, tabela de licitações, planilha de dados públicos — qualquer coisa.
+
+Quando a representação lista "REPEATED STRUCTURES", as linhas `selector:` e `fields:` são seletores \
+JÁ VERIFICADOS contra o documento original (matches/covers medidos) — é o que o dom2parser já \
+conseguiu extrair sozinho, sem você; reaproveite esses valores em vez de tentar adivinhá-los de novo. \
+As linhas de caminho (`div.x > ul > li`) NÃO são seletores: são truncadas e `*` marca partes variáveis \
+de id/classe. Concentre-se nos campos soltos (rótulo: valor) que a página exibe e que o dom2parser \
+não cobre.
+
+Sua tarefa, em ordem:
+
+1. CATEGORIZAR — Descreva em UMA FRASE específica o que esta página contém.
+   Não "tabela financeira" mas "Extrato de conta corrente do Banco do Brasil, março 2025".
+   Não "página de empresa" mas "Ficha cadastral da empresa XYZ LTDA na Receita Federal".
+
+2. EXTRAIR — Extraia todos os dados estruturados visíveis. Para listas longas, limite a 100 itens.
+   Use nomes de campo em português. Estruture conforme o conteúdo — não há formato fixo.
+
+Você NÃO precisa gerar texto narrativo para busca — o sistema sempre extrai o texto
+de busca da página com trafilatura, de forma independente da sua resposta. Foque
+inteiramente em extrair dados estruturados corretos.
+
+RETORNE APENAS O JSON ABAIXO. Nada antes, nada depois, sem markdown.
+
+{
+  "categoria": "<descrição específica em uma frase>",
+  "page_type": "<artigo|tabular_financeiro|tabular_generico|processo_judicial|perfil_pessoa_juridica|documento_juridico|misto|desconhecido>",
+  "structured_data": {
+    "<campo_em_portugues>": "<valor ou lista ou objeto aninhado conforme o conteúdo>"
+  }
+}
+"""
+
+
+def gerar_texto(
+    provider: str, model_name: str, system: str, prompt: str, max_tokens: int = 4096,
+    *, finalidade: str, subject_id=None, tenant_id=None,
+) -> tuple[str, str | None]:
+    """Ponto único de chamada a um LLM, Claude ou Ollama, para os usos manuais
+    do sistema (estruturação manual e julgamento de comparação) — nenhuma
+    extração de structured_data roda automaticamente hoje.
+
+    Devolve (texto, maquina_id) — `maquina_id` é a `Maquina` que o roteador
+    escolheu pra atender esta chamada (provider ollama com cluster
+    configurado), ou `None` (provider anthropic, ou ollama local sem
+    cluster) — é o que preenche `EstruturacaoLLM.maquina`/`Comparacao.maquina`,
+    a proveniência que o Mapa Vivo mostra.
+
+    `finalidade`/`subject_id`/`tenant_id` alimentam
+    `apps.events.llm_telemetria.registrar_chamada_llm` — obrigatório indicar
+    para quê a chamada é (`apps.events.models.Finalidade`), porque o mesmo
+    par provider/modelo serve tarefas de custo muito diferente.
+
+    Levanta em caso de falha — quem chama decide status=falhou vs mensagem.
+    """
+    if provider == "anthropic":
+        from time import perf_counter
+
+        from apps.events.llm_telemetria import ResultadoLLM, registrar_chamada_llm
+
+        client = _get_client()
+        if not client:
+            raise RuntimeError("ANTHROPIC_API_KEY não configurada")
+
+        chars_enviados = len(system) + len(prompt)
+        t0 = perf_counter()
+        try:
+            message = client.messages.create(
+                model=model_name,
+                max_tokens=max_tokens,
+                system=system,
+                messages=[{"role": "user", "content": prompt}],
+            )
+        except Exception as exc:
+            registrar_chamada_llm(
+                finalidade=finalidade, duration_ms=int((perf_counter() - t0) * 1000),
+                subject_id=subject_id, tenant_id=tenant_id,
+                resultado=ResultadoLLM(
+                    provider="anthropic", modelo_solicitado=model_name, sucesso=False,
+                    chars_enviados=chars_enviados, error_message=str(exc),
+                ),
+            )
+            raise
+
+        registrar_chamada_llm(
+            finalidade=finalidade, duration_ms=int((perf_counter() - t0) * 1000),
+            subject_id=subject_id, tenant_id=tenant_id,
+            resultado=ResultadoLLM(
+                provider="anthropic", modelo_solicitado=model_name, sucesso=True,
+                modelo_resposta=message.model, tokens_entrada=message.usage.input_tokens,
+                tokens_saida=message.usage.output_tokens, stop_reason=message.stop_reason or "",
+                request_id=message.id, chars_enviados=chars_enviados,
+            ),
+        )
+        return message.content[0].text, None
+
+    if provider == "ollama":
+        from .ollama_client import gerar
+
+        # Cluster com máquina(s) registrada(s) para este modelo: usa a mais
+        # rápida conhecida (ou uma nunca testada, pra aprender). Sem cluster
+        # configurado (instalação de máquina única, caso comum hoje),
+        # escolher_execucao devolve None e a chamada cai no Ollama local de
+        # sempre — comportamento inalterado.
+        from apps.cluster.llm_router import escolher_execucao
+
+        # Telemetria desta chamada HTTP já acontece dentro de gerar()
+        # (ollama_client._chamar) — registrar de novo aqui contaria a mesma
+        # chamada duas vezes.
+        execucao = escolher_execucao(model_name)
+        if execucao:
+            texto = gerar(model_name, system, prompt, host=execucao.host,
+                          num_thread=execucao.num_thread, maquina_id=execucao.maquina_id,
+                          finalidade=finalidade, subject_id=subject_id, tenant_id=tenant_id)
+            return texto, execucao.maquina_id
+        return gerar(model_name, system, prompt,
+                      finalidade=finalidade, subject_id=subject_id, tenant_id=tenant_id), None
+
+    raise ValueError(f"provider desconhecido: {provider}")

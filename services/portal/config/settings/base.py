@@ -39,6 +39,7 @@ INSTALLED_APPS = [
     "apps.artifacts.apps.ArtifactsConfig",
     "apps.infrastructure.apps.InfrastructureConfig",
     "apps.events.apps.EventsConfig",
+    "apps.cluster.apps.ClusterConfig",
 ]
 
 MIDDLEWARE = [
@@ -156,9 +157,32 @@ EMBEDDING_DIM = int(os.environ.get("EMBEDDING_DIM", "384"))
 FRAGMENT_CHUNK_SIZE = int(os.environ.get("FRAGMENT_CHUNK_SIZE", "1000"))
 FRAGMENT_OVERLAP = int(os.environ.get("FRAGMENT_OVERLAP", "100"))
 
+# Quantos artefatos-documento mais recentes entram na carga inicial do Mapa
+# Vivo (apps/artifacts graph.py) — o restante é acessível via paginação "carregar mais antigos".
+MAPA_VIVO_LIMITE_ARTEFATOS = int(os.environ.get("MAPA_VIVO_LIMITE_ARTEFATOS", "150"))
+
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 LLM_CLASSIFIER_MODEL = os.environ.get("LLM_CLASSIFIER_MODEL", "claude-haiku-4-5")
 LLM_EXTRACTOR_MODEL = os.environ.get("LLM_EXTRACTOR_MODEL", "claude-sonnet-5")
+
+# Ollama roda nativo no host do usuário, fora do Docker — não é um serviço do
+# compose. host.docker.internal exige `extra_hosts: host-gateway` no Linux
+# (não é automático como no Docker Desktop de Mac/Windows; ver docker-compose.yml).
+OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://host.docker.internal:11434")
+OLLAMA_TIMEOUT_S = int(os.environ.get("OLLAMA_TIMEOUT_S", "120"))
+# Sem isto, o Ollama usa o default de 4096 tokens de contexto mesmo em modelos
+# que suportam muito mais — em modelos "thinking" o raciocínio sozinho estoura
+# 4096 antes de sobrar espaço para a resposta final, e a chamada volta vazia.
+OLLAMA_NUM_CTX = int(os.environ.get("OLLAMA_NUM_CTX", "4096"))
+# Threads de CPU que o Ollama usa para inferência. Sem isto (e sem um Modelfile
+# próprio que fixe `num_thread`), o Ollama subestima a máquina em alguns casos
+# e roda com uma fração da capacidade disponível. Aplicado em toda chamada,
+# para todo modelo — não depende do usuário lembrar de escolher um modelo
+# "-max" específico na UI (ver infra/ollama/Modelfile-qwen-max, que faz o
+# mesmo ajuste só para um modelo, para uso fora do app via `ollama run`).
+# Default: todas as CPUs visíveis para o processo (o container, tipicamente
+# igual ao host, salvo cgroup limitando).
+OLLAMA_NUM_THREAD = int(os.environ.get("OLLAMA_NUM_THREAD") or os.cpu_count() or 4)
 
 # ── Segurança / Autenticação ─────────────────────────────────────────────────
 # JWT_SIGNING_KEY: segredo compartilhado com o orchestrator — o portal assina os
@@ -169,6 +193,37 @@ JWT_SIGNING_KEY = os.environ.get("JWT_SIGNING_KEY", SECRET_KEY)
 # INTERNAL_API_TOKEN: segredo do canal serviço-a-serviço. O orchestrator o envia
 # no header X-Internal-Token ao criar artefatos; a API interna do portal valida.
 INTERNAL_API_TOKEN = os.environ.get("INTERNAL_API_TOKEN", "")
+
+# ── Cluster multi-máquina (apps.cluster) ─────────────────────────────────────
+# Não existe conceito de "máquina primária" no vocabulário do cluster — só
+# capacidade: uma máquina hospeda (ou não) a infraestrutura compartilhada
+# (Postgres/Redis/MinIO/Qdrant). Nada além disso muda o tratamento dela (o
+# roteador de LLM, por exemplo, já trata toda `Maquina` como igual). Ver
+# ADR-006 (docs/arquitetura/decisoes/006-cluster-adaptativo-multiproprietario.md).
+#
+# CLUSTER_MACHINE_ID: id da `Maquina` que ESTA instância representa (gerado
+# por `scripts/entrar_no_cluster.py` ou `manage.py registrar_maquina` numa
+# máquina que entrou no cluster de outra). Vazio numa instalação de máquina
+# única — o heartbeat simplesmente não roda (ver apps/cluster/tasks.py).
+CLUSTER_MACHINE_ID = os.environ.get("CLUSTER_MACHINE_ID", "")
+# CLUSTER_HOSPEDA_INFRA=true (default): esta máquina roda o catch-up scan do
+# pipeline (scan_unprocessed_documents) — só precisa rodar uma vez por
+# cluster, não uma vez por máquina, e quem hospeda a infra compartilhada é o
+# lugar natural pra isso. Também é o que POST /cluster/api/v1/status/
+# (StatusPublicoView) reporta — é assim que uma máquina nova
+# (scripts/entrar_no_cluster.py) descobre qual peer do tailnet tem a infra,
+# sem endereço fixo configurado à mão.
+CLUSTER_HOSPEDA_INFRA = os.environ.get("CLUSTER_HOSPEDA_INFRA", "true").lower() == "true"
+# CLUSTER_JOIN_SECRET: segredo único do cluster (definido uma vez no nó que
+# hospeda a infra, distribuído pra quem for adicionar máquina) — autentica
+# POST /cluster/api/v1/join/, o autorregistro usado por
+# scripts/entrar_no_cluster.py. Vazio = endpoint desligado (404).
+CLUSTER_JOIN_SECRET = os.environ.get("CLUSTER_JOIN_SECRET", "")
+# LLM_GATEWAY_TOKEN: segredo do gateway compatível com OpenAI em
+# POST /v1/chat/completions (apps.cluster.gateway) — só fala com Ollama das
+# máquinas do cluster, nunca com provider externo. Vazio = gateway desligado
+# (404), fail-closed por padrão.
+LLM_GATEWAY_TOKEN = os.environ.get("LLM_GATEWAY_TOKEN", "")
 
 SIMPLE_JWT = {
     "SIGNING_KEY": JWT_SIGNING_KEY,
@@ -210,8 +265,18 @@ SPECTACULAR_SETTINGS = {
 }
 
 CELERY_BEAT_SCHEDULE = {
-    "scan-unprocessed-documents": {
-        "task": "apps.artifacts.tasks.scan_unprocessed_documents",
-        "schedule": 120.0,  # a cada 2 minutos
+    # Heartbeat de recursos da máquina — inofensivo rodar em toda máquina do
+    # cluster, hospede infra ou não; sem CLUSTER_MACHINE_ID a task roda e
+    # não faz nada (ver apps/cluster/tasks.py:emitir_heartbeat_maquina).
+    "emitir-heartbeat-maquina": {
+        "task": "apps.cluster.tasks.emitir_heartbeat_maquina",
+        "schedule": 30.0,
     },
 }
+if CLUSTER_HOSPEDA_INFRA:
+    # Catch-up scan só precisa rodar uma vez por cluster — rodar em toda
+    # máquina duplicaria a varredura sem ganho nenhum.
+    CELERY_BEAT_SCHEDULE["scan-unprocessed-documents"] = {
+        "task": "apps.artifacts.tasks.scan_unprocessed_documents",
+        "schedule": 120.0,  # a cada 2 minutos
+    }

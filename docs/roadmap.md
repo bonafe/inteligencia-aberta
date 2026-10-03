@@ -35,7 +35,7 @@ Cada fase deve entregar valor real a pelo menos uma persona. Nenhuma fase é "s�
 - [x] Celery + Redis como fila de tarefas assíncronas (já previsto na arquitetura)
 - [x] `ArtifactLineage` — modelo de linhagem: todo artefato derivado sabe de onde veio e como foi transformado
 - [x] Etapa 1: extração de texto com `trafilatura` (genérica, sem LLM)
-- [x] Etapa 1b: Extração adaptativa por tipo de página — detecta automaticamente se a página é artigo, extrato financeiro, processo judicial, ficha de CNPJ etc. e aplica extrator específico; `URLPatternCache` aprende padrões de URL por tenant para evitar redetecção. Compressão HTML→LLM e **parser verificado sem LLM** (seletor + campos medidos contra o HTML original, gravados em `URLPatternCache.extractor_config`) via biblioteca externa [`dom2parser`](https://bonafe.github.io/dom2parser/) ([spec](../componentes/pipeline/extracao-adaptativa.md))
+- [x] Etapa 1b: Extração adaptativa por tipo de página — detecta automaticamente se a página é artigo, extrato financeiro, processo judicial, ficha de CNPJ etc.; `URLPatternCache` aprende padrões de URL por tenant para evitar redetecção de `page_type` (não mais para reuso de extração de dados — ver spec). Compressão HTML→LLM e **parser verificado sem LLM** (seletor + campos medidos contra o HTML original, recalculado a cada captura) via biblioteca externa [`dom2parser`](https://bonafe.github.io/dom2parser/); dom2parser, extruct e o extrator determinístico por tipo rodam sempre, cada um no seu próprio campo, sem cascata escolhendo uma vencedora ([spec](../componentes/pipeline/extracao-adaptativa.md))
 - [x] **Observabilidade do pipeline** — log de eventos append-only (`PipelineEvent`) atravessando extensão, orquestrador, portal, workers e MCP, com correlação ponta a ponta, projeção reconstruível (`PipelineRun`) e painel ao vivo por WebSocket em `/eventos/`. Inclui reprocessamento dirigido para diagnóstico ([spec](../componentes/observabilidade.md), [ADR-005](../arquitetura/decisoes/005-log-de-eventos-como-trilha-operacional.md))
 - [ ] Etapa 1c: `SiteProfile` — extração aprendida por domínio via LLM Discovery (LLM roda uma vez, seletores CSS ficam salvos)
 - [ ] Etapa 2: fragmentação em chunks com overlap configurável
@@ -107,6 +107,12 @@ Cada fase deve entregar valor real a pelo menos uma persona. Nenhuma fase é "s�
 - [ ] Suporte a equipes dentro de uma organização
 - [ ] Políticas de acesso configuráveis por organização
 - [ ] Notificações de compartilhamento
+- [ ] `Projeto` — unidade de colaboração cross-organização: membros são
+  usuários (não organizações inteiras), decide o que fica elegível a
+  replicação automática e a compartilhamento de computação de LLM entre
+  donos diferentes ([ADR-006](../arquitetura/decisoes/006-cluster-adaptativo-multiproprietario.md),
+  [perfil de implantação D5](../visao/perfis-de-implantacao.md)). Complementar
+  a `Sharing` (grant pontual por artefato, já existente) — não o substitui.
 
 **Caso de uso habilitado:** UC-04 (paciente → médico), UC-07 (institucional).
 
@@ -119,8 +125,27 @@ Cada fase deve entregar valor real a pelo menos uma persona. Nenhuma fase é "s�
 **Objetivo:** Sistema pronto para múltiplos usuários simultâneos e operação contínua.
 
 **Entregáveis:**
-- [ ] Migração de docker-compose para Kubernetes / Docker Swarm
-- [ ] Escalabilidade horizontal de agentes e workers
+- [x] Cluster multi-máquina, dono único, descoberta automática via
+  Tailscale/MagicDNS — registro de máquina, heartbeat de recursos
+  (`MaquinaStatus`), roteador de LLM entre Ollamas locais, gateway
+  compatível com OpenAI, replicação por log de eventos (lado de saída)
+  ([`docs/operacao/escala-multimaquina.md`](../operacao/escala-multimaquina.md))
+- [ ] Cluster adaptativo multi-proprietário: perfis de nó por capacidade
+  (armazenamento/computação/borda pública/offline), motor de posicionamento
+  com critério (dono do destino, `Projeto`, espaço disponível, sensibilidade
+  do dado), roteador de LLM estendido entre donos diferentes, proveniência
+  de dado e de geração de LLM visível no grafo
+  ([ADR-006](../arquitetura/decisoes/006-cluster-adaptativo-multiproprietario.md),
+  [perfis de implantação](../visao/perfis-de-implantacao.md)) — substitui a
+  ideia original de migrar para Kubernetes/Docker Swarm, descartada por não
+  resolver nada específico do domínio (quem replica para quem, sob qual
+  critério) e por o Tailscale/Headscale já resolver a descoberta sem esse
+  custo
+- [ ] Lado de recepção da replicação (hoje só o lado de saída existe) e
+  failover — depende de replicação real de dado entre máquinas, não só de
+  descoberta
+- [ ] Escalabilidade horizontal de agentes e workers (filas Celery nomeadas
+  por perfil de máquina)
 - [ ] Monitoramento: Prometheus + Grafana — métricas agregadas alimentadas pelo log de eventos da Fase 1, não uma coleta paralela
 - [ ] Rastreamento de agentes (LangSmith ou similar) — `correlation_id` e `causation_id` do log de eventos já são o eixo do trace
 - [ ] Retenção e particionamento de `PipelineEvent` — hoje a retenção é indefinida por decisão; revisitar quando o volume pedir

@@ -21,6 +21,7 @@ CRITERIOS = {
     "extruct": {"dados_estruturados_extruct__isnull": True},
     "dom_representation": {"dom_representation__isnull": True},
     "structured_data": {"structured_data__isnull": True},
+    "full_text": {"full_text__isnull": True},
 }
 
 
