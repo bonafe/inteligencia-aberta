@@ -1,0 +1,28 @@
+{
+	email {$ACME_EMAIL}
+}
+
+{$IA_DOMINIO} {
+	encode zstd gzip
+
+	# Canal serviço-a-serviço (X-Internal-Token): só existe dentro da rede do compose.
+	# Bloqueado aqui por segurança em profundidade, independentemente do token.
+	# (handle, e não respond solto: respond perderia para o handle genérico abaixo.)
+	@interno path /artifacts/api/v1/artefatos/* /eventos/api/v1/ingest/*
+	handle @interno {
+		respond 404
+	}
+
+	# Captura da extensão (JWT validado pelo orchestrator). MHTML pode ser grande.
+	handle /api/v1/capture/* {
+		request_body {
+			max_size 100MB
+		}
+		reverse_proxy orchestrator:8001
+	}
+
+	# Todo o resto é o portal (inclui o WebSocket do painel de eventos).
+	handle {
+		reverse_proxy portal:8000
+	}
+}

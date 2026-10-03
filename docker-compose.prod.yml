@@ -1,6 +1,8 @@
 # Produção: usar SEM o override de desenvolvimento (que o compose carregaria sozinho
 # se não houvesse -f):
 #   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+# Host com domínio público (Caddy na frente), além disso:
+#   ... --profile publico up -d --build
 name: inteligencia-aberta
 
 x-restart: &restart
@@ -46,3 +48,28 @@ services:
 
   minio:
     <<: *restart
+
+  # Só no host com IP público e domínio. Termina o TLS (Let's Encrypt) e publica
+  # apenas o portal e /api/v1/capture/* — ver infra/caddy/Caddyfile.
+  caddy:
+    <<: *restart
+    image: caddy:2-alpine
+    profiles: ["publico"]
+    depends_on:
+      portal:
+        condition: service_healthy
+      orchestrator:
+        condition: service_healthy
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    # Obrigatórios com o profile publico (sem eles o Caddy não sobe); `:?` não serve
+    # aqui porque o compose interpola mesmo com o profile desligado.
+    environment:
+      IA_DOMINIO: ${IA_DOMINIO:-}
+      ACME_EMAIL: ${ACME_EMAIL:-}
+    volumes:
+      - ./infra/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ${DATA_DIR:-./data}/caddy/data:/data
+      - ${DATA_DIR:-./data}/caddy/config:/config
