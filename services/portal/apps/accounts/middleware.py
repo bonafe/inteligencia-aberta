@@ -21,6 +21,7 @@ class LoginRequiredMiddleware:
 
     # Prefixos de path liberados da exigência de sessão.
     EXEMPT_PREFIXES = (
+        "/health",                       # healthcheck do compose/automação (sem dado)
         "/entrar/",
         "/sair/",
         "/registro/",

@@ -209,4 +209,9 @@ async def capture_mhtml(
 
 @app.get("/health")
 async def health():
-    return {"status": "ok"}
+    return {
+        "status": "ok",
+        "servico": "orchestrator",
+        "instancia": os.getenv("INSTANCIA_NOME", ""),
+        "versao": os.getenv("IA_VERSION", ""),
+    }

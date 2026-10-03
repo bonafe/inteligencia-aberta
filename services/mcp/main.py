@@ -70,4 +70,9 @@ async def noticias(termo: str, request: Request):
 
 @app.get("/health")
 async def health():
-    return {"status": "ok"}
+    return {
+        "status": "ok",
+        "servico": "mcp",
+        "instancia": os.getenv("INSTANCIA_NOME", ""),
+        "versao": os.getenv("IA_VERSION", ""),
+    }

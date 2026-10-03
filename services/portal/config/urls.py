@@ -4,8 +4,10 @@ from drf_spectacular.views import SpectacularAPIView, SpectacularRedocView, Spec
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
 from apps.accounts.serializers import TenantTokenObtainPairSerializer
+from config.health import health
 
 urlpatterns = [
+    path("health", health, name="health"),
     path("admin/", admin.site.urls),
     # Emissão de JWT para clientes externos (extensão Chrome). O access token
     # carrega tenant_id/username nas claims (ver TenantTokenObtainPairSerializer).
