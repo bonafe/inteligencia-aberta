@@ -12,6 +12,10 @@ from minio import Minio
 from policy_engine import check, registrar_decisao
 from eventos import emitir, nova_correlacao
 
+from segredos import validar_segredos
+
+validar_segredos(["JWT_SIGNING_KEY", "INTERNAL_API_TOKEN", "MINIO_ROOT_PASSWORD", "POSTGRES_PASSWORD"])
+
 PORTAL_URL = os.getenv("PORTAL_URL", "http://portal:8000")
 
 # Segredos compartilhados com o portal (ver services/portal/config/settings/base.py):

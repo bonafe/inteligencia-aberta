@@ -42,3 +42,25 @@ def test_registro_aberto_por_flag(client):
     User.objects.create_user(username="dono", password="x")
     assert client.post("/registro/", DADOS).status_code == 302
     assert User.objects.filter(username="novo", is_superuser=False).exists()
+
+
+from config.segredos import segredo_invalido, validar_segredos
+
+# ── segredos ────────────────────────────────────────────────────────────────
+
+@pytest.mark.parametrize("valor", [None, "", "  ", "CHANGE_ME", "change_me_agora", "substitua-por-senha-segura"])
+def test_segredo_invalido(valor):
+    assert segredo_invalido(valor)
+
+
+def test_segredo_valido():
+    assert not segredo_invalido("k3J8-aleatorio")
+
+
+def test_validar_segredos_lista_todos_os_problemas(monkeypatch):
+    monkeypatch.setenv("A", "CHANGE_ME")
+    monkeypatch.setenv("B", "ok-de-verdade")
+    monkeypatch.delenv("C", raising=False)
+    with pytest.raises(RuntimeError) as exc:
+        validar_segredos(["A", "B", "C"])
+    assert "A, C" in str(exc.value) and "B" not in str(exc.value).split(":")[1].split(".")[0]

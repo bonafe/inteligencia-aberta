@@ -1,5 +1,6 @@
 import os
 from .base import *
+from config.segredos import validar_segredos
 
 
 def _env_lista(nome: str) -> list[str]:
@@ -8,6 +9,13 @@ def _env_lista(nome: str) -> list[str]:
 
 
 DEBUG = False
+
+# Falha cedo, com mensagem clara, em vez de subir com segredo vazio/de exemplo.
+# ANTHROPIC_API_KEY é opcional e fica de fora de propósito.
+validar_segredos([
+    "DJANGO_SECRET_KEY", "JWT_SIGNING_KEY", "INTERNAL_API_TOKEN", "MCP_API_TOKEN",
+    "POSTGRES_PASSWORD", "MINIO_ROOT_PASSWORD",
+])
 
 SECRET_KEY = os.environ["DJANGO_SECRET_KEY"]
 

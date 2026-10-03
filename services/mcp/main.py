@@ -4,9 +4,12 @@ import time
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from eventos import emitir, nova_correlacao
+from segredos import validar_segredos
 from tools.cnpj import consultar_cnpj
 from tools.processos import buscar_processos
 from tools.noticias import buscar_noticias
+
+validar_segredos(["MCP_API_TOKEN", "INTERNAL_API_TOKEN"])
 
 app = FastAPI(title="MCP — Ferramentas Inteligência Aberta")
 
