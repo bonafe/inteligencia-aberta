@@ -1,0 +1,106 @@
+# Implantação
+
+Uma instância por host, cada uma com seus próprios segredos. Pensado para ser subido por automação (Ansible), mas funciona à mão com os mesmos passos.
+
+## Subir uma instância
+
+```bash
+git clone <repo> && cd inteligencia-aberta
+cp .env.example .env            # preencher segredos e variáveis de implantação (abaixo)
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+docker compose -f docker-compose.yml -f docker-compose.prod.yml ps   # tudo "healthy"
+```
+
+**Sempre com `-f ... -f docker-compose.prod.yml`.** Sem `-f`, o compose carrega o `docker-compose.override.yml` sozinho — que é o de desenvolvimento (runserver, `--reload`, volumes de código, portas abertas).
+
+O passo `bootstrap` roda a cada `up`: aplica migrations, cria os buckets do MinIO e cria o superusuário inicial. É idempotente e o portal, o worker e o beat só sobem depois dele terminar com sucesso. Não há passo manual.
+
+Critério de sucesso para a automação: `docker compose ps` sem serviço `unhealthy` e `GET /health` do portal respondendo 200 (`{"status":"ok","servico":"portal","instancia":...,"versao":...}`). `bootstrap` aparece como `Exited (0)` — é o esperado.
+
+## Segredos
+
+Cada um deve ser aleatório e **único por instância**. Em produção o processo se recusa a subir se algum estiver vazio ou com `CHANGE_ME` (a mensagem de erro lista todos os problemas de uma vez).
+
+| Variável | Para quê |
+|---|---|
+| `DJANGO_SECRET_KEY` | Sessões, CSRF, assinaturas do Django |
+| `JWT_SIGNING_KEY` | Assina (portal) e valida (orchestrator) os JWT da extensão — idêntico nos dois |
+| `INTERNAL_API_TOKEN` | Canal serviço-a-serviço (orchestrator/MCP → portal) |
+| `MCP_API_TOKEN` | Header `X-Mcp-Token` das ferramentas do MCP |
+| `POSTGRES_PASSWORD` | Banco |
+| `MINIO_ROOT_PASSWORD` | Armazenamento de objetos |
+| `DJANGO_SUPERUSER_PASSWORD` | Senha do dono inicial (só é lida no primeiro boot) |
+
+Gerar: `python3 -c "import secrets; print(secrets.token_urlsafe(32))"`.
+
+`ANTHROPIC_API_KEY` é **opcional**: a stack sobe sem ela.
+
+**Atenção:** `POSTGRES_PASSWORD` e `MINIO_ROOT_PASSWORD` só valem na criação dos dados. Trocá-los depois num `DATA_DIR` existente não altera a senha já gravada.
+
+## Variáveis de implantação
+
+| Variável | Padrão | Função |
+|---|---|---|
+| `DJANGO_SETTINGS_MODULE` | `config.settings.development` | **Em produção: `config.settings.production`** |
+| `INSTANCIA_NOME`, `IA_VERSION` | vazio | Identidade e versão (ex.: git sha), expostas em `/health` |
+| `ALLOWED_HOSTS` | vazio | Nomes pelos quais o portal é acessado, separados por vírgula |
+| `CSRF_TRUSTED_ORIGINS` | vazio | Origens com esquema (`https://…`); necessário para login/registro atrás de proxy |
+| `TLS_MODE` | `proxy` | `proxy`: HTTPS terminado na frente (redirect, cookies seguros). `none`: HTTP puro |
+| `SECURE_HSTS_SECONDS` | `0` | HSTS é pegajoso no navegador; ligar só com HTTPS estável |
+| `REGISTRO_ABERTO` | `false` (prod) | Cadastro público; em produção fecha após o primeiro usuário |
+| `BIND_ADDR` | `127.0.0.1` | Interface onde 8000/8001 são publicadas |
+| `DATA_DIR` | `./data` | Onde ficam postgres, minio, qdrant, redis (pode ser outro disco) |
+| `MINIO_IMAGE` | `minio/minio:latest` | Fixar uma tag `RELEASE.*` em produção |
+| `CORS_ALLOWED_ORIGINS` | vazio em prod | Origens web do orchestrator; a extensão não precisa |
+| `DJANGO_SUPERUSER_USERNAME` / `_EMAIL` | vazio | Dono inicial; sem as três, nenhum é criado |
+
+## Portas, rede e HTTPS
+
+Em produção só o **portal (8000)** e o **orchestrator (8001)** publicam porta, e só em `BIND_ADDR`. MCP, Postgres, Redis, Qdrant e MinIO ficam na rede interna do compose.
+
+**Host só na tailnet:** manter `BIND_ADDR=127.0.0.1` e terminar o TLS com o Tailscale (comandos **não testados** — conferir a sintaxe na versão instalada de `tailscale serve`):
+
+```bash
+tailscale serve --bg --https=443 --set-path=/api/v1/capture http://127.0.0.1:8001/api/v1/capture
+tailscale serve --bg --https=443 http://127.0.0.1:8000
+```
+
+e `ALLOWED_HOSTS=<host>.<tailnet>.ts.net`, `CSRF_TRUSTED_ORIGINS=https://<host>.<tailnet>.ts.net`, `TLS_MODE=proxy`. (A rota de captura precisa ir para o orchestrator, não para o portal.)
+
+**Host com IP público e domínio:** Caddy no próprio compose, pelo profile `publico`:
+
+```bash
+# .env: IA_DOMINIO=ia.exemplo.com.br  ACME_EMAIL=voce@exemplo.com.br
+#       ALLOWED_HOSTS=ia.exemplo.com.br  CSRF_TRUSTED_ORIGINS=https://ia.exemplo.com.br
+docker compose -f docker-compose.yml -f docker-compose.prod.yml --profile publico up -d --build
+```
+
+O Caddy obtém o certificado (Let's Encrypt; portas 80/443 abertas para a internet) e publica **apenas** o portal e `/api/v1/capture/*`. Os canais serviço-a-serviço (`/artifacts/api/v1/artefatos/`, `/eventos/api/v1/ingest/`) são bloqueados no proxy com 404. Ver `infra/caddy/Caddyfile`.
+
+## Volumes
+
+Tudo em `${DATA_DIR}`: `postgres/`, `minio/`, `qdrant/`, `redis/`, `caddy/` (certificados), `fastembed-cache/`. Backup e restore ainda não têm script; até lá, parar a stack e copiar o diretório (`docker compose ... stop`).
+
+## Cadastro de usuários
+
+O superusuário nasce do bootstrap (`DJANGO_SUPERUSER_*`). Depois disso `/registro/` responde 403 e novos usuários são criados pelo admin (`/admin/`). Com `REGISTRO_ABERTO=true` o cadastro volta a ser livre.
+
+Sem as variáveis `DJANGO_SUPERUSER_*`, o primeiro cadastro em `/registro/` vira o dono — uma janela de corrida numa instância exposta. Em produção, sempre defini-las.
+
+## Extensão do Chrome
+
+No popup, campo **Instância (URL)**: `https://ia.exemplo.com.br`. Vazio = ambiente local (`localhost`). O Chrome pede permissão para o domínio no login.
+
+## Atualizar de versão
+
+```bash
+git pull
+# opcional: IA_VERSION=$(git rev-parse --short HEAD) no .env
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+```
+
+O `bootstrap` reaplica as migrations. Os serviços cujas imagens mudaram são recriados; os dados ficam em `DATA_DIR`.
+
+## Ainda não coberto
+
+Backup/restore automatizado, imagens publicadas em registry (hoje cada host faz `build`), storage S3 e Postgres externos, reserva de GPU, rate limit na borda.
