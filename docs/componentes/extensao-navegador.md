@@ -113,7 +113,7 @@ Usuário clica "Capturar e Enviar"
       1. chrome.tabs.query → aba ativa
       2. chrome.pageCapture.saveAsMHTML → Blob MHTML
       3. FormData com MHTML + metadados + config
-      4. POST http://localhost:8001/api/v1/capture/mhtml
+      4. POST {instância}/api/v1/capture/mhtml   (vazio = http://localhost:8001; ver §Instância)
   → Orchestrator:
       5. Salva MHTML no MinIO
       6. POST portal:8000/artifacts/api/v1/artefatos/ com allow_external_llm
@@ -138,16 +138,16 @@ Usuário clica "Capturar e Enviar"
 | `timestamp` | string ISO | Sim | Momento da captura |
 | `classification_level` | string | Não | Padrão: `restrito` |
 | `allow_external_llm` | string `"true"/"false"` | Não | Padrão: `"false"` |
-| `user_id` | string UUID | Não | Pode ser omitido |
-| `tenant_id` | string UUID | Não | Pode ser omitido |
 
 ---
 
-## 8. Fallback de Identidade (Fase 0)
+## 8. Instância de destino
 
-Se `user_id` ou `tenant_id` forem omitidos, o Portal:
-- Usa o **primeiro usuário cadastrado** por `date_joined`
-- Se o usuário não tiver organização, cria automaticamente uma `INDIVIDUAL`
+O popup tem o campo **Instância (URL)** (ex.: `https://ia.exemplo.com.br`), salvo em `chrome.storage.local` (`instance_url`). A captura vai para `{URL}/api/v1/capture/mhtml` e o login para `{URL}/api/v1/token/` — o mesmo domínio, com o proxy (Caddy) roteando `/api/v1/capture/*` ao orchestrator e o resto ao portal. Vazio = ambiente local (`localhost:8000` e `localhost:8001`).
+
+O Chrome só deixa a extensão falar com um host depois da permissão do usuário: ela é pedida no clique de **Entrar** (`optional_host_permissions` no `manifest.json`). Trocar de instância descarta a sessão anterior, pois o token é de outra instância.
+
+**Identidade:** `user_id`/`tenant_id` vêm das claims do JWT validado pelo orchestrator; não há mais fallback para o "primeiro usuário" (ver `docs/seguranca/autenticacao.md`).
 
 ---
 

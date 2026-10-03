@@ -22,12 +22,18 @@ python -m py_compile services/portal/manage.py
 # Validar migrations Django
 docker compose exec portal python manage.py migrate --check
 
-# Endpoint de saúde
+# Endpoint de saúde (portal, orchestrator e mcp respondem /health; 8002 só é publicado em dev)
+curl http://localhost:8000/health
 curl http://localhost:8001/health
 curl http://localhost:8002/health
+
+# Validar o compose de produção (sem subir)
+docker compose -f docker-compose.yml -f docker-compose.prod.yml config -q
 ```
 
-Não há suite de testes ainda. Ao criar testes, colocá-los em `tests/` dentro de cada serviço e usar pytest.
+Produção usa `docker-compose.prod.yml` **em vez do** override de dev — ver `docs/deploy.md`.
+
+Os testes do portal usam pytest + pytest-django (`services/portal/tests/`): `docker compose exec portal python -m pytest tests/ -q`. Para os serviços FastAPI ainda não há suíte; ao criá-la, colocar em `tests/` dentro do serviço e usar pytest.
 
 ## Mapa de responsabilidades por arquivo
 

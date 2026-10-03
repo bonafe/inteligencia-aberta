@@ -46,7 +46,7 @@ O `user_id`/`tenant_id` no corpo dessa chamada agora são **confiáveis**, porqu
 
 ### 4. Token de ferramenta — Swagger do MCP publicado
 
-O MCP (`services/mcp/`) é FastAPI, então ganha Swagger UI automático em `/docs`. A porta 8002 é publicada no host **especificamente para deixar essa documentação visível** para fins didáticos (ver seção seguinte) — mas isso não reabre as ferramentas em si. `/tools/cnpj`, `/tools/processos` e `/tools/noticias` exigem o header `X-Mcp-Token: <MCP_API_TOKEN>`, validado com `hmac.compare_digest` (`main.py::require_mcp_token`); sem o token correto → **401**. `/docs`, `/openapi.json` e `/health` continuam abertos, sem token. O header aparece automaticamente na spec OpenAPI (FastAPI o documenta por vir de um parâmetro `Header()`), então quem abre o Swagger já vê que precisa dele para testar.
+O MCP (`services/mcp/`) é FastAPI, então ganha Swagger UI automático em `/docs`. Em **desenvolvimento** a porta 8002 é publicada no host **especificamente para deixar essa documentação visível** para fins didáticos (ver seção seguinte) — mas isso não reabre as ferramentas em si. Em **produção** (`docker-compose.prod.yml`) a porta não é publicada: só o orchestrator alcança o MCP, pela rede interna do compose. `/tools/cnpj`, `/tools/processos` e `/tools/noticias` exigem o header `X-Mcp-Token: <MCP_API_TOKEN>`, validado com `hmac.compare_digest` (`main.py::require_mcp_token`); sem o token correto → **401**. `/docs`, `/openapi.json` e `/health` continuam abertos, sem token. O header aparece automaticamente na spec OpenAPI (FastAPI o documenta por vir de um parâmetro `Header()`), então quem abre o Swagger já vê que precisa dele para testar.
 
 ## Documentação da API (Swagger) — pública por decisão
 
@@ -74,13 +74,23 @@ Todos vêm do `.env` (via `env_file` no `docker-compose.yml`, que todos os servi
 
 ## Registro e superusuário
 
-O registro (`/registro/`) é aberto e cria um usuário + organização própria + `Membership(owner)`. **O primeiro usuário a se cadastrar no sistema vira superusuário** (`is_staff=True`, `is_superuser=True`) — decisão de especificação, não bug: o próprio registro bootstrapa o admin, então quem instala o sistema não precisa rodar `manage.py createsuperuser` à parte. Usuários seguintes se registram como contas comuns.
+O registro (`/registro/`) cria um usuário + organização própria + `Membership(owner)` (via `apps/accounts/services.criar_organizacao_individual`). **O primeiro usuário do sistema vira superusuário** (`is_staff=True`, `is_superuser=True`) — decisão de especificação, não bug: quem instala não precisa rodar `manage.py createsuperuser` à parte.
 
-**Trade-off aceito:** como o registro é público, isso abre uma janela de corrida em uma instância recém-implantada — quem chegar primeiro em `/registro/` vira admin. A mitigação é operacional, não de código: crie sua conta imediatamente após subir o ambiente, antes de expor a porta do portal (8000) numa rede não confiável. É o mesmo modelo de bootstrap de vários apps self-hosted (primeiro usuário = admin).
+**Em produção o registro fecha depois do primeiro usuário.** `/registro/` responde **403** (GET e POST) quando já existe usuário e `REGISTRO_ABERTO` não é `true`; novos usuários são criados pelo admin (`/admin/`). Em desenvolvimento `REGISTRO_ABERTO` é `true` por padrão e o cadastro segue livre. Sem isso, numa instância exposta à internet qualquer visitante criaria conta e organização e passaria a usar armazenamento e processamento.
+
+**Janela de corrida no primeiro boot.** Se o dono nascer pelo primeiro cadastro em `/registro/`, quem chegar primeiro vira admin. Por isso, em produção o dono nasce do comando `bootstrap_instancia` (variáveis `DJANGO_SUPERUSER_USERNAME/EMAIL/PASSWORD`), que roda como serviço do compose **antes** de portal, worker e beat subirem — o registro já nasce fechado. Sem essas variáveis o comando avisa e a janela existe. Ver [`../deploy.md`](../deploy.md).
+
+## Segredos em produção
+
+Em produção portal, orchestrator, MCP, worker e beat se recusam a iniciar se `DJANGO_SECRET_KEY`, `JWT_SIGNING_KEY`, `INTERNAL_API_TOKEN`, `MCP_API_TOKEN`, `POSTGRES_PASSWORD` ou `MINIO_ROOT_PASSWORD` estiverem vazios ou com o placeholder `CHANGE_ME` (`config/segredos.py` no portal; cópias em orchestrator e MCP). `ANTHROPIC_API_KEY` é opcional. Em desenvolvimento a checagem não se aplica.
+
+## Transporte e exposição (produção)
+
+`config/settings/production.py` deriva os flags de TLS de `TLS_MODE` (`proxy`, padrão: redirect para HTTPS, cookies `Secure`; `none`: HTTP puro). `ALLOWED_HOSTS` e `CSRF_TRUSTED_ORIGINS` vêm do ambiente. Num host com domínio público o Caddy (profile `publico`) termina o TLS e publica **apenas** o portal e `/api/v1/capture/*`; os canais serviço-a-serviço (`/artifacts/api/v1/artefatos/`, `/eventos/api/v1/ingest/`) são bloqueados no proxy com 404, além da exigência de token. As portas do portal e do orchestrator ficam presas a `BIND_ADDR` (padrão `127.0.0.1`).
 
 ## Fora do escopo desta rodada (hardening pendente)
 
-- CORS do orchestrator ainda é `allow_origins=["*"]` — restringir à origem da extensão.
-- `DEBUG=True`/`ALLOWED_HOSTS=["*"]` em uso (roda sempre com `development.py`).
-- `SECRET_KEY` com fallback inseguro; `MINIO` com `secure=False` e credenciais default.
-- MCP: `/tools/*` agora exigem `X-Mcp-Token`, mas ainda sem rate limit — a porta publicada permite tentativas de força bruta contra o token (mitigável com rate limit no FastAPI ou num proxy reverso, não implementado nesta rodada).
+- CORS do orchestrator: em produção é restrito por `CORS_ALLOWED_ORIGINS` (vazio no compose de prod = nenhuma origem); sem a variável (desenvolvimento) continua `["*"]`.
+- `DEBUG`/`ALLOWED_HOSTS`: `development.py` mantém `DEBUG=True`/`["*"]`; produção usa `production.py` (ver acima).
+- `SECRET_KEY` mantém fallback inseguro em `base.py` (só dev; produção valida); `MINIO` com `secure=False` (tráfego interno do compose).
+- MCP: `/tools/*` exigem `X-Mcp-Token`, mas sem rate limit. Em produção a porta não é publicada, o que reduz a superfície; rate limit na borda (login e captura no Caddy) segue não implementado.

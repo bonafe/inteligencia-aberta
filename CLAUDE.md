@@ -10,6 +10,7 @@ docker compose -f docker-compose.yml -f docker-compose.override.yml up
 
 # Subir em produção (background) — SEM o override de dev (que o compose carregaria
 # sozinho sem -f). Host com domínio público: acrescentar --profile publico (Caddy).
+# Detalhes, segredos e contrato para automação: docs/deploy.md
 docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
 
 # Migrations e admin (após subir)
@@ -48,7 +49,9 @@ Três microserviços Python + workers de processamento:
 | `worker` | Celery 5.4 | — | Executa tasks assíncronas do pipeline |
 | `beat` | Celery Beat | — | Agenda tasks periódicas (catch-up scan a cada 2min) |
 
-Infraestrutura de suporte: PostgreSQL 16-alpine (5432), Qdrant v1.9.0 (6333), MinIO latest (9000/9001), Redis 7-alpine (6379 — banco 0 para o Celery, banco 1 para o channel layer do painel de eventos).
+Em produção só portal (8000) e orchestrator (8001) publicam porta, presas a `BIND_ADDR` (padrão `127.0.0.1`); MCP, Postgres, Redis, Qdrant e MinIO ficam na rede interna. As portas 8002, 5432 e 9001 só são publicadas em dev (`docker-compose.override.yml`).
+
+Infraestrutura de suporte: PostgreSQL 16-alpine (5432), Qdrant v1.9.0 (6333), MinIO (`MINIO_IMAGE`, padrão latest; 9000/9001), Redis 7-alpine (6379 — banco 0 para o Celery, banco 1 para o channel layer do painel de eventos).
 
 O `portal` roda sob **ASGI (daphne)**, não WSGI: o painel de eventos usa WebSocket. Em desenvolvimento, `manage.py runserver` já sobe em ASGI porque `daphne` é o primeiro item de `INSTALLED_APPS`.
 
@@ -85,6 +88,13 @@ Extensão Chrome → POST orchestrator:8001/api/v1/capture/mhtml
 - `projecao.py`: `aplicar_evento()`, a única escrita em `PipelineRun`; usada tanto no caminho incremental quanto na reconstrução.
 - `consumers.py`: WebSocket do painel; assina apenas os grupos das organizações do usuário.
 
+**Implantação** (ver `docs/deploy.md` e `docs/arquitetura/decisoes/006-implantacao-por-instancia.md`):
+- `docker-compose.prod.yml` — restart, portas em `BIND_ADDR`, serviço `bootstrap` (one-shot) e `caddy` (profile `publico`). `infra/caddy/Caddyfile` publica só o portal e `/api/v1/capture/*`.
+- `config/settings/production.py` — `TLS_MODE` (`proxy`|`none`), `ALLOWED_HOSTS`, `CSRF_TRUSTED_ORIGINS`; valida segredos na subida (`config/segredos.py`, com cópias em `orchestrator/` e `mcp/`).
+- `config/health.py` — `/health` do portal (checa o banco); orchestrator e mcp têm o seu. Devolvem `INSTANCIA_NOME` e `IA_VERSION`.
+- `apps/accounts/management/commands/bootstrap_instancia.py` — migrations, buckets do MinIO e superusuário inicial (`DJANGO_SUPERUSER_*`), idempotente.
+- Registro: `/registro/` fecha (403) após o primeiro usuário, salvo `REGISTRO_ABERTO=true` (padrão em dev).
+
 **`services/portal/config/celery.py`** — app Celery do projeto. `config/__init__.py` o exporta para que `celery -A config` funcione.
 
 **`services/mcp/tools/cnpj.py`** — única ferramenta funcional (BrasilAPI). `processos.py` e `noticias.py` são stubs.
@@ -94,6 +104,7 @@ Extensão Chrome → POST orchestrator:8001/api/v1/capture/mhtml
 - **Idioma:** domínio e nomes de negócio em português (agentes, campos, endpoints); infraestrutura e código técnico em inglês. Commits em português.
 - **Python:** Python 3.12, async/await, type hints com Pydantic e TypedDict. UUIDs como PKs padrão.
 - **Settings Django:** três ambientes em `services/portal/config/settings/` — `base.py`, `development.py`, `production.py`. Variável `DJANGO_SETTINGS_MODULE` controla qual usar.
+- **Produção × dev:** produção é `-f docker-compose.yml -f docker-compose.prod.yml`; `docker compose up` sem `-f` carrega o override de dev (runserver, `--reload`, portas abertas). Segredos com valor `CHANGE_ME` ou vazio são recusados em produção.
 - **Classificação de dados:** os quatro níveis do `policy_engine` (`público → confidencial`) determinam se LLM externo pode ser usado e se auditoria é exigida. Esse contrato não deve ser quebrado.
 
 ## O que nunca tocar
@@ -111,9 +122,10 @@ A pasta `docs/` contém ~2 400 linhas de especificação:
 
 - `docs/roadmap.md` — 6 fases; fase 0 (MVP local) ainda em implementação
 - `docs/arquitetura/visao-geral.md` — visão de 5 camadas e fluxos de dados
-- `docs/arquitetura/decisoes/` — 5 ADRs explicando escolhas de MCP, containers, LLM local, voz e log de eventos
+- `docs/arquitetura/decisoes/` — 6 ADRs explicando escolhas de MCP, containers, LLM local, voz, log de eventos e implantação por instância
 - `docs/componentes/agentes/` — spec detalhada de cada agente (planejador, coletor, extrator, correlacionador, validador, analista, redator)
 - `docs/seguranca/classificacao.md` — regras completas do motor de política
 - `docs/componentes/observabilidade.md` — log de eventos, taxonomia de `stage`/`status`, painel e reprocessamento
+- `docs/deploy.md` — implantação em produção: segredos, variáveis, HTTPS, Caddy, bootstrap, contrato para automação
 
 Antes de implementar um agente ou ferramenta nova, ler a spec correspondente em `docs/`.

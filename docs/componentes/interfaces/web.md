@@ -449,7 +449,10 @@ A autenticação usa quatro mecanismos, um por fronteira. Detalhes completos em 
 3. Sistema cria: User + Organization + Membership(role=owner)
    Se for o primeiro usuário do sistema, ele é promovido a superusuário/staff —
    bootstrap do admin sem precisar rodar `manage.py createsuperuser` (ver
-   docs/seguranca/autenticacao.md § Registro e superusuário)
+   docs/seguranca/autenticacao.md § Registro e superusuário).
+   Depois do primeiro usuário, em produção, /registro/ responde 403 (REGISTRO_ABERTO
+   desligado); novos usuários são criados pelo admin. Em produção o dono nasce do
+   `bootstrap_instancia` (docs/deploy.md).
 4. Redireciona para o painel
 ```
 

@@ -2,6 +2,24 @@
 
 Este arquivo documenta as alterações, configurações e implementações feitas por IAs (agentes) neste repositório. O objetivo é manter um histórico unificado e transparente sobre o estado do desenvolvimento, facilitando o onboarding de novas IAs e humanos na base de código.
 
+## [03-10-2026] - Implantação por instância: compose de produção, HTTPS/Caddy, registro fechado, bootstrap e segredos
+
+**Contexto e motivação:**
+- O dono implanta o projeto na "rede_papagaio" (5 hosts numa tailnet, Ansible em outro repositório, uma instância por host com segredos próprios; um host com IP público e domínio). O repositório só tinha modo de desenvolvimento. Decisões e alternativas em `docs/arquitetura/decisoes/006-implantacao-por-instancia.md`.
+- Decisões validadas com o usuário: HTTPS em todos os hosts (`tailscale serve` nos só-tailnet, Caddy no host público), captura remota pela extensão necessária, registro fechado após o primeiro usuário.
+
+**O que foi implementado:**
+- **Compose:** `docker-compose.prod.yml` (restart, `BIND_ADDR`, `DATA_DIR`, serviço `bootstrap`, serviço `caddy` no profile `publico`); healthchecks e `service_healthy` no base; portas movidas do base para o override (dev) e o prod; `MINIO_IMAGE`.
+- **Portal:** `/health` (checa o banco); `production.py` com `TLS_MODE`, `ALLOWED_HOSTS` multi-valor (inclui `portal`/`localhost`, antes o orchestrator e o MCP levariam 400) e `CSRF_TRUSTED_ORIGINS`; `config/segredos.py` valida segredos na subida; registro fecha após o primeiro usuário (`REGISTRO_ABERTO`); comando `bootstrap_instancia`; `apps/accounts/services.criar_organizacao_individual`.
+- **Orchestrator/MCP:** `/health` com `INSTANCIA_NOME`/`IA_VERSION`; validação de segredos (só em produção); CORS do orchestrator por `CORS_ALLOWED_ORIGINS`.
+- **Extensão:** campo "Instância (URL)" no popup, `optional_host_permissions`.
+- **Caddy:** `infra/caddy/Caddyfile` publica só o portal e `/api/v1/capture/*`; bloqueia `/artifacts/api/v1/artefatos/` e `/eventos/api/v1/ingest/`.
+- **Docs:** `docs/deploy.md` (inclui contrato para automação), ADR 006; atualizados `CLAUDE.md`, `AGENTS.md`, `README.md`, `docs/seguranca/autenticacao.md`, `docs/componentes/extensao-navegador.md` e `docs/componentes/interfaces/web.md`.
+
+**Como foi validado:** stack de produção subida do zero numa cópia isolada (tudo `healthy`, `bootstrap` com saída 0, segunda execução sem alterações, registro 403 após o primeiro usuário, `.env.example` cru recusado com mensagem clara, Caddy testado com `localhost`); suíte do portal com 33 testes passando.
+
+**Não testado / pendente:** Let's Encrypt com domínio real, `tailscale serve`, extensão no Chrome real, macOS/Colima e Rocky; rate limit na borda, backup/restore, imagens em registry, S3/Postgres externos, GPU, healthcheck de worker e beat.
+
 ## [12-07-2026] - Documentação Swagger no Portal + MCP publicado para fins didáticos
 
 **Contexto e motivação:**

@@ -217,7 +217,8 @@ Para rodar o projeto na sua máquina (Modo MVP Local), você precisa ter o **Doc
 1. **Configure as variáveis de ambiente:**
    ```bash
    cp .env.example .env
-   # Pode manter as senhas padrão para testes em desenvolvimento local.
+   # Em desenvolvimento local pode manter os valores CHANGE_ME. Em produção NÃO:
+   # os serviços se recusam a subir com segredo vazio ou CHANGE_ME (ver docs/deploy.md).
    ```
 
 2. **Inicie a infraestrutura (Orquestrador, Portal, PostgreSQL, MinIO, Qdrant):**
@@ -232,6 +233,10 @@ Para rodar o projeto na sua máquina (Modo MVP Local), você precisa ter o **Doc
    - **Django Admin:** [http://localhost:8000/admin](http://localhost:8000/admin)
    - **Orquestrador API (Docs):** [http://localhost:8001/docs](http://localhost:8001/docs)
    - **Armazenamento MinIO:** [http://localhost:9001](http://localhost:9001)
+
+### Implantação em produção
+
+Este README descreve o modo de desenvolvimento local. Para subir uma instância em um servidor (compose de produção, HTTPS, segredos, healthchecks, Caddy no host público, primeiro boot idempotente), siga **[`docs/deploy.md`](docs/deploy.md)** — inclui um contrato resumido para automação (Ansible). Em produção **não** se usa o `docker-compose.override.yml`.
 
 ### Onde os dados são salvos? (Para Backup)
 
@@ -277,7 +282,7 @@ A forma mais rápida de ver o sistema funcionando de ponta a ponta é usar a ext
 4. Selecione a pasta `clients/browser-extension/` dentro do repositório.
 5. O ícone 🔍 **Inteligência Aberta** aparecerá na barra de extensões.
 
-> **Atenção:** Deixe os containers rodando (`docker compose up`) antes de capturar — a extensão envia para `localhost:8001`.
+> **Atenção:** Deixe os containers rodando (`docker compose up`) antes de capturar. Por padrão a extensão envia para `localhost:8001`; para capturar contra uma instância remota, preencha o campo **Instância (URL)** no popup (ver `docs/deploy.md`).
 
 ### 2. Capture uma página
 
