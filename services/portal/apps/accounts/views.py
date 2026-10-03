@@ -2,10 +2,10 @@ from django.conf import settings
 from django.contrib.auth import get_user_model, login
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import redirect, render
-from django.utils.text import slugify
 
 from .forms import RegistrationForm
-from .models import Membership, Organization
+from .models import Organization
+from .services import criar_organizacao_individual
 
 
 def orgs_do_usuario(user):
@@ -44,13 +44,7 @@ def registro(request):
                 user.is_superuser = True
 
             user.save()
-            org = Organization.objects.create(
-                name=user.username,
-                slug=slugify(user.username),
-                org_type=Organization.Type.INDIVIDUAL,
-                owner=user,
-            )
-            Membership.objects.create(user=user, organization=org, role=Membership.Role.OWNER)
+            criar_organizacao_individual(user)
             login(request, user)
             return redirect("dashboard")
     else:

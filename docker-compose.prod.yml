@@ -9,8 +9,25 @@ x-restart: &restart
   restart: unless-stopped
 
 services:
+  # Primeiro boot idempotente (migrations, buckets, superusuário inicial) como passo
+  # único do compose: roda a cada `up`, termina e sai. Quem precisa do banco migrado
+  # só sobe depois dele concluir com sucesso — a automação não tem passo manual.
+  bootstrap:
+    build: ./services/portal
+    command: python manage.py bootstrap_instancia
+    restart: "no"
+    env_file: .env
+    depends_on:
+      db:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+
   portal:
     <<: *restart
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
     # BIND_ADDR padrão é loopback: nada fica exposto até o operador escolher.
     # Atrás de `tailscale serve` ou do Caddy, manter 127.0.0.1; sem proxy, o IP
     # da tailnet do host.
@@ -31,11 +48,17 @@ services:
 
   worker:
     <<: *restart
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
     volumes:
       - ${DATA_DIR:-./data}/fastembed-cache:/root/.cache/fastembed
 
   beat:
     <<: *restart
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
 
   db:
     <<: *restart
