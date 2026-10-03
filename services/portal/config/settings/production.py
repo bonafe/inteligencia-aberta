@@ -14,7 +14,7 @@ DEBUG = False
 # ANTHROPIC_API_KEY é opcional e fica de fora de propósito.
 validar_segredos([
     "DJANGO_SECRET_KEY", "JWT_SIGNING_KEY", "INTERNAL_API_TOKEN", "MCP_API_TOKEN",
-    "POSTGRES_PASSWORD", "MINIO_ROOT_PASSWORD",
+    "POSTGRES_PASSWORD", "S3_SECRET_KEY",
 ])
 
 SECRET_KEY = os.environ["DJANGO_SECRET_KEY"]

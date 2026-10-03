@@ -61,7 +61,7 @@ vazio só fica `None`).
 ```
 extract_text_from_mhtml(artifact_id)
     │
-    ├─ busca MHTML no MinIO                                 [existente]
+    ├─ busca MHTML no Garage (S3)                                 [existente]
     ├─ extrai HTML do MHTML                                 [existente]
     │
     ├─ extract_narrative_text(html)                          [SEMPRE — trafilatura]

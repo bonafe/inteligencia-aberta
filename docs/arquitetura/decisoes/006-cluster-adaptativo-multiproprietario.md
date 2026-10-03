@@ -35,7 +35,7 @@ Adotamos um modelo de malha adaptativa em vez de uma topologia fixa de primária
 
 **Proveniência no grafo.** O Mapa Vivo (`apps/artifacts/graph.py`) passa a mostrar, por artefato, onde há cópia (uma ou mais máquinas) e, para conteúdo gerado por LLM, em que máquina/modelo/configuração/duração cada geração ocorreu — dado que já existe em `MaquinaModeloOllama` e no padrão de `EventoReplicacao`, faltando só a leitura pelo grafo.
 
-O que já estava decidido continua valendo, sem mudança: nunca replicação nativa do Postgres/MinIO/Qdrant (motor próprio via log de eventos, por causa exatamente da necessidade de critério que replicação nativa não oferece); nunca failover automático de "quem é a máquina primária" sem que exista replicação real de dados primeiro (eleger uma nova primária sem os dados não resolve nada); descoberta de máquinas via Tailscale/MagicDNS, não broadcast customizado.
+O que já estava decidido continua valendo, sem mudança: nunca replicação nativa do Postgres/Garage/Qdrant (motor próprio via log de eventos, por causa exatamente da necessidade de critério que replicação nativa não oferece); nunca failover automático de "quem é a máquina primária" sem que exista replicação real de dados primeiro (eleger uma nova primária sem os dados não resolve nada); descoberta de máquinas via Tailscale/MagicDNS, não broadcast customizado.
 
 ## Consequências
 

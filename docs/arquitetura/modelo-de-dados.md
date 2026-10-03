@@ -208,7 +208,7 @@ Metadados de classificação presentes em todo artefato. Ver especificação com
 | Artefatos estruturados | PostgreSQL |
 | Embeddings (para RAG) | Qdrant / pgvector |
 | Grafo de vínculos | Neo4j |
-| Arquivos brutos (PDFs, imagens, áudios) | MinIO |
+| Arquivos brutos (PDFs, imagens, áudios) | Garage (S3) |
 | Estado de sessão e orquestração | PostgreSQL + Redis |
 | Registros de auditoria | PostgreSQL (somente inserção, sem exclusão) |
 

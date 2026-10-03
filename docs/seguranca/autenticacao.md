@@ -82,7 +82,7 @@ O registro (`/registro/`) cria um usuário + organização própria + `Membershi
 
 ## Segredos em produção
 
-Em produção portal, orchestrator, MCP, worker e beat se recusam a iniciar se `DJANGO_SECRET_KEY`, `JWT_SIGNING_KEY`, `INTERNAL_API_TOKEN`, `MCP_API_TOKEN`, `POSTGRES_PASSWORD` ou `MINIO_ROOT_PASSWORD` estiverem vazios ou com o placeholder `CHANGE_ME` (`config/segredos.py` no portal; cópias em orchestrator e MCP). `ANTHROPIC_API_KEY` é opcional. Em desenvolvimento a checagem não se aplica.
+Em produção portal, orchestrator, MCP, worker e beat se recusam a iniciar se `DJANGO_SECRET_KEY`, `JWT_SIGNING_KEY`, `INTERNAL_API_TOKEN`, `MCP_API_TOKEN`, `POSTGRES_PASSWORD` ou `S3_SECRET_KEY` estiverem vazios ou com o placeholder `CHANGE_ME` (`config/segredos.py` no portal; cópias em orchestrator e MCP). `ANTHROPIC_API_KEY` é opcional. Em desenvolvimento a checagem não se aplica.
 
 ## Transporte e exposição (produção)
 
@@ -92,5 +92,5 @@ Em produção portal, orchestrator, MCP, worker e beat se recusam a iniciar se `
 
 - CORS do orchestrator: em produção é restrito por `CORS_ALLOWED_ORIGINS` (vazio no compose de prod = nenhuma origem); sem a variável (desenvolvimento) continua `["*"]`.
 - `DEBUG`/`ALLOWED_HOSTS`: `development.py` mantém `DEBUG=True`/`["*"]`; produção usa `production.py` (ver acima).
-- `SECRET_KEY` mantém fallback inseguro em `base.py` (só dev; produção valida); `MINIO` com `secure=False` (tráfego interno do compose).
+- `SECRET_KEY` mantém fallback inseguro em `base.py` (só dev; produção valida); o cliente S3 (Garage) com `secure=False` (tráfego interno do compose).
 - MCP: `/tools/*` exigem `X-Mcp-Token`, mas sem rate limit. Em produção a porta não é publicada, o que reduz a superfície; rate limit na borda (login e captura no Caddy) segue não implementado.

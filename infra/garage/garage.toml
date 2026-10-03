@@ -1,0 +1,16 @@
+# Nó único (replication_factor = 1): uma instância por host (ADR-007).
+# O segredo do RPC vem de GARAGE_RPC_SECRET e as chaves S3 são importadas pelo
+# entrypoint.sh — nada sensível neste arquivo.
+metadata_dir = "/var/lib/garage/meta"
+data_dir = "/var/lib/garage/data"
+db_engine = "lmdb"
+
+replication_factor = 1
+
+rpc_bind_addr = "127.0.0.1:3901"
+rpc_public_addr = "127.0.0.1:3901"
+
+[s3_api]
+# us-east-1 é o que o cliente minio (e a maioria dos SDKs) assume por padrão.
+s3_region = "us-east-1"
+api_bind_addr = "0.0.0.0:3900"

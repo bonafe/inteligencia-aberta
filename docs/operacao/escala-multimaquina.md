@@ -4,7 +4,7 @@ Este documento descreve o que está **implementado hoje**: dono único, todas
 as máquinas da mesma organização — não há nenhum gate de "o que pode ir para
 qual máquina" ainda. Não existe conceito de "máquina primária" no
 vocabulário do cluster: existe capacidade — uma máquina hospeda (ou não) a
-infraestrutura compartilhada (Postgres/Redis/MinIO/Qdrant). Nenhum outro
+infraestrutura compartilhada (Postgres/Redis/Garage/Qdrant). Nenhum outro
 tratamento depende disso; o roteador de LLM, por exemplo, trata toda
 `Maquina` como igual, hospede infra ou não. O rumo — múltiplos donos, mais
 capacidades por máquina (armazenamento/borda pública/offline), motor de
@@ -18,7 +18,7 @@ retrofit.
 ## Duas topologias, não confundir
 
 - **Pool de processamento** (`Maquina.modo = compute`): a máquina só roda
-  `worker`/`beat`, apontando pro Postgres/Redis/MinIO/Qdrant *compartilhado*
+  `worker`/`beat`, apontando pro Postgres/Redis/Garage/Qdrant *compartilhado*
   do nó que hospeda a infra. Um banco lógico só — usa isso pra processar
   mais rápido, sem replicar nada.
 - **Réplica** (`Maquina.modo = replica`): a máquina roda sua própria stack
@@ -30,7 +30,7 @@ retrofit.
 
 ## Rede: VPN mesh (Tailscale/Headscale)
 
-Nenhuma porta de infraestrutura (Postgres, Redis, MinIO, Qdrant) deve ficar
+Nenhuma porta de infraestrutura (Postgres, Redis, Garage, Qdrant) deve ficar
 exposta em LAN crua ou na internet. Todas as máquinas do cluster entram numa
 VPN mesh (Tailscale, ou um servidor Headscale próprio — mesmo protocolo), e
 as portas só escutam na interface da VPN.
@@ -85,7 +85,7 @@ instalar nada):
    autenticado por `CLUSTER_JOIN_SECRET` — não precisa de ninguém rodar nada
    lá).
 4. Escreve o `.env` desta máquina (a partir de `.env.example`) já com
-   `POSTGRES_HOST`/`REDIS_URL`/`MINIO_ENDPOINT`/`QDRANT_HOST` apontando pro
+   `POSTGRES_HOST`/`REDIS_URL`/`S3_ENDPOINT`/`QDRANT_HOST` apontando pro
    nome DNS estável do nó de infraestrutura, e
    `CLUSTER_MACHINE_ID`/`CLUSTER_MACHINE_TOKEN`.
 5. Sobe `docker compose -f docker-compose.worker-node.yml up -d --build`.
@@ -98,7 +98,7 @@ continuam funcionando, mas só contra o `OLLAMA_HOST` local (sem cluster).
 **Se nenhum peer responder que hospeda a infra**: o script erra e não tenta
 virar dono da infra sozinho de propósito — configurar essa máquina continua
 manual (passos 1-4 acima). Eleição automática só faria sentido depois que
-existir replicação real do Postgres/Qdrant/MinIO entre máquinas (ver "O que
+existir replicação real do Postgres/Qdrant/Garage entre máquinas (ver "O que
 ainda não existe"); sem isso, "eleger" outra máquina só trocaria de banco
 vazio, não resolveria nada.
 
@@ -200,6 +200,6 @@ Cada `Artifact`/`DocumentText`/`DocumentFragment` salvo gera uma entrada em
 - **Streaming no gateway OpenAI-compatível.**
 - **Failover automático de qual máquina hospeda a infra**: descoberta é
   automática (seção acima), mas se essa máquina cair, configurar outra pra
-  assumir continua manual — exige replicação real do Postgres/Qdrant/MinIO
+  assumir continua manual — exige replicação real do Postgres/Qdrant/Garage
   primeiro (item "lado de recepção da replicação" acima), senão a "nova"
   eleita teria banco vazio.

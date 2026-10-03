@@ -49,16 +49,16 @@ Três microserviços Python + workers de processamento:
 | `worker` | Celery 5.4 | — | Executa tasks assíncronas do pipeline |
 | `beat` | Celery Beat | — | Agenda tasks periódicas (catch-up scan a cada 2min) |
 
-Em produção só portal (8000) e orchestrator (8001) publicam porta, presas a `BIND_ADDR` (padrão `127.0.0.1`); MCP, Postgres, Redis, Qdrant e MinIO ficam na rede interna. As portas 8002, 5432 e 9001 só são publicadas em dev (`docker-compose.override.yml`).
+Em produção só portal (8000) e orchestrator (8001) publicam porta, presas a `BIND_ADDR` (padrão `127.0.0.1`); MCP, Postgres, Redis, Qdrant e Garage (S3) ficam na rede interna. As portas 8002, 5432 e 3900 só são publicadas em dev (`docker-compose.override.yml`).
 
-Infraestrutura de suporte: PostgreSQL 16-alpine (5432), Qdrant v1.9.0 (6333), MinIO (`MINIO_IMAGE`, padrão latest; 9000/9001), Redis 7-alpine (6379 — banco 0 para o Celery, banco 1 para o channel layer do painel de eventos).
+Infraestrutura de suporte: PostgreSQL 16-alpine (5432), Qdrant v1.9.0 (6333), Garage (armazenamento S3, imagem própria em `infra/garage/`, `GARAGE_VERSION`; 3900; substituiu o MinIO — ADR 008), Redis 7-alpine (6379 — banco 0 para o Celery, banco 1 para o channel layer do painel de eventos).
 
 O `portal` roda sob **ASGI (daphne)**, não WSGI: o painel de eventos usa WebSocket. Em desenvolvimento, `manage.py runserver` já sobe em ASGI porque `daphne` é o primeiro item de `INSTALLED_APPS`.
 
 **Fluxo de captura MHTML (funcional):**
 ```
 Extensão Chrome → POST orchestrator:8001/api/v1/capture/mhtml
-  → MinIO (armazena MHTML bruto)
+  → Garage/S3 (armazena MHTML bruto)
   → POST portal:8000/artifacts/api/v1/artefatos/  (Django ORM → signal)
   → Celery worker: extract_text_from_mhtml
   → Artifact(tipo=texto) + ArtifactLineage criados
@@ -92,7 +92,7 @@ Extensão Chrome → POST orchestrator:8001/api/v1/capture/mhtml
 - `docker-compose.prod.yml` — restart, portas em `BIND_ADDR`, serviço `bootstrap` (one-shot) e `caddy` (profile `publico`). `infra/caddy/Caddyfile` publica só o portal e `/api/v1/capture/*`.
 - `config/settings/production.py` — `TLS_MODE` (`proxy`|`none`), `ALLOWED_HOSTS`, `CSRF_TRUSTED_ORIGINS`; valida segredos na subida (`config/segredos.py`, com cópias em `orchestrator/` e `mcp/`).
 - `config/health.py` — `/health` do portal (checa o banco); orchestrator e mcp têm o seu. Devolvem `INSTANCIA_NOME` e `IA_VERSION`.
-- `apps/accounts/management/commands/bootstrap_instancia.py` — migrations, buckets do MinIO e superusuário inicial (`DJANGO_SUPERUSER_*`), idempotente.
+- `apps/accounts/management/commands/bootstrap_instancia.py` — migrations, buckets do Garage (S3) e superusuário inicial (`DJANGO_SUPERUSER_*`), idempotente.
 - Registro: `/registro/` fecha (403) após o primeiro usuário, salvo `REGISTRO_ABERTO=true` (padrão em dev).
 
 **`services/portal/config/celery.py`** — app Celery do projeto. `config/__init__.py` o exporta para que `celery -A config` funcione.
@@ -122,7 +122,7 @@ A pasta `docs/` contém ~2 400 linhas de especificação:
 
 - `docs/roadmap.md` — 6 fases; fase 0 (MVP local) ainda em implementação
 - `docs/arquitetura/visao-geral.md` — visão de 5 camadas e fluxos de dados
-- `docs/arquitetura/decisoes/` — 7 ADRs explicando escolhas de MCP, containers, LLM local, voz, log de eventos, cluster multi-máquina e implantação por instância
+- `docs/arquitetura/decisoes/` — 8 ADRs explicando escolhas de MCP, containers, LLM local, voz, log de eventos, cluster multi-máquina, implantação por instância e armazenamento S3 (Garage)
 - `docs/componentes/agentes/` — spec detalhada de cada agente (planejador, coletor, extrator, correlacionador, validador, analista, redator)
 - `docs/seguranca/classificacao.md` — regras completas do motor de política
 - `docs/componentes/observabilidade.md` — log de eventos, taxonomia de `stage`/`status`, painel e reprocessamento

@@ -8,7 +8,7 @@ services:
     depends_on:
       db:
         condition: service_healthy
-      minio:
+      garage:
         condition: service_healthy
       redis:
         condition: service_healthy
@@ -87,7 +87,7 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      minio:
+      garage:
         condition: service_healthy
     env_file: .env
     # Ver comentário em `portal` — o worker é quem de fato chama o Ollama nativo
@@ -115,15 +115,22 @@ services:
       timeout: 3s
       retries: 5
 
-  minio:
-    image: ${MINIO_IMAGE:-quay.io/minio/minio:latest}
-    command: server /data --console-address ":9001"
+  garage:
+    # Armazenamento S3 compatível (substituiu o MinIO). Imagem própria porque a oficial
+    # é distroless; o entrypoint cria layout, chave e buckets. Sem porta publicada em
+    # prod: o S3 fica na rede interna (3900). Ver infra/garage/ e docs/deploy.md.
+    build:
+      context: ./infra/garage
+      args:
+        GARAGE_VERSION: ${GARAGE_VERSION:-v2.4.1}
     volumes:
-      - ${DATA_DIR:-./data}/minio:/data
+      - ${DATA_DIR:-./data}/garage/meta:/var/lib/garage/meta
+      - ${DATA_DIR:-./data}/garage/data:/var/lib/garage/data
     env_file: .env
     healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+      # O entrypoint cria /tmp/pronto só depois de layout, chave e buckets.
+      test: ["CMD", "test", "-f", "/tmp/pronto"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
       start_period: 10s

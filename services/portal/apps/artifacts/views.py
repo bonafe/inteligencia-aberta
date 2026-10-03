@@ -206,15 +206,15 @@ class ServeMHTMLView(View):
             raise Http404("Caminho do MHTML não encontrado no artefato.")
             
         # Conexão com MinIO
-        MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT", "minio:9000")
-        MINIO_ACCESS_KEY = os.getenv("MINIO_ROOT_USER", "minioadmin")
-        MINIO_SECRET_KEY = os.getenv("MINIO_ROOT_PASSWORD", "substitua-por-senha-segura")
+        S3_ENDPOINT = os.getenv("S3_ENDPOINT", "garage:3900")
+        S3_ACCESS_KEY = os.getenv("S3_ACCESS_KEY", "")
+        S3_SECRET_KEY = os.getenv("S3_SECRET_KEY", "")
         
         try:
             client = Minio(
-                MINIO_ENDPOINT,
-                access_key=MINIO_ACCESS_KEY,
-                secret_key=MINIO_SECRET_KEY,
+                S3_ENDPOINT,
+                access_key=S3_ACCESS_KEY,
+                secret_key=S3_SECRET_KEY,
                 secure=False
             )
             

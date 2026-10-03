@@ -34,7 +34,7 @@ graph TD
         DB_Rel[(PostgreSQL<br/>Dados estruturados)]
         DB_Vec[(Qdrant / pgvector<br/>Busca semântica)]
         DB_Graf[(Neo4j<br/>Grafo de vínculos)]
-        Storage[(MinIO<br/>Arquivos brutos)]
+        Storage[(Garage S3<br/>Arquivos brutos)]
         Workers[Workers Assíncronos<br/>Celery]
     end
 ```
@@ -81,7 +81,7 @@ Cada componente de infraestrutura é um contêiner isolado. Falha de um não der
 | PostgreSQL | Dados estruturados, metadados, configurações |
 | Qdrant / pgvector | Embeddings para busca semântica (RAG) |
 | Neo4j | Grafo de vínculos entre entidades |
-| MinIO | Arquivos brutos (PDFs, imagens, áudios) |
+| Garage (S3) | Arquivos brutos (PDFs, imagens, áudios) |
 | Celery Workers | Processamento assíncrono (indexação, alertas) |
 | Redis | Fila de tarefas (banco 0) e canal do painel ao vivo (banco 1) |
 

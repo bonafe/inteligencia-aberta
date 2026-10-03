@@ -59,7 +59,7 @@ A separação entre `vazio` e `falhou` é a razão de ser deste modelo. Antes de
 
 | Prefixo | Emitido por | Cobre |
 |---|---|---|
-| `captura.*` | orchestrator, portal | `recebida`, `armazenada` (MinIO), `registrada`, `orfa` |
+| `captura.*` | orchestrator, portal | `recebida`, `armazenada` (Garage/S3; o nome do estágio `minio` é mantido por compatibilidade com o histórico), `registrada`, `orfa` |
 | `artefato.*` | portal | `ignorado` — as saídas silenciosas do signal `post_save` |
 | `extracao.*` | worker | `iniciada`, `reiniciada`, `ignorada`, `minio`, `mhtml`, `trafilatura`, `texto_completo`, `dom2parser`, `extruct`, `deterministico`, `concluida` |
 | `deteccao.*` | worker | `page_type` |
@@ -72,7 +72,7 @@ A separação entre `vazio` e `falhou` é a razão de ser deste modelo. Antes de
 | `ferramenta.*` | mcp | `chamada` |
 | `reprocessamento.*` | portal | `solicitado` |
 
-`captura.orfa` merece destaque: é emitido quando o MHTML foi gravado no MinIO mas o registro no portal falhou. Sem ele, essa captura desaparecia sem rastro, porque o catch-up periódico varre `Artifact` e não o bucket.
+`captura.orfa` merece destaque: é emitido quando o MHTML foi gravado no armazenamento S3 mas o registro no portal falhou. Sem ele, essa captura desaparecia sem rastro, porque o catch-up periódico varre `Artifact` e não o bucket.
 
 ## Regras do `payload`
 

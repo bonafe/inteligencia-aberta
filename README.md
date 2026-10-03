@@ -189,7 +189,7 @@ Isso não é acessibilidade como concessão. É o design correto para uma ferram
 | Banco Relacional | PostgreSQL |
 | Banco Vetorial (RAG) | Qdrant / pgvector |
 | Banco de Grafos | Neo4j |
-| Armazenamento de Objetos | MinIO (S3 Compatible) |
+| Armazenamento de Objetos | Garage (S3 Compatible) |
 
 ---
 
@@ -221,7 +221,7 @@ Para rodar o projeto na sua máquina (Modo MVP Local), você precisa ter o **Doc
    # os serviços se recusam a subir com segredo vazio ou CHANGE_ME (ver docs/deploy.md).
    ```
 
-2. **Inicie a infraestrutura (Orquestrador, Portal, PostgreSQL, MinIO, Qdrant):**
+2. **Inicie a infraestrutura (Orquestrador, Portal, PostgreSQL, Garage, Qdrant):**
    ```bash
    docker compose -f docker-compose.yml -f docker-compose.override.yml up --build -d
    ```
@@ -232,7 +232,7 @@ Para rodar o projeto na sua máquina (Modo MVP Local), você precisa ter o **Doc
    - **Galeria de Capturas MHTML:** [http://localhost:8000/artifacts/gallery/](http://localhost:8000/artifacts/gallery/)
    - **Django Admin:** [http://localhost:8000/admin](http://localhost:8000/admin)
    - **Orquestrador API (Docs):** [http://localhost:8001/docs](http://localhost:8001/docs)
-   - **Armazenamento MinIO:** [http://localhost:9001](http://localhost:9001)
+   - **Armazenamento S3 (Garage):** `localhost:3900` (API S3, sem console web; use `aws --endpoint-url http://localhost:3900` ou `mc`)
 
 ### Implantação em produção
 
@@ -243,7 +243,7 @@ Este README descreve o modo de desenvolvimento local. Para subir uma instância 
 A partir da nossa arquitetura modular de volumes mapeados, **todos os dados** do sistema são salvos na sua máquina hospedeira dentro da pasta local `./data/` na raiz do projeto.
 
 - `./data/postgres/`: Banco de dados relacional (Django/Usuários/Artefatos).
-- `./data/minio/`: Arquivos binários brutos como as imagens e páginas capturadas offline (`.mhtml`).
+- `./data/garage/`: Arquivos binários brutos como as imagens e páginas capturadas offline (`.mhtml`).
 - `./data/qdrant/`: Banco vetorial (Embeddings de inteligência artificial).
 
 Para **fazer um backup** seguro: Pare os containers (`docker compose down`) e copie a pasta `data/` para um HD externo ou nuvem.
@@ -302,7 +302,7 @@ A forma mais rápida de ver o sistema funcionando de ponta a ponta é usar a ext
 O que acontece nos bastidores:
 ```
 Extensão → POST orchestrator:8001/api/v1/capture/mhtml
-  → MinIO (MHTML bruto armazenado)
+  → Garage/S3 (MHTML bruto armazenado)
   → POST portal:8000/artifacts/api/v1/artefatos/
   → Celery worker: extração de texto
   → Artifact(tipo=texto) criado + linhagem registrada

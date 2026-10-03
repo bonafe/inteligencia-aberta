@@ -108,7 +108,7 @@ def escrever_env(no_infra: str, machine_id: str, machine_token: str) -> str:
     overrides = {
         "POSTGRES_HOST": no_infra,
         "REDIS_URL": f"redis://{no_infra}:6379/0",
-        "MINIO_ENDPOINT": f"{no_infra}:9000",
+        "S3_ENDPOINT": f"{no_infra}:3900",
         "QDRANT_HOST": no_infra,
         "CLUSTER_MACHINE_ID": machine_id,
         "CLUSTER_MACHINE_TOKEN": machine_token,

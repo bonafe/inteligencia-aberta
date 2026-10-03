@@ -13,7 +13,7 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml ps   # tudo "hea
 
 **Sempre com `-f ... -f docker-compose.prod.yml`.** Sem `-f`, o compose carrega o `docker-compose.override.yml` sozinho — que é o de desenvolvimento (runserver, `--reload`, volumes de código, portas abertas).
 
-O passo `bootstrap` roda a cada `up`: aplica migrations, cria os buckets do MinIO e cria o superusuário inicial. É idempotente e o portal, o worker e o beat só sobem depois dele terminar com sucesso. Não há passo manual.
+O passo `bootstrap` roda a cada `up`: aplica migrations, garante os buckets do Garage (S3) e cria o superusuário inicial. É idempotente e o portal, o worker e o beat só sobem depois dele terminar com sucesso. Não há passo manual.
 
 Critério de sucesso para a automação: nenhum serviço `unhealthy` e `bootstrap` como `Exited (0)` (é o esperado: roda e sai). `worker` e `beat` não têm healthcheck — basta estarem `Up`. Verificar a aplicação com `/health` (ver o contrato abaixo).
 
@@ -50,7 +50,7 @@ Ambos devolvem JSON com `"status": "ok"`, `servico`, `instancia` (= `INSTANCIA_N
 **Armadilhas:**
 
 - Um segredo vazio ou `CHANGE_ME` faz o serviço recusar a subida, com a lista de variáveis na mensagem de erro.
-- `POSTGRES_PASSWORD` e `MINIO_ROOT_PASSWORD` só valem na criação dos dados em `DATA_DIR`; trocá-los depois não altera a senha já gravada. Gere uma vez por host e preserve.
+- `POSTGRES_PASSWORD` só vale na criação dos dados em `DATA_DIR`; trocá-lo depois não altera a senha já gravada. As chaves do Garage (`S3_*`) são reimportadas a cada boot pelo `garage`, mas o `GARAGE_RPC_SECRET` fica gravado no nó. Gere uma vez por host e preserve.
 - `DJANGO_SUPERUSER_*` só é lido enquanto não existe nenhum usuário; mudá-lo depois não cria nem altera ninguém.
 - `/registro/` fica fechado (403) depois do primeiro usuário — é o comportamento desejado em produção.
 - O projeto compose se chama `inteligencia-aberta` (fixo); dois checkouts no mesmo host colidiriam.
@@ -67,14 +67,16 @@ Cada um deve ser aleatório e **único por instância**. Em produção o process
 | `INTERNAL_API_TOKEN` | Canal serviço-a-serviço (orchestrator/MCP → portal) |
 | `MCP_API_TOKEN` | Header `X-Mcp-Token` das ferramentas do MCP |
 | `POSTGRES_PASSWORD` | Banco |
-| `MINIO_ROOT_PASSWORD` | Armazenamento de objetos |
+| `S3_SECRET_KEY` | Armazenamento de objetos (Garage): 64 hex — `openssl rand -hex 32` |
+| `S3_ACCESS_KEY` | Id da chave S3: `GK` + 24 hex — `echo "GK$(openssl rand -hex 12)"` (formato exigido pelo Garage) |
+| `GARAGE_RPC_SECRET` | Segredo do RPC do Garage: 64 hex — `openssl rand -hex 32` |
 | `DJANGO_SUPERUSER_PASSWORD` | Senha do dono inicial (só é lida no primeiro boot) |
 
 Gerar: `python3 -c "import secrets; print(secrets.token_urlsafe(32))"`.
 
 `ANTHROPIC_API_KEY` é **opcional**: a stack sobe sem ela.
 
-**Atenção:** `POSTGRES_PASSWORD` e `MINIO_ROOT_PASSWORD` só valem na criação dos dados. Trocá-los depois num `DATA_DIR` existente não altera a senha já gravada.
+**Atenção:** `POSTGRES_PASSWORD` só vale na criação dos dados. Trocá-lo depois num `DATA_DIR` existente não altera a senha já gravada. Os formatos de `S3_ACCESS_KEY`, `S3_SECRET_KEY` e `GARAGE_RPC_SECRET` não são livres (hex de tamanho fixo): o `garage` recusa subir com outro formato, e o `token_urlsafe` indicado acima **não serve** para eles.
 
 ## Variáveis de implantação
 
@@ -88,14 +90,15 @@ Gerar: `python3 -c "import secrets; print(secrets.token_urlsafe(32))"`.
 | `SECURE_HSTS_SECONDS` | `0` | HSTS é pegajoso no navegador; ligar só com HTTPS estável |
 | `REGISTRO_ABERTO` | `false` (prod) | Cadastro público; em produção fecha após o primeiro usuário |
 | `BIND_ADDR` | `127.0.0.1` | Interface onde 8000/8001 são publicadas |
-| `DATA_DIR` | `./data` | Onde ficam postgres, minio, qdrant, redis (pode ser outro disco) |
-| `MINIO_IMAGE` | `quay.io/minio/minio:latest` | Fixar uma tag `RELEASE.*` em produção (a imagem do Docker Hub foi removida) |
+| `DATA_DIR` | `./data` | Onde ficam postgres, garage, qdrant, redis (pode ser outro disco) |
+| `GARAGE_VERSION` | `v2.4.1` | Versão do Garage embutida na imagem de `infra/garage/` (build-arg) |
+| `GARAGE_CAPACITY` | `100GB` | Capacidade declarada do nó único; não reserva disco |
 | `CORS_ALLOWED_ORIGINS` | vazio em prod | Origens web do orchestrator; a extensão não precisa |
 | `DJANGO_SUPERUSER_USERNAME` / `_EMAIL` | vazio | Dono inicial; sem as três, nenhum é criado |
 
 ## Portas, rede e HTTPS
 
-Em produção só o **portal (8000)** e o **orchestrator (8001)** publicam porta, e só em `BIND_ADDR`. MCP, Postgres, Redis, Qdrant e MinIO ficam na rede interna do compose.
+Em produção só o **portal (8000)** e o **orchestrator (8001)** publicam porta, e só em `BIND_ADDR`. MCP, Postgres, Redis, Qdrant e Garage ficam na rede interna do compose.
 
 **Host só na tailnet:** manter `BIND_ADDR=127.0.0.1` e terminar o TLS com o Tailscale (comandos **não testados** — conferir a sintaxe na versão instalada de `tailscale serve`):
 
@@ -120,13 +123,13 @@ O Caddy obtém o certificado (Let's Encrypt; portas 80/443 abertas para a intern
 
 Este documento trata **uma instância completa por host** (stack inteira, dados próprios). O projeto também tem um cluster multi-máquina (ADR-006, `docs/operacao/escala-multimaquina.md`) com dois arranjos: *pool de processamento* (`docker-compose.worker-node.yml`, só worker/beat apontando para a infraestrutura de outro nó) e *réplica*. Os dois são camadas por cima da instância descrita aqui, não alternativas a ela.
 
-- `docker-compose.no-infraestrutura.yml` (publica Postgres/Redis/MinIO/Qdrant na interface da VPN, `CLUSTER_VPN_BIND_IP`) é um overlay opcional para o nó que hospeda a infra; combina com `docker-compose.prod.yml` (`-f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.no-infraestrutura.yml`).
+- `docker-compose.no-infraestrutura.yml` (publica Postgres/Redis/Garage/Qdrant na interface da VPN, `CLUSTER_VPN_BIND_IP`) é um overlay opcional para o nó que hospeda a infra; combina com `docker-compose.prod.yml` (`-f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.no-infraestrutura.yml`).
 - Variáveis `CLUSTER_*`, `CELERY_QUEUES`, `LLM_GATEWAY_TOKEN` e `OLLAMA_*` do `.env.example` pertencem ao cluster e são **opcionais**: vazias, o recurso fica desligado. `CLUSTER_JOIN_SECRET` e `LLM_GATEWAY_TOKEN`, quando usados, são segredos (aleatórios, por cluster); a validação de segredos de produção não os exige.
 - Um nó `worker-node` em produção roda `config.settings.production` e, por isso, também precisa dos segredos obrigatórios no seu `.env` (os mesmos valores do nó que hospeda a infra, não novos).
 
 ## Volumes
 
-Tudo em `${DATA_DIR}`: `postgres/`, `minio/`, `qdrant/`, `redis/`, `caddy/` (certificados), `fastembed-cache/`. Backup e restore ainda não têm script; até lá, parar a stack e copiar o diretório (`docker compose ... stop`).
+Tudo em `${DATA_DIR}`: `postgres/`, `garage/` (`meta/` e `data/`), `qdrant/`, `redis/`, `caddy/` (certificados), `fastembed-cache/`. Backup e restore ainda não têm script; até lá, parar a stack e copiar o diretório (`docker compose ... stop`).
 
 ## Cadastro de usuários
 

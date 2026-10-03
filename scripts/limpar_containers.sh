@@ -16,7 +16,7 @@ fi
 echo "==> Parando e removendo containers..."
 docker compose down --remove-orphans
 
-echo "==> Removendo dados persistentes (postgres, minio, qdrant, redis)..."
+echo "==> Removendo dados persistentes (postgres, garage, qdrant, redis)..."
 sudo rm -rf "$REPO_ROOT/data/"
 
 echo "==> Removendo imagens buildadas do projeto..."

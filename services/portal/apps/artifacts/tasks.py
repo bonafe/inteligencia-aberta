@@ -208,9 +208,9 @@ def extract_text_from_mhtml(self, artifact_id: str, forcar: bool = False):
         with etapa("extracao.minio", subject_type="artifact", subject_id=artifact.id,
                    tenant_id=tenant_id) as e:
             client = Minio(
-                os.getenv("MINIO_ENDPOINT", "minio:9000"),
-                access_key=os.getenv("MINIO_ROOT_USER", "minioadmin"),
-                secret_key=os.getenv("MINIO_ROOT_PASSWORD", "substitua-por-senha-segura"),
+                os.getenv("S3_ENDPOINT", "garage:3900"),
+                access_key=os.getenv("S3_ACCESS_KEY", ""),
+                secret_key=os.getenv("S3_SECRET_KEY", ""),
                 secure=False,
             )
             response = client.get_object(mhtml_bucket, mhtml_path)

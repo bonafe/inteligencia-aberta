@@ -103,7 +103,7 @@ Toda ferramenta deve implementar este contrato:
 | `buscar_processos` | CNJ / Tribunais | público |
 | `buscar_noticias` | APIs de notícias / scraping | público |
 | `consultar_ans` | ANS | público |
-| `buscar_documentos_internos` | MinIO (dados do usuário) | restrito |
+| `buscar_documentos_internos` | Garage/S3 (dados do usuário) | restrito |
 | `buscar_semantico` | Qdrant / pgvector | depende do índice |
 | `gerar_embedding` | LLM configurado | depende da classificação |
 

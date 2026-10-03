@@ -11,7 +11,7 @@ Cada fase deve entregar valor real a pelo menos uma persona. Nenhuma fase é "s�
 **Objetivo:** Sistema funcionando localmente, de ponta a ponta, com caso de uso básico de OSINT.
 
 **Entregáveis:**
-- [ ] `docker-compose` com contêineres básicos rodando (PostgreSQL, MinIO, Qdrant)
+- [ ] `docker-compose` com contêineres básicos rodando (PostgreSQL, Garage (S3), Qdrant)
 - [ ] Orquestrador com LangGraph — ciclo de inteligência básico
 - [ ] Agentes: Planejador, Coletor, Redator
 - [ ] Ferramentas iniciais via MCP: `consultar_cnpj`, `buscar_processos`, `buscar_noticias`

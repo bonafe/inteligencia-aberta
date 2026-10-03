@@ -20,7 +20,7 @@ services:
     depends_on:
       db:
         condition: service_healthy
-      minio:
+      garage:
         condition: service_healthy
 
   portal:
@@ -69,7 +69,7 @@ services:
   redis:
     <<: *restart
 
-  minio:
+  garage:
     <<: *restart
 
   # Só no host com IP público e domínio. Termina o TLS (Let's Encrypt) e publica

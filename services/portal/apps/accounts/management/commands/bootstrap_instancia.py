@@ -6,7 +6,7 @@ Faz, nesta ordem, e pode rodar quantas vezes for preciso (a segunda execução n
 altera nada):
 
 1. aplica as migrations;
-2. cria os buckets do MinIO que faltarem;
+2. cria os buckets do Garage (S3) que faltarem;
 3. cria o superusuário a partir de DJANGO_SUPERUSER_USERNAME / _EMAIL / _PASSWORD,
    com sua organização pessoal, SOMENTE se ainda não existir nenhum usuário.
 
@@ -31,13 +31,13 @@ BUCKETS = ["inteligencia-aberta-mhtml"]
 
 
 class Command(BaseCommand):
-    help = "Migrations, buckets do MinIO e superusuário inicial (idempotente)."
+    help = "Migrations, buckets do Garage (S3) e superusuário inicial (idempotente)."
 
     def handle(self, *args, **options):
         self.stdout.write("1/3 migrations")
         call_command("migrate", interactive=False, verbosity=0)
 
-        self.stdout.write("2/3 buckets do MinIO")
+        self.stdout.write("2/3 buckets do Garage (S3)")
         self._buckets()
 
         self.stdout.write("3/3 superusuário")
@@ -46,9 +46,9 @@ class Command(BaseCommand):
 
     def _buckets(self):
         client = Minio(
-            os.getenv("MINIO_ENDPOINT", "minio:9000"),
-            access_key=os.getenv("MINIO_ROOT_USER", "minioadmin"),
-            secret_key=os.getenv("MINIO_ROOT_PASSWORD", ""),
+            os.getenv("S3_ENDPOINT", "garage:3900"),
+            access_key=os.getenv("S3_ACCESS_KEY", ""),
+            secret_key=os.getenv("S3_SECRET_KEY", ""),
             secure=False,
         )
         for nome in BUCKETS:

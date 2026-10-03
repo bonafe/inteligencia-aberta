@@ -18,7 +18,7 @@ Usuário (navegador)
    Agentes → MCP → Infraestrutura
 ```
 
-O Portal também se comunica diretamente com o PostgreSQL para persistir usuários, organizações, artefatos e registros de auditoria. Não acessa Qdrant, Neo4j ou MinIO diretamente — isso é responsabilidade do Orquestrador.
+O Portal também se comunica diretamente com o PostgreSQL para persistir usuários, organizações, artefatos e registros de auditoria. Não acessa Qdrant, Neo4j ou o armazenamento S3 diretamente — isso é responsabilidade do Orquestrador.
 
 ---
 
@@ -42,7 +42,7 @@ O Portal também se comunica diretamente com o PostgreSQL para persistir usuári
 - Execução de agentes ou LLMs
 - Indexação de embeddings
 - Operações no grafo Neo4j
-- Armazenamento de arquivos binários (MinIO)
+- Armazenamento de arquivos binários (Garage/S3)
 - Aplicação do Motor de Políticas (responsabilidade do Orquestrador)
 - Gerenciamento do ciclo de vida de contêineres (start/stop/scale — responsabilidade do orquestrador de contêineres)
 
@@ -563,7 +563,7 @@ A autenticação usa quatro mecanismos, um por fronteira. Detalhes completos em 
 | Orquestrador (`:8001`) | HTTP interno | Submissão de investigações e sincronização de ferramentas MCP |
 | PostgreSQL (`:5432`) | Banco de dados | Persistência de todos os modelos |
 | Servidores MCP registrados | HTTP externo/interno | Health check e descoberta de ferramentas |
-| MinIO | Futura (Fase 1) | Upload de documentos — não acessado diretamente pelo Portal |
+| Garage (S3) | Futura (Fase 1) | Upload de documentos — não acessado diretamente pelo Portal |
 | Qdrant | Futura (Fase 1) | Busca semântica — não acessado diretamente pelo Portal |
 
 ---

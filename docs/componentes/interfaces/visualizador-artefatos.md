@@ -69,7 +69,7 @@ Renderizador vanilla JS embutido no template (sem dependência externa):
 ```
 
 **`ServeMHTMLView`** — sem mudanças.  
-- Proxy MinIO → HTML auto-contido com recursos em base64.
+- Proxy S3 (Garage) → HTML auto-contido com recursos em base64.
 - Requer `@xframe_options_sameorigin` (servido em iframe).
 
 ### URLs

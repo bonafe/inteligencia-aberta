@@ -115,7 +115,7 @@ Usuário clica "Capturar e Enviar"
       3. FormData com MHTML + metadados + config
       4. POST {instância}/api/v1/capture/mhtml   (vazio = http://localhost:8001; ver §Instância)
   → Orchestrator:
-      5. Salva MHTML no MinIO
+      5. Salva MHTML no Garage (S3)
       6. POST portal:8000/artifacts/api/v1/artefatos/ com allow_external_llm
   → Portal:
       7. Cria Artifact com allow_external_llm do payload

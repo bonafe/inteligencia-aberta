@@ -6,7 +6,7 @@ Guia para agentes de IA (Codex, Claude, Gemini, etc.) que operam neste repositó
 
 Plataforma de agentes de IA que transforma dados públicos em inteligência acionável para cidadãos brasileiros. Fase atual: **Fase 0 em conclusão / início de Fase 1** — pipeline de captura MHTML ponta-a-ponta funcional, pipeline de transformação de texto (Etapa 1) implementado. Próximo: fragmentação, embeddings, NER.
 
-Stack: Python 3.12, Django 5.0.6, FastAPI 0.111.0, LangGraph 0.1.19, LangChain-Anthropic 0.1.19, Celery 5.4.0, Redis 7, trafilatura 1.12.2, PostgreSQL 16, Qdrant v1.9.0, MinIO, Docker Compose.
+Stack: Python 3.12, Django 5.0.6, FastAPI 0.111.0, LangGraph 0.1.19, LangChain-Anthropic 0.1.19, Celery 5.4.0, Redis 7, trafilatura 1.12.2, PostgreSQL 16, Qdrant v1.9.0, Garage (S3), Docker Compose.
 
 ## Comandos para validar mudanças
 

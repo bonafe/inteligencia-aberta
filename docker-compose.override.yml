@@ -35,6 +35,6 @@ services:
     ports:
       - "5432:5432"
 
-  minio:
+  garage:
     ports:
-      - "9001:9001"
+      - "3900:3900"  # API S3 (sem console)

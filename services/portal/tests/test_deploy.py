@@ -55,7 +55,7 @@ from config.segredos import segredo_invalido, validar_segredos
 
 
 @pytest.fixture
-def minio_falso():
+def s3_falso():
     with mock.patch("apps.accounts.management.commands.bootstrap_instancia.Minio") as m:
         m.return_value.bucket_exists.return_value = False
         yield m.return_value
@@ -67,30 +67,30 @@ def _bootstrap(monkeypatch, **env):
     call_command("bootstrap_instancia", stdout=mock.MagicMock(), stderr=mock.MagicMock())
 
 
-def test_bootstrap_cria_superusuario_com_organizacao(monkeypatch, minio_falso):
+def test_bootstrap_cria_superusuario_com_organizacao(monkeypatch, s3_falso):
     _bootstrap(monkeypatch, DJANGO_SUPERUSER_USERNAME="dono",
                DJANGO_SUPERUSER_EMAIL="d@x.com", DJANGO_SUPERUSER_PASSWORD="Senha-forte-123")
     user = User.objects.get(username="dono")
     assert user.is_superuser and user.is_staff
     assert Membership.objects.filter(user=user, role=Membership.Role.OWNER).exists()
-    minio_falso.make_bucket.assert_called_once_with("inteligencia-aberta-mhtml")
+    s3_falso.make_bucket.assert_called_once_with("inteligencia-aberta-mhtml")
 
 
-def test_bootstrap_e_idempotente(monkeypatch, minio_falso):
+def test_bootstrap_e_idempotente(monkeypatch, s3_falso):
     env = dict(DJANGO_SUPERUSER_USERNAME="dono", DJANGO_SUPERUSER_EMAIL="d@x.com",
                DJANGO_SUPERUSER_PASSWORD="Senha-forte-123")
     _bootstrap(monkeypatch, **env)
     senha_antes = User.objects.get(username="dono").password
-    minio_falso.bucket_exists.return_value = True
+    s3_falso.bucket_exists.return_value = True
 
     _bootstrap(monkeypatch, **{**env, "DJANGO_SUPERUSER_PASSWORD": "Outra-senha-456"})
 
     assert User.objects.count() == 1
     assert User.objects.get(username="dono").password == senha_antes
-    assert minio_falso.make_bucket.call_count == 1
+    assert s3_falso.make_bucket.call_count == 1
 
 
-def test_bootstrap_nao_cria_superusuario_se_ja_ha_usuarios(monkeypatch, minio_falso):
+def test_bootstrap_nao_cria_superusuario_se_ja_ha_usuarios(monkeypatch, s3_falso):
     User.objects.create_user(username="existente", password="x")
     _bootstrap(monkeypatch, DJANGO_SUPERUSER_USERNAME="dono",
                DJANGO_SUPERUSER_EMAIL="d@x.com", DJANGO_SUPERUSER_PASSWORD="Senha-forte-123")

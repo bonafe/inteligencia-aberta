@@ -9,7 +9,7 @@ Todo artefato bruto capturado (MHTML, PDF, imagem) percorre um pipeline de trans
 ## Estágios do Pipeline
 
 ```
-Artefato Bruto (MinIO)
+Artefato Bruto (Garage/S3)
       ↓
 [1] Extrator de Texto      → DocumentText (modelo de pipeline)
       ↓

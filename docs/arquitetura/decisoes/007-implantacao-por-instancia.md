@@ -29,7 +29,7 @@ O repositório só tinha o modo de desenvolvimento: `docker compose up` carregav
 ## Consequências
 
 - Existe um único comando de produção, e usar `docker compose up` sem `-f` num servidor sobe a configuração de desenvolvimento — o `CLAUDE.md` e o `docs/deploy.md` insistem nisso.
-- Segredos mudam por host e `POSTGRES_PASSWORD`/`MINIO_ROOT_PASSWORD` só valem na criação dos dados.
+- Segredos mudam por host e `POSTGRES_PASSWORD`/`S3_SECRET_KEY` só valem na criação dos dados.
 - Ficam pendentes: backup/restore, imagens em registry, rate limit na borda, armazenamento S3 e Postgres externos, reserva de GPU, healthcheck de worker e beat.
 
 Ver [`../../deploy.md`](../../deploy.md).
