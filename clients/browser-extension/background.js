@@ -1,4 +1,11 @@
-const API_URL = 'http://localhost:8001/api/v1/capture/mhtml';
+// Instância escolhida no popup (vazio = ambiente local). Em instância remota o
+// portal e o orchestrator ficam atrás do mesmo domínio (proxy roteia /api/v1/capture).
+const LOCAL_API_URL = 'http://localhost:8001/api/v1/capture/mhtml';
+
+async function getApiUrl() {
+  const { instance_url: instance } = await chrome.storage.local.get('instance_url');
+  return instance ? `${instance}/api/v1/capture/mhtml` : LOCAL_API_URL;
+}
 
 const AUTH_KEY = 'auth';
 
@@ -67,7 +74,7 @@ async function captureAndUpload(config = {}) {
         formData.append('correlation_id', correlationId);
         // Identidade (user_id/tenant_id) vem das claims do JWT — não é mais enviada aqui.
 
-        const response = await fetch(API_URL, {
+        const response = await fetch(await getApiUrl(), {
           method: 'POST',
           headers: { Authorization: `Bearer ${token}` },
           body: formData,

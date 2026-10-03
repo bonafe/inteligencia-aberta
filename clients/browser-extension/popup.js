@@ -5,7 +5,8 @@ const DEFAULTS = {
   allow_external_llm: false,
 };
 
-const TOKEN_URL = 'http://localhost:8000/api/v1/token/';
+const INSTANCE_KEY = 'instance_url';  // base da instância; vazio = ambiente local de desenvolvimento
+const LOCAL_TOKEN_URL = 'http://localhost:8000/api/v1/token/';
 const AUTH_KEY = 'auth';  // chave global (a identidade é da conta, não do domínio)
 
 let currentDomain = '';
@@ -43,7 +44,23 @@ async function getAuth() {
   return stored[AUTH_KEY] || null;
 }
 
+// Normaliza o que o usuário digitou: exige http(s), tira a barra final. Devolve
+// '' para vazio (modo local) e null para valor inválido.
+function normalizeInstanceUrl(raw) {
+  const value = (raw || '').trim().replace(/\/+$/, '');
+  if (!value) return '';
+  try {
+    const url = new URL(value);
+    if (url.protocol !== 'https:' && url.protocol !== 'http:') return null;
+    return url.origin;
+  } catch {
+    return null;
+  }
+}
+
 async function refreshAuthUI() {
+  const { [INSTANCE_KEY]: instance } = await chrome.storage.local.get(INSTANCE_KEY);
+  document.getElementById('instance_url').value = instance || '';
   const auth = await getAuth();
   const loggedIn = !!(auth && auth.access);
 
@@ -51,6 +68,7 @@ async function refreshAuthUI() {
   document.getElementById('account-info').style.display = loggedIn ? 'block' : 'none';
   if (loggedIn) {
     document.getElementById('account-username').textContent = auth.username || '—';
+    document.getElementById('account-sub').textContent = instance || 'localhost (desenvolvimento)';
   }
 
   // Sem login, não dá para capturar (o orchestrator exige Bearer).
@@ -67,12 +85,32 @@ async function doLogin() {
     return;
   }
 
+  const instance = normalizeInstanceUrl(document.getElementById('instance_url').value);
+  if (instance === null) {
+    showStatus('❌ URL da instância inválida (use https://…)', 'error');
+    return;
+  }
+
   const btn = document.getElementById('loginBtn');
   btn.disabled = true;
   btn.textContent = 'Entrando…';
 
   try {
-    const resp = await fetch(TOKEN_URL, {
+    // Instância remota: o Chrome só deixa a extensão falar com ela depois que o
+    // usuário concede a permissão do host (pedida aqui, no clique de login).
+    if (instance) {
+      const granted = await chrome.permissions.request({ origins: [`${instance}/*`] });
+      if (!granted) {
+        showStatus('❌ Permissão para acessar a instância negada', 'error');
+        return;
+      }
+    }
+    // Trocar de instância invalida a sessão anterior (o token é de outra).
+    const { [INSTANCE_KEY]: previous } = await chrome.storage.local.get(INSTANCE_KEY);
+    if ((previous || '') !== instance) await chrome.storage.local.remove(AUTH_KEY);
+
+    const tokenUrl = instance ? `${instance}/api/v1/token/` : LOCAL_TOKEN_URL;
+    const resp = await fetch(tokenUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username, password }),
@@ -85,6 +123,7 @@ async function doLogin() {
 
     const { access, refresh } = await resp.json();
     await chrome.storage.local.set({
+      [INSTANCE_KEY]: instance,
       [AUTH_KEY]: { access, refresh, username, saved_at: new Date().toISOString() },
     });
     document.getElementById('login_password').value = '';
