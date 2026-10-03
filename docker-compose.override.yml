@@ -38,3 +38,18 @@ services:
   garage:
     ports:
       - "3900:3900"  # API S3 (sem console)
+
+  # Interface web da comunidade (khairul169/garage-webui) — o Garage não traz console.
+  # Só em dev; precisa de GARAGE_ADMIN_TOKEN no .env.
+  garage-webui:
+    image: khairul169/garage-webui:1.1.0
+    depends_on:
+      garage:
+        condition: service_healthy
+    environment:
+      API_BASE_URL: http://garage:3903
+      S3_ENDPOINT_URL: http://garage:3900
+      S3_REGION: us-east-1
+      API_ADMIN_KEY: ${GARAGE_ADMIN_TOKEN:-}
+    ports:
+      - "3909:3909"

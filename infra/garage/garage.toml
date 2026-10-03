@@ -14,3 +14,8 @@ rpc_public_addr = "127.0.0.1:3901"
 # us-east-1 é o que o cliente minio (e a maioria dos SDKs) assume por padrão.
 s3_region = "us-east-1"
 api_bind_addr = "0.0.0.0:3900"
+
+# API de administração (só na rede interna do compose; usada pelo garage-webui em dev).
+# O token vem de GARAGE_ADMIN_TOKEN; sem ele os endpoints de admin ficam desativados.
+[admin]
+api_bind_addr = "0.0.0.0:3903"

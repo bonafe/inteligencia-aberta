@@ -232,7 +232,7 @@ Para rodar o projeto na sua máquina (Modo MVP Local), você precisa ter o **Doc
    - **Galeria de Capturas MHTML:** [http://localhost:8000/artifacts/gallery/](http://localhost:8000/artifacts/gallery/)
    - **Django Admin:** [http://localhost:8000/admin](http://localhost:8000/admin)
    - **Orquestrador API (Docs):** [http://localhost:8001/docs](http://localhost:8001/docs)
-   - **Armazenamento S3 (Garage):** `localhost:3900` (API S3, sem console web; use `aws --endpoint-url http://localhost:3900` ou `mc`)
+   - **Armazenamento S3 (Garage):** UI web em [http://localhost:3909](http://localhost:3909) (garage-webui, só dev, requer `GARAGE_ADMIN_TOKEN` no `.env`); API S3 em `localhost:3900`
 
 ### Implantação em produção
 
