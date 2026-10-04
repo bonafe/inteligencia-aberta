@@ -6,10 +6,10 @@ from .models import EventoReplicacao, Maquina, MaquinaModeloOllama, MaquinaStatu
 @admin.register(Maquina)
 class MaquinaAdmin(admin.ModelAdmin):
     list_display = (
-        "apelido", "modo", "hospeda_infra_compartilhada", "organizacao", "dono",
+        "apelido", "organizacao", "dono",
         "ollama_endpoint", "gateway_endpoint", "ativa", "criada_em",
     )
-    list_filter = ("modo", "hospeda_infra_compartilhada", "ativa", "organizacao")
+    list_filter = ("ativa", "organizacao")
     search_fields = ("apelido", "hostname_declarado")
     readonly_fields = ("id", "token_hash", "criada_em")
 

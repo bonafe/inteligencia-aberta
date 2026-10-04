@@ -13,6 +13,28 @@ Este arquivo documenta as alterações, configurações e implementações feita
 
 **Falta da F0:** `Claim`/`Evidence` como conceitos de domínio (precisa de conversa de modelagem antes). Com isso a F0 fecha: hash do MHTML (feito), ID global (feito), chave Ed25519 da instância (feito).
 
+## [04-10-2026] - Remoção da topologia `compute` do cluster
+
+**Contexto:** o usuário não usa nenhuma máquina como `compute` e decidiu que toda máquina é uma instância completa (dado só se move pela federação, então não há duplicação cega); máquinas muito fracas (VPS de 1 GB) ficam como borda, a definir depois.
+
+**Removido:** `docker-compose.worker-node.yml`, `docker-compose.no-infraestrutura.yml`, `scripts/entrar_no_cluster.py`; os endpoints `GET /cluster/api/v1/status/` e `POST /cluster/api/v1/join/`; as configurações `CLUSTER_JOIN_SECRET`, `CLUSTER_HOSPEDA_INFRA` e `CLUSTER_VPN_BIND_IP`; os campos `Maquina.modo` e `Maquina.hospeda_infra_compartilhada` (migration `cluster.0007`); `--modo` do `registrar_maquina`; sete testes (suíte com 197 passando).
+
+**Mudou de comportamento:** o catch-up do pipeline (`scan_unprocessed_documents`) agora roda sempre (antes só com `CLUSTER_HOSPEDA_INFRA=true`); o autorregistro da instância não depende mais de hospedar infra; `_eh_local` do roteador identifica a máquina local só pelo apelido (`CLUSTER_LOCAL_APELIDO`) ou por `CLUSTER_MACHINE_ID`.
+
+**Docs:** `escala-multimaquina.md` reescrito (só roteamento de LLM, heartbeat, registro manual de peers), `deploy.md`, `.env.example`, roadmap, ADR 006 (emenda), ADR 008, ADR 010, `federacao.md`, `perfis-de-implantacao.md`. O `diario.html` (histórico) não foi alterado.
+
+**Fica:** o `EventoReplicacao`, o endpoint `/cluster/api/v1/replicacao/eventos/` e `signals_replicacao` (superados, a remover quando a federação os substituir); `CELERY_QUEUES` ainda é lida pelo heartbeat (`filas`), mas nada mais a define; `CLUSTER_MACHINE_TOKEN` só serve ao endpoint de replicação. **Invalida dados existentes:** nenhum além das colunas removidas de `Maquina` (migration aplicada no banco de desenvolvimento).
+
+**Pendente:** cadastro de pares para o roteamento de LLM é manual em cada instância (`registrar_maquina`) até haver o cadastro de pares da federação; teste real do gateway entre duas máquinas continua em aberto.
+
+## [04-10-2026] - Federação: as máquinas do mesmo dono replicam pelo mecanismo da federação (só documento)
+
+**Contexto:** o usuário perguntou o que já existe para várias máquinas e concluiu que o próximo passo são as regras de replicação. Verificado no código: o cluster (A) tem topologia `compute`, heartbeat e roteamento de LLM pelo gateway (sem teste real entre duas máquinas); a replicação por `EventoReplicacao` só tem o lado que envia, sem filtro, e ninguém consome; instâncias de bancos separados não se conhecem.
+
+**Decidido:** as outras máquinas do mesmo dono replicam **pelo mesmo mecanismo da federação** (par de nível "próprio", espaço próprio). Supera o `EventoReplicacao` (código **não removido**); `apps/cluster` fica com `compute`, heartbeat e roteamento de LLM. Emenda na ADR 010, revisão da ADR 006, e ajustes em `compartilhamento.md`, `escala-multimaquina.md` e `roadmap.md`. `federacao.md` ganhou a subseção "Replicação entre as máquinas do mesmo dono" e a **seção 16** com oito decisões pendentes (P1–P8: níveis de confiança por par, quem decide o que sai, tetos de classificação, granularidade, blobs, enrolamento de máquina própria, organização do objeto importado, auditoria).
+
+**Pendente:** P1–P8; nenhum código alterado.
+
 ## [04-10-2026] - Deploy: `FIELD_ENCRYPTION_KEY` e a chave da instância
 
 - `docs/deploy.md` ganhou a seção "Chave da instância (federação)": o `bootstrap` agora cria a chave Ed25519; `FIELD_ENCRYPTION_KEY` deve ser definida **antes do primeiro `up`** (se a cifra mudar depois, a privada fica ilegível e não há comando para recifrá-la ou recriá-la sem perder o DID), perder a privada significa perder a identidade da instância (diferente das chaves de LLM, que se recadastram) e o backup precisa de `FIELD_ENCRYPTION_KEY` **e** do banco. O passo 4 do `bootstrap` foi acrescentado à descrição e `.env.example` ganhou o aviso.

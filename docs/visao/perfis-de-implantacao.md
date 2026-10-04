@@ -40,7 +40,7 @@ Ver [ADR-006](../arquitetura/decisoes/006-cluster-adaptativo-multiproprietario.m
 
 **Por que já é viável com o desenho atual:** A escolha de replicar por log de eventos (não streaming replication do Postgres, ADR anterior a este) já suporta esse caso: todo artefato novo nasce com UUID e dono "quem capturou" — duas máquinas capturando coisas diferentes offline nunca colidem ao sincronizar depois, porque não estão escrevendo o mesmo registro.
 
-**Como isso ainda não existe:** Falta um perfil de implantação que suba a stack completa (Postgres/Qdrant/Garage próprios) preparado para operar desconectado por padrão — hoje só existe o perfil `compute` (worker fino, sem banco próprio, sempre precisa da máquina que hospeda a infra compartilhada acessível).
+**Como isso ainda não existe:** A instância completa já sobe a stack própria (Postgres/Qdrant/Garage próprios) e funciona desconectada; o perfil `compute` (worker fino, sem banco próprio) foi removido em 2026-10-04. Falta o outro lado: sincronizar ao reconectar o que foi feito offline, pelo mecanismo da federação (ADR-010), que ainda não existe.
 
 **Critério de sucesso:** O usuário fecha o notebook em viagem, sem internet, continua usando o sistema normalmente. Ao reconectar, o que fez aparece nas outras máquinas sem ele ter que fazer nada manual.
 

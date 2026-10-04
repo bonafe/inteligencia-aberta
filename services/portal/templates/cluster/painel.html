@@ -52,8 +52,6 @@
     <h2>
       <span class="bolinha {% if maquina.status.online %}online{% else %}offline{% endif %}"></span>
       {{ maquina.apelido }}
-      <span class="tag">{{ maquina.get_modo_display }}</span>
-      {% if maquina.hospeda_infra_compartilhada %}<span class="tag infra">hospeda infra</span>{% endif %}
       {% if not maquina.ativa %}<span class="tag" style="background:#fee2e2;color:#b91c1c;">inativa</span>{% endif %}
     </h2>
 

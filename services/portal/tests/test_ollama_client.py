@@ -90,7 +90,7 @@ def test_gerar_com_maquina_id_registra_telemetria(settings):
     dono = User.objects.create_user(username="dono", password="x")
     org = Organization.objects.create(name="Org", slug="org", org_type="individual", owner=dono)
     maquina = Maquina.objects.create(
-        apelido="notebook", organizacao=org, dono=dono, modo="compute", token_hash="x",
+        apelido="notebook", organizacao=org, dono=dono, token_hash="x",
     )
 
     resp = mock.Mock()

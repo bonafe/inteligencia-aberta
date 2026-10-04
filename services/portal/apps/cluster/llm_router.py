@@ -46,9 +46,7 @@ def _eh_local(maquina) -> bool:
     machine_id = getattr(settings, "CLUSTER_MACHINE_ID", "") or os.environ.get("CLUSTER_MACHINE_ID", "")
     if machine_id:
         return str(maquina.id) == machine_id
-    return maquina.hospeda_infra_compartilhada and maquina.apelido == (
-        os.environ.get("CLUSTER_LOCAL_APELIDO") or _hostname()
-    )
+    return maquina.apelido == (os.environ.get("CLUSTER_LOCAL_APELIDO") or _hostname())
 
 
 def _hostname() -> str:

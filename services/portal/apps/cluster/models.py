@@ -26,10 +26,6 @@ from apps.accounts.models import Organization, User
 
 
 class Maquina(models.Model):
-    class Modo(models.TextChoices):
-        COMPUTE = "compute", "Nó de processamento (banco compartilhado)"
-        REPLICA = "replica", "Réplica (stack própria, sincroniza por eventos)"
-
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     # Presente desde já mesmo a fase 1 não usando isto pra travar nada: é o
     # que vai permitir, numa fase futura, decidir o que pode ser replicado
@@ -39,7 +35,6 @@ class Maquina(models.Model):
     dono = models.ForeignKey(User, on_delete=models.PROTECT, related_name="maquinas")
     apelido = models.CharField(max_length=120)
     hostname_declarado = models.CharField(max_length=120, blank=True)
-    modo = models.CharField(max_length=20, choices=Modo.choices)
     # Preenchido só nas máquinas que rodam Ollama local (nativo no host,
     # fora do Docker — mesma ressalva de OLLAMA_HOST em settings/base.py).
     # Vazio = esta máquina não participa do roteamento de LLM (llm_router.py).
@@ -50,11 +45,6 @@ class Maquina(models.Model):
     # (ADR 009). Vazio = sem gateway; o token (`LLM_GATEWAY_TOKEN`) é do
     # cluster, não da máquina, e não é guardado aqui.
     gateway_endpoint = models.CharField(max_length=255, blank=True)
-    # Capacidade, não hierarquia (ADR-006): esta máquina roda o Postgres/
-    # Redis/MinIO/Qdrant que as demais compartilham. Nenhum outro código
-    # trata uma `Maquina` com isto em `True` como "mais importante" — o
-    # roteador de LLM, por exemplo, ignora este campo por completo.
-    hospeda_infra_compartilhada = models.BooleanField(default=False)
     # sha256 do token de autenticação — o token em claro só existe no momento
     # em que `registrar_maquina` o imprime; depois disso é irrecuperável.
     token_hash = models.CharField(max_length=128)
@@ -69,7 +59,7 @@ class Maquina(models.Model):
         ]
 
     def __str__(self):
-        return f"{self.apelido} ({self.get_modo_display()})"
+        return self.apelido
 
 
 class MaquinaStatus(models.Model):

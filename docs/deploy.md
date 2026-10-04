@@ -147,7 +147,7 @@ Regras de decisão para a automação:
 
 - Um nó só **chama** o gateway de um peer se tiver `LLM_GATEWAY_TOKEN` (e o peer anunciar `gateway_endpoint`); sem isso, o roteador cai no `ollama_endpoint` direto. Para fechar o Ollama dos peers: defina o token (igual em todos) e `LLM_GATEWAY_ENDPOINT_ANUNCIADO` em **todos** os nós, depois deixe `OLLAMA_BIND_ADDR=127.0.0.1`.
 - A porta 8000 em `BIND_ADDR` serve também o portal. No host com Caddy (`--profile publico`), o `infra/caddy/Caddyfile` responde `404` para `/v1/*`: o gateway **não** é publicado na internet, só fica acessível a quem alcança `BIND_ADDR:8000` (a VPN) — e ainda exige o token. Isso não vale para outros proxies: com `tailscale serve` ou outro na frente do portal, bloqueie `/v1/*` se a URL for pública.
-- `gateway_endpoint` (e `ollama_endpoint`) da `Maquina` é gravado **só quando ela é criada**: autorregistro local, `scripts/entrar_no_cluster.py` (`--gateway-endpoint`, default `LLM_GATEWAY_ENDPOINT_ANUNCIADO`) ou `registrar_maquina --gateway-endpoint`. Mudar a variável depois **não** atualiza uma `Maquina` existente — edite no admin do portal.
+- `gateway_endpoint` (e `ollama_endpoint`) da `Maquina` é gravado **só quando ela é criada**: autorregistro local (usa `LLM_GATEWAY_ENDPOINT_ANUNCIADO`) ou `registrar_maquina --gateway-endpoint`. Mudar a variável depois **não** atualiza uma `Maquina` existente — edite no admin do portal.
 - O autorregistro local só funciona com **uma** organização; com várias, defina `CLUSTER_MACHINE_ID` (ver `docs/operacao/escala-multimaquina.md`).
 - Validação: `curl -fsS -X POST -H 'Authorization: Bearer <token>' -H 'Content-Type: application/json' -d '{"model":"<modelo>","messages":[{"role":"user","content":"oi"}]}' http://<ip-vpn>:8000/v1/chat/completions` deve devolver JSON no formato OpenAI; sem o header, `401`; sem `LLM_GATEWAY_TOKEN` no nó, `404`. Este comando **não foi testado entre máquinas reais**.
 
@@ -174,13 +174,12 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml --profile public
 
 O Caddy obtém o certificado (Let's Encrypt; portas 80/443 abertas para a internet) e publica **apenas** o portal e `/api/v1/capture/*`. Os canais serviço-a-serviço (`/artifacts/api/v1/artefatos/`, `/eventos/api/v1/ingest/`) são bloqueados no proxy com 404. Ver `infra/caddy/Caddyfile`.
 
-## Relação com o cluster multi-máquina
+## Relação com o cluster
 
-Este documento trata **uma instância completa por host** (stack inteira, dados próprios). O projeto também tem um cluster multi-máquina (ADR-006, `docs/operacao/escala-multimaquina.md`) com dois arranjos: *pool de processamento* (`docker-compose.worker-node.yml`, só worker/beat apontando para a infraestrutura de outro nó) e *réplica*. Os dois são camadas por cima da instância descrita aqui, não alternativas a ela.
+Este documento trata **uma instância completa por host** (stack inteira, dados próprios) — é o único arranjo suportado. O `apps/cluster` (ADR-006, ADR-009, `docs/operacao/escala-multimaquina.md`) é só uma camada por cima: heartbeat e roteamento de LLM entre as máquinas. Replicar **dados** entre instâncias é a federação (ADR-010, ainda em construção).
 
-- `docker-compose.no-infraestrutura.yml` (publica Postgres/Redis/Garage/Qdrant na interface da VPN, `CLUSTER_VPN_BIND_IP`) é um overlay opcional para o nó que hospeda a infra; combina com `docker-compose.prod.yml` (`-f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.no-infraestrutura.yml`).
-- Variáveis `CLUSTER_*`, `CELERY_QUEUES`, `LLM_GATEWAY_*` e `OLLAMA_*` do `.env.example` pertencem ao cluster e são **opcionais**: vazias, o recurso fica desligado. `CLUSTER_JOIN_SECRET` e `LLM_GATEWAY_TOKEN`, quando usados, são segredos (aleatórios, **por cluster** — iguais nos nós que se falam, ao contrário dos segredos da instância); a validação de segredos de produção não os exige. Detalhes e escopo de cada variável em "LLM por nó e entre nós".
-- Um nó `worker-node` em produção roda `config.settings.production` e, por isso, também precisa dos segredos obrigatórios no seu `.env` (os mesmos valores do nó que hospeda a infra, não novos).
+- Variáveis `CLUSTER_*`, `LLM_GATEWAY_*` e `OLLAMA_*` do `.env.example` pertencem ao cluster e são **opcionais**: vazias, o recurso fica desligado. `LLM_GATEWAY_TOKEN`, quando usado, é segredo (aleatório, **por cluster** — igual nos nós que se falam, ao contrário dos segredos da instância); a validação de segredos de produção não o exige.
+- A topologia em que várias máquinas compartilham um banco (modo `compute`, `docker-compose.worker-node.yml`, `docker-compose.no-infraestrutura.yml`, `CLUSTER_VPN_BIND_IP`, `CLUSTER_JOIN_SECRET`) foi **removida**; não há mais nada a configurar para isso.
 
 ## Volumes
 

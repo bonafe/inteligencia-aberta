@@ -1,121 +1,33 @@
-# Cluster multi-máquina (fase 1 — mesma organização, confiança total)
+# Cluster: roteamento de LLM e heartbeat entre máquinas
 
-Este documento descreve o que está **implementado hoje**: dono único, todas
-as máquinas da mesma organização — não há nenhum gate de "o que pode ir para
-qual máquina" ainda. Não existe conceito de "máquina primária" no
-vocabulário do cluster: existe capacidade — uma máquina hospeda (ou não) a
-infraestrutura compartilhada (Postgres/Redis/Garage/Qdrant). Nenhum outro
-tratamento depende disso; o roteador de LLM, por exemplo, trata toda
-`Maquina` como igual, hospede infra ou não. O rumo — múltiplos donos, mais
-capacidades por máquina (armazenamento/borda pública/offline), motor de
-posicionamento com critério — está desenhado em [ADR-006](../arquitetura/decisoes/006-cluster-adaptativo-multiproprietario.md)
-e nos [perfis de implantação](../visao/perfis-de-implantacao.md), ainda não
-implementado. A colaboração entre donos diferentes (antes `Projeto`) saiu do cluster e é tratada pela federação ([ADR-010](../arquitetura/decisoes/010-federacao-por-log-assinado.md)). O desenho atual (`Maquina.organizacao`, `EventoReplicacao`)
-já carrega os campos necessários para essa evolução sem precisar de
-retrofit.
+Este documento descreve o que está **implementado hoje** em `apps/cluster`.
 
-## Duas topologias, não confundir
+**Cada instância é completa:** stack própria (Postgres, Redis, Garage, Qdrant, portal, orchestrator, worker, beat) e dados próprios. Não existe mais a topologia em que várias máquinas compartilham um único banco (o antigo modo `compute`, com `entrar_no_cluster.py` e os overlays `worker-node`/`no-infraestrutura`, foi removido em 2026-10-04: não era usado). Replicar **dados** entre máquinas — inclusive as suas próprias — é papel da **federação** ([ADR-010](../arquitetura/decisoes/010-federacao-por-log-assinado.md)), não do cluster.
 
-- **Pool de processamento** (`Maquina.modo = compute`): a máquina só roda
-  `worker`/`beat`, apontando pro Postgres/Redis/Garage/Qdrant *compartilhado*
-  do nó que hospeda a infra. Um banco lógico só — usa isso pra processar
-  mais rápido, sem replicar nada.
-- **Réplica** (`Maquina.modo = replica`): a máquina roda sua própria stack
-  completa e recebe as mudanças de `Artifact`/`DocumentText`/
-  `DocumentFragment` via replicação por log de eventos. Hoje só o lado de
-  saída existe (ver "O que ainda não existe" abaixo) — dá pra puxar do nó
-  que hospeda a infra, mas o outro lado do sincronismo ainda não foi
-  implementado.
+O que o cluster faz:
+
+- **Registro de máquinas** (`Maquina`) e **heartbeat** de recursos e modelos Ollama.
+- **Roteamento de LLM**: escolher qual máquina executa a próxima chamada de um modelo, e o **gateway** autenticado pelo qual os peers se chamam (ADR 009).
 
 ## Rede: VPN mesh (Tailscale/Headscale)
 
-Nenhuma porta de infraestrutura (Postgres, Redis, Garage, Qdrant) deve ficar
-exposta em LAN crua ou na internet. Todas as máquinas do cluster entram numa
-VPN mesh (Tailscale, ou um servidor Headscale próprio — mesmo protocolo), e
-as portas só escutam na interface da VPN.
+O gateway de LLM e a API entre máquinas só devem ser alcançáveis pela VPN do dono (Tailscale, ou um Headscale próprio — mesmo protocolo). Nenhuma porta de infraestrutura (Postgres, Redis, Garage, Qdrant) é publicada para fora da própria máquina em produção (ver `docs/deploy.md`).
 
-Isso também dá **descoberta autenticada de graça**: o MagicDNS do Tailscale/
-Headscale resolve cada máquina por um nome estável
-(`<hostname>.headscale.internal` ou `.ts.net`), sem precisar descobrir/digitar
-IP nenhum — é isso que `scripts/entrar_no_cluster.py` (próxima seção) usa
-pra achar sozinho qual máquina hospeda a infra.
+1. Instale Tailscale (ou junte-se ao Headscale) em todas as máquinas e confirme que elas se enxergam (`tailscale status`).
+2. Em cada máquina, defina no `.env` o endpoint do gateway que ela anuncia (`LLM_GATEWAY_ENDPOINT_ANUNCIADO`, IP da VPN) e o `LLM_GATEWAY_TOKEN` do cluster (ver "Chamada entre nós pelo gateway").
 
-1. Instale Tailscale (ou junte-se ao Headscale) em todas as máquinas e
-   confirme que elas se enxergam (`tailscale status`).
-2. Na máquina que vai hospedar a infra compartilhada, defina
-   `CLUSTER_VPN_BIND_IP` no `.env` com o IP dela na VPN.
-3. Suba essa máquina com o overlay de cluster:
-   ```bash
-   docker compose -f docker-compose.yml -f docker-compose.no-infraestrutura.yml up -d
-   ```
-   **Sem `CLUSTER_VPN_BIND_IP` definido, não suba este overlay** — o Docker
-   publicaria as portas em todas as interfaces, não só na VPN.
-4. Defina `CLUSTER_JOIN_SECRET` no `.env` dessa mesma máquina (um segredo
-   qualquer, gerado uma vez) — é o que autoriza uma máquina nova a se
-   registrar sozinha na próxima seção.
-5. Defina `CLUSTER_LOCAL_APELIDO` no `.env` dessa máquina (ex.:
-   `CLUSTER_LOCAL_APELIDO=hp-omen`) se ela também roda Ollama local e você
-   quer que ela mesma entre no roteamento de LLM. **Não precisa rodar
-   `registrar_maquina` contra ela mesma** — no primeiro heartbeat (até 30s
-   depois de subir), ela se autorregistra sozinha como `Maquina` com
-   `hospeda_infra_compartilhada=True`, contanto que exista exatamente uma
-   `Organization` cadastrada (com mais de uma, é ambíguo demais adivinhar a
-   dona, e aí sim precisa de `CLUSTER_MACHINE_ID` explícito via
-   `registrar_maquina`).
+## Registrando as máquinas
 
-## Adicionando uma máquina (automático)
-
-Na máquina nova (repo clonado, Python 3, já na VPN):
-
-```bash
-python3 scripts/entrar_no_cluster.py --secret <CLUSTER_JOIN_SECRET> \
-  --organizacao <slug-da-organizacao> --modo compute
-```
-
-O script (`scripts/entrar_no_cluster.py`, só biblioteca padrão — não precisa
-instalar nada):
-
-1. Pergunta pro `tailscale status --json` quais peers existem.
-2. Pergunta a cada peer online `GET /cluster/api/v1/status/` até achar o que
-   responde `"hospeda_infra_compartilhada": true` — a maioria recusa a
-   conexão (máquinas `compute` só rodam `worker`, sem porta 8000) ou nem
-   roda este projeto; isso é esperado, não erro.
-3. Se autorregistra no nó de infraestrutura (`POST /cluster/api/v1/join/`,
-   autenticado por `CLUSTER_JOIN_SECRET` — não precisa de ninguém rodar nada
-   lá).
-4. Escreve o `.env` desta máquina (a partir de `.env.example`) já com
-   `POSTGRES_HOST`/`REDIS_URL`/`S3_ENDPOINT`/`QDRANT_HOST` apontando pro
-   nome DNS estável do nó de infraestrutura, e
-   `CLUSTER_MACHINE_ID`/`CLUSTER_MACHINE_TOKEN`.
-5. Sobe `docker compose -f docker-compose.worker-node.yml up -d --build`.
-
-**Ollama**: se esta máquina também roda Ollama local e você quer que ela
-entre no roteamento de LLM (próxima seção), passe `--ollama-endpoint
-http://localhost:11434`. Sem isso, `estruturar_llm_manual`/`comparar_llm`
-continuam funcionando, mas só contra o `OLLAMA_HOST` local (sem cluster).
-
-**Se nenhum peer responder que hospeda a infra**: o script erra e não tenta
-virar dono da infra sozinho de propósito — configurar essa máquina continua
-manual (passos 1-4 acima). Eleição automática só faria sentido depois que
-existir replicação real do Postgres/Qdrant/Garage entre máquinas (ver "O que
-ainda não existe"); sem isso, "eleger" outra máquina só trocaria de banco
-vazio, não resolveria nada.
-
-### Registro manual (alternativa)
-
-Sem `CLUSTER_JOIN_SECRET` configurado, ou pra controlar `--dono` /
-`--hostname` explicitamente, o caminho antigo continua funcionando — rodado
-à mão no nó que hospeda a infra:
+- **A própria instância** se autorregistra como `Maquina` no primeiro heartbeat (até 30 s depois de subir), desde que exista exatamente uma `Organization`. Defina `CLUSTER_LOCAL_APELIDO` no `.env` (ex.: `antares`), estável entre reinícios. Com mais de uma organização é ambíguo demais adivinhar a dona: use `CLUSTER_MACHINE_ID`, obtido com `registrar_maquina`.
+- **Os peers** (as outras instâncias, para entrarem no roteamento de LLM desta) são cadastrados à mão em cada instância:
 
 ```bash
 docker compose exec portal python manage.py registrar_maquina \
-  --apelido notebook-trabalho --organizacao <slug> --modo compute
+  --apelido notebook --organizacao <slug> \
+  --ollama-endpoint http://<ip-vpn>:11434 --gateway-endpoint http://<ip-vpn>:8000
 ```
 
-Imprime `CLUSTER_MACHINE_ID`/`CLUSTER_MACHINE_TOKEN` uma única vez — depois
-disso, escreva o `.env` da máquina nova à mão (mesmas chaves que o script
-automático escreveria, ver acima) e suba com
-`docker compose -f docker-compose.worker-node.yml up --build`.
+Cada instância tem o seu banco, então **não há registro automático entre elas** hoje; o cadastro de pares da federação (ADR 010) vai substituir isto.
 
 ## Roteamento de LLM entre máquinas com Ollama
 
@@ -166,8 +78,8 @@ LLM_GATEWAY_TOKEN=<o mesmo em todos os nós do cluster>
 LLM_GATEWAY_ENDPOINT_ANUNCIADO=http://<ip-vpn>:8000   # base, sem /v1
 ```
 
-`scripts/entrar_no_cluster.py` e `registrar_maquina` aceitam
-`--gateway-endpoint` (o script usa a variável acima por padrão). Com isso o
+`registrar_maquina` aceita `--gateway-endpoint`; o autorregistro local usa a
+variável acima. Com isso o
 Ollama do peer pode ficar em `127.0.0.1` (`OLLAMA_BIND_ADDR`), sem
 autenticação exposta na VPN. Sem token local ou sem gateway anunciado, o
 roteador volta a chamar o `ollama_endpoint` direto. O pedido encaminhado leva
@@ -183,43 +95,14 @@ registrada, edite no admin.
 - `manage.py reconstruir_status_maquinas` reconstrói `MaquinaStatus` do zero
   a partir do log de eventos, caso a projeção divirja por algum motivo.
 
-## Testando o lado de saída da replicação (sem precisar de uma 2ª máquina)
+## Replicação de dados
 
-O endpoint de replicação já pode ser testado sozinho, via curl, usando o
-token de uma máquina `modo=replica` registrada:
+O `EventoReplicacao` e o endpoint `GET /cluster/api/v1/replicacao/eventos/` (autenticado por `X-Machine-Token`) ainda existem, mas estão **superados**: as máquinas do mesmo dono vão replicar pelo mecanismo da federação (emenda da ADR-010). Só havia o lado que envia, sem filtro, e ninguém o consome. Devem ser removidos quando a federação os substituir.
 
-```bash
-curl -H "X-Machine-Token: <token>" \
-  "http://<no-de-infra-na-vpn>/cluster/api/v1/replicacao/eventos/?desde=0"
-```
+## O que ainda não existe
 
-Cada `Artifact`/`DocumentText`/`DocumentFragment` salvo gera uma entrada em
-`EventoReplicacao` (admin do Django), que aparece nessa resposta.
-
-## O que ainda não existe (próximos passos, não implementados)
-
-- **Filas nomeadas por perfil de máquina** (`CELERY_TASK_ROUTES`): hoje toda
-  máquina drena a mesma fila padrão. Rotear tarefas pesadas (extração,
-  embeddings) pra máquinas com mais RAM é evolução futura — só vale a pena
-  desenhar com uma 2ª máquina real de perfil diferente pra testar contra (o
-  roteamento de LLM/Ollama, esse já existe — ver seção acima).
-- **Lado de recepção da replicação**: puxar `EventoReplicacao` de um peer e
-  aplicar localmente (`Artifact.origem_maquina`, download do MHTML via peer,
-  `manage.py ressincronizar_maquina`). O lado de saída (este documento) já
-  está pronto; falta o lado que recebe.
-- **Fase 2 — replicação consciente de organização**: `eventos_para_peer`
-  (`apps/cluster/replicacao.py`) é o único lugar que precisa mudar quando
-  isso chegar — hoje devolve tudo, sem filtro nenhum.
-- **Detecção de GPU/VRAM**: o roteador de LLM decide só com CPU/RAM/disco
-  (`MaquinaStatus`) — suficiente hoje, mas quando aparecer uma máquina com
-  GPU de fato, é extensão direta do mesmo padrão de heartbeat.
-- **Benchmark sintético variando `num_thread`**: o aprendizado atual mede
-  velocidade real por *máquina* (chamada de verdade, sem custo extra); testar
-  vários valores de `num_thread` na mesma máquina pra achar o ótimo fica pra
-  quando isso se provar necessário.
+- **Detecção de GPU/VRAM**: o roteador de LLM decide só com CPU/RAM/disco (`MaquinaStatus`) — extensão direta do mesmo padrão de heartbeat.
+- **Benchmark sintético variando `num_thread`**: o aprendizado atual mede velocidade real por *máquina* (chamada de verdade, sem custo extra).
 - **Streaming no gateway OpenAI-compatível.**
-- **Failover automático de qual máquina hospeda a infra**: descoberta é
-  automática (seção acima), mas se essa máquina cair, configurar outra pra
-  assumir continua manual — exige replicação real do Postgres/Qdrant/Garage
-  primeiro (item "lado de recepção da replicação" acima), senão a "nova"
-  eleita teria banco vazio.
+- **Teste real entre duas máquinas** pelo gateway (só testado com mocks).
+- **Máquina muito fraca** (ex.: VPS de 1 GB): talvez só borda/proxy; ainda em aberto (ADR 009).

@@ -21,6 +21,6 @@ Trocar o MinIO pelo **Garage** (Deuxfleurs, S3 compatível, em Rust, pensado par
 
 - Os formatos dos segredos S3 deixam de ser livres: `GK` + 24 hex para o id, 64 hex para o secret e para o RPC. `token_urlsafe` não serve para eles.
 - O Garage não traz console. Em dev o `docker-compose.override.yml` sobe o `garage-webui` da comunidade (porta 3909, precisa de `GARAGE_ADMIN_TOKEN`); com o Garage v2 funcionam buckets, chaves, layout e saúde, mas a página de status de nós falha (a UI ainda chama um endpoint v1 removido). Em produção não há UI. Administração é pela CLI `garage` (`docker compose exec garage garage status`) ou por clientes S3 (`aws`, `mc`, `rclone`).
-- Porta S3 passa de 9000/9001 para 3900. Dev publica 3900; o overlay `no-infraestrutura` publica 3900 só na VPN.
+- Porta S3 passa de 9000/9001 para 3900. Dev publica 3900; o overlay `no-infraestrutura` (removido em 2026-10-04 com a topologia `compute`) publicava 3900 só na VPN.
 - Dados em `${DATA_DIR}/garage/{meta,data}`. Nenhuma migração de dados foi necessária (sem dados em produção na troca); `${DATA_DIR}/minio/` antigo pode ser removido.
 - Máquinas de cluster existentes precisam trocar `MINIO_ENDPOINT` por `S3_ENDPOINT=<infra>:3900` e receber as mesmas `S3_*` do nó de infra.

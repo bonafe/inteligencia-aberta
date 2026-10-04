@@ -390,9 +390,30 @@ A pergunta "chave pessoal ou por instância" virou "um chaveiro por usuário, co
 - **Sem busca em tempo de execução:** o `@context` vem **embutido** em cada instância e nos pacotes; nenhuma instância depende de resolver a URI para entender um evento (requisito do pacote offline da F1b). A URL pode resolver para a documentação dos termos, mas é só conveniência.
 - **Registro:** o pedido ao repositório do w3id.org (pull request público) **não foi feito** e fica para perto da F1; até lá a URI é só identificador reservado na ADR 010.
 
+### Replicação entre as máquinas do mesmo dono (decidido em 2026-10-04)
+
+**As suas outras máquinas replicam pelo mesmo mecanismo da federação.** Uma segunda máquina do mesmo dono é uma instância como qualquer outra: tem a sua chave Ed25519 e é um **par** com nível de confiança "próprio" dentro de um espaço seu. Há um único caminho de replicação para escrever, testar e auditar.
+
+- **Supera o `EventoReplicacao`** (`apps/cluster/replicacao.py`, `signals_replicacao.py`, `GET /cluster/api/v1/replicacao/eventos/`): replicava estado, sem assinatura nem proveniência, e o lado que recebe nunca foi escrito. O código **não foi removido** — com a regra "sem compatibilidade por ora" (`CLAUDE.md`) pode sair quando a federação o substituir de fato.
+- **`apps/cluster` fica com:** o heartbeat e o roteamento de LLM com o gateway (ADR 009). A topologia `compute` (várias máquinas sobre um banco compartilhado) **foi removida** (2026-10-04, não era usada), e a de "réplica com stack própria" passa à federação: toda máquina é uma instância completa, e dado só se move por federação, então não há duplicação cega.
+- **Efeito sobre a ADR 006:** o "motor de posicionamento entre máquinas do mesmo dono" (disco, marcação de réplica, sensibilidade) deixa de ser peça do cluster e vira parte da política de replicação abaixo.
+
 ## 15. Fora de escopo deste documento
 
 Replicação de infraestrutura (Cenário A), roteamento de LLM entre nós (já em `apps/cluster/` e ADR 009), e qualquer implementação. Nenhuma alteração de código foi feita junto com esta análise.
+
+## 16. Política de replicação — decisões pendentes
+
+Quem recebe o quê. Parte do que já foi decidido: a política do **espaço** é determinística, com negação por padrão, e o **nível de confiança por par** é {ignorar, quarentena, aceitar só como alegação, aceitar e repassar} (seção 11), agora acrescido de **próprio** (máquina do mesmo dono). Cada item traz a recomendação; nenhum está decidido.
+
+- [ ] **P1. Níveis de confiança por par.** O que cada nível permite a quem recebe, e o que "próprio" acrescenta. *Recomendação: "próprio" = aceitar e repassar, com ligação entre chaves revelada (decisão 2) e sem exigir corroboração.*
+- [ ] **P2. Quem decide o que sai.** Só o emissor (política do espaço), só o receptor (nível do par) ou a interseção. *Recomendação: interseção, com negação por padrão dos dois lados: nada atravessa sem que o emissor permita enviar e o receptor aceite receber.*
+- [ ] **P3. Teto de classificação por tipo de par.** *Proposta a validar: própria máquina → até `confidencial`; mesma organização → até `restrito`; outra pessoa → até `interno`, e `público` por padrão. O `policy_engine` não muda: isto decide só o que sai da instância, não o uso de LLM externo.*
+- [ ] **P4. Granularidade da autorização.** Por espaço, por tipo de objeto ou por objeto (marcação explícita, como `Sharing`). *Recomendação: o espaço dá o padrão; o objeto pode ser excluído ou limitado por marcação.*
+- [ ] **P5. O que se replica.** Eventos sempre; blobs (o MHTML) em espelho ou sob demanda por hash (seção 9). *Recomendação: espelho entre as próprias máquinas, sob demanda com os demais.*
+- [ ] **P6. Como uma máquina passa a ser "minha".** Enrolamento da chave do par e prova de que é o mesmo dono. *Recomendação: enrolamento fora de banda com impressão digital conferida (seção 11) e, entre máquinas próprias, a ligação entre as chaves do usuário revelada por padrão.*
+- [ ] **P7. Organização do objeto importado.** Os modelos têm `tenant`; um objeto que chega precisa de uma organização local. *Em aberto: mapear o espaço para uma organização local, ou o espaço ser o limite e o `tenant` derivado dele.*
+- [ ] **P8. Auditoria.** Toda decisão de enviar ou recusar é registrada (quem, quando, por qual regra), no espírito de `AuditLog` e `PipelineEvent` e da restrição da ADR 006. *Recomendação: sim, determinística e auditada, num ponto único (sucessor de `eventos_para_peer`).*
 
 ## Referências no repositório
 

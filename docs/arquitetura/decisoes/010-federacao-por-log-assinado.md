@@ -48,6 +48,10 @@ O que existe hoje e condiciona a decisão:
 
 **Invariantes herdados da análise (seção 7):** assinatura sobre os bytes canônicos do envelope (JCS, RFC 8785), não sobre o JSON-LD canonicalizado; nunca apagar evento; autor e espaço em todo evento; o rótulo de classificação viaja com o objeto e o receptor não o pode rebaixar; afirmação separada de fato desde o primeiro dia (`Claim` e `Evidence` como conceitos de domínio).
 
+## Emenda de 2026-10-04: replicação entre máquinas do mesmo dono
+
+Esta ADR separava o cluster (A) da federação (B), mantendo no cluster a replicação entre máquinas do mesmo dono. **Foi revista:** as suas outras máquinas replicam **pelo mesmo mecanismo da federação** (par de nível "próprio", espaço próprio, política "tudo"). O `EventoReplicacao` fica superado e o `apps/cluster` mantém só o heartbeat e o roteamento de LLM (ADR 009). A topologia `compute` (várias máquinas sobre um banco compartilhado) foi **removida** em 2026-10-04: o dono não a usava, e toda máquina passa a ser uma instância completa. Detalhes e decisões pendentes em `docs/arquitetura/federacao.md`, seção 16.
+
 ## Alternativas consideradas
 
 - **Serviço de mensageria (Kafka ou similar) como fonte de verdade.** Descartada: não oferece assinatura nem cadeia de hash; retenção e compactação conflitam com "nunca apagar evento"; não é protocolo entre partes que não confiam uma na outra (a instância ainda guardaria o log recebido); cria o problema da escrita dupla com o Postgres; é pesado para uma instância por host. O que atraía — replay e imutabilidade — o log assinado em tabela entrega, com garantia mais forte.

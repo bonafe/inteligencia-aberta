@@ -1,9 +1,5 @@
-"""Criação de `Maquina` — usada tanto por `manage.py registrar_maquina`
-(registro manual, rodado por um humano no nó que hospeda a infra
-compartilhada) quanto por `JoinAPIView` (`POST /cluster/api/v1/join/`,
-autoatendido pela máquina nova via `scripts/entrar_no_cluster.py`). A lógica
-de gerar/guardar o token é a mesma nos dois caminhos — só muda quem a invoca
-e como.
+"""Criação de `Maquina` — usada por `manage.py registrar_maquina` (registro
+manual de um peer nesta instância). Gera o token e guarda só o hash.
 """
 
 import hashlib
@@ -21,7 +17,7 @@ class ProvisionamentoError(Exception):
 
 
 def criar_maquina(
-    *, apelido: str, organizacao_slug: str, modo: str,
+    *, apelido: str, organizacao_slug: str,
     dono_username: str | None = None, hostname: str = "", ollama_endpoint: str = "",
     gateway_endpoint: str = "",
 ) -> tuple[Maquina, str]:
@@ -53,7 +49,6 @@ def criar_maquina(
         hostname_declarado=hostname,
         organizacao=organizacao,
         dono=dono,
-        modo=modo,
         token_hash=token_hash,
         ollama_endpoint=ollama_endpoint,
         gateway_endpoint=gateway_endpoint,

@@ -88,7 +88,7 @@ Um `Space` **nunca** implica confiança automática entre as organizações dos 
 
 Usos previstos para `Space`:
 - **Troca de conhecimento entre instâncias (federação):** o que a política do espaço permite (teto de classificação, tipos permitidos, negação por padrão) é exportado como eventos assinados e recebido por outras instâncias, que o guardam como alegação de um autor e não como fato ([ADR-010](../arquitetura/decisoes/010-federacao-por-log-assinado.md)). O rótulo de classificação viaja com o objeto e o receptor não pode rebaixá-lo.
-- **Replicação entre máquinas do mesmo dono:** continua no cluster (`apps/cluster/replicacao.py::eventos_para_peer`, ADR-006), que não considera mais participação em projeto como critério.
+- **Replicação entre máquinas do mesmo dono:** passa pelo mesmo mecanismo da federação (par de nível "próprio"), não mais pelo `EventoReplicacao` do cluster (emenda da ADR-010, 2026-10-04).
 - **Computação de LLM compartilhada entre donos diferentes:** segue em aberto. Hoje o roteador de LLM (`apps/cluster/llm_router.py`) só considera máquinas de confiança única (token igual em todos os nós, ADR-009); quando for tratada, a reciprocidade deve ser autorizada explicitamente pelos dois donos, nunca por padrão, apoiada na identidade e nos espaços da federação.
 
 ## Controles de Rede por Organização

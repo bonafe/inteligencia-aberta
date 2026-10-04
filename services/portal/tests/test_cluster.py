@@ -40,11 +40,10 @@ def _artifact(tenant, **kw):
 
 
 def test_registrar_maquina_grava_hash_nunca_o_token_em_claro(tenant, capsys):
-    call_command("registrar_maquina", apelido="notebook", organizacao=tenant.slug, modo="compute")
+    call_command("registrar_maquina", apelido="notebook", organizacao=tenant.slug)
     saida = capsys.readouterr().out
 
     maquina = Maquina.objects.get(apelido="notebook")
-    assert maquina.modo == "compute"
     assert maquina.dono_id == tenant.owner_id
     assert str(maquina.id) in saida
 
@@ -56,7 +55,7 @@ def test_registrar_maquina_organizacao_inexistente_falha(db):
     from django.core.management.base import CommandError
 
     with pytest.raises(CommandError):
-        call_command("registrar_maquina", apelido="x", organizacao="nao-existe", modo="compute")
+        call_command("registrar_maquina", apelido="x", organizacao="nao-existe")
 
 
 def _heartbeat(maquina, tenant, **payload):
@@ -75,7 +74,7 @@ def _heartbeat(maquina, tenant, **payload):
 
 def test_heartbeat_atualiza_status_da_maquina(tenant):
     maquina = Maquina.objects.create(
-        apelido="notebook", organizacao=tenant, dono=tenant.owner, modo="compute", token_hash="x",
+        apelido="notebook", organizacao=tenant, dono=tenant.owner, token_hash="x",
     )
     _heartbeat(maquina, tenant, cpu_percent=12.5, cpu_count=8, ram_disponivel_mb=2048,
                disco_disponivel_gb=50.0, filas=["leve"])
@@ -90,7 +89,7 @@ def test_heartbeat_reconstruivel_do_log(tenant):
     """manage.py reconstruir_status_maquinas deve chegar no mesmo estado que o
     caminho incremental — a prova de que a projeção é derivada do log."""
     maquina = Maquina.objects.create(
-        apelido="notebook", organizacao=tenant, dono=tenant.owner, modo="compute", token_hash="x",
+        apelido="notebook", organizacao=tenant, dono=tenant.owner, token_hash="x",
     )
     for cpu in (10.0, 20.0, 30.0):
         _heartbeat(maquina, tenant, cpu_percent=cpu)
@@ -106,7 +105,7 @@ def test_heartbeat_reconstruivel_do_log(tenant):
 def test_heartbeat_ignora_sequence_mais_antiga(tenant):
     """Um heartbeat atrasado (sequence menor) não pode sobrescrever um mais novo."""
     maquina = Maquina.objects.create(
-        apelido="notebook", organizacao=tenant, dono=tenant.owner, modo="compute", token_hash="x",
+        apelido="notebook", organizacao=tenant, dono=tenant.owner, token_hash="x",
     )
     novo = _heartbeat(maquina, tenant, cpu_percent=99.0)
     atrasado = emit("maquina.heartbeat", "ok", subject_type="maquina", subject_id=maquina.id,
@@ -118,11 +117,11 @@ def test_heartbeat_ignora_sequence_mais_antiga(tenant):
     assert MaquinaStatus.objects.get(maquina=maquina).cpu_percent == 99.0
 
 
-# ─── Autorregistro do nó de infraestrutura (sem `registrar_maquina` manual) ─
+# ─── Autorregistro da própria instância (sem `registrar_maquina` manual) ─
 
 def test_no_local_se_autorregistra_no_primeiro_heartbeat(tenant, monkeypatch):
     """Com uma única Organization e CLUSTER_LOCAL_APELIDO definido, a própria
-    máquina que hospeda a infra cria sua Maquina sozinha — não deveria
+    instância cria a sua Maquina sozinha — não deveria
     precisar de `registrar_maquina` contra si mesma."""
     monkeypatch.setenv("CLUSTER_LOCAL_APELIDO", "minha-maquina")
     with mock.patch("apps.artifacts.extractors.ollama_client.listar_modelos", return_value=[]):
@@ -132,7 +131,6 @@ def test_no_local_se_autorregistra_no_primeiro_heartbeat(tenant, monkeypatch):
     maquina = Maquina.objects.get(apelido="minha-maquina")
     assert maquina.organizacao_id == tenant.id
     assert maquina.dono_id == tenant.owner_id
-    assert maquina.hospeda_infra_compartilhada is True
     assert MaquinaStatus.objects.get(maquina=maquina).online is True
 
 
@@ -197,19 +195,6 @@ def test_autorregistro_nao_acontece_com_mais_de_uma_organizacao(tenant, monkeypa
     assert "não aplicável" in resultado
 
 
-def test_autorregistro_nao_acontece_sem_hospedar_infra(tenant, settings, monkeypatch):
-    """CLUSTER_HOSPEDA_INFRA=false é uma máquina que só contribui
-    processamento — não deve tentar virar dona da infra sozinha."""
-    settings.CLUSTER_HOSPEDA_INFRA = False
-    monkeypatch.setenv("CLUSTER_LOCAL_APELIDO", "minha-maquina")
-
-    resultado = emitir_heartbeat_maquina()
-
-    assert "não aplicável" in resultado
-    assert Maquina.objects.count() == 0
-    assert Maquina.objects.count() == 0
-
-
 def test_post_save_de_artifact_gera_evento_de_replicacao(tenant):
     artefato = _artifact(tenant)
     artefato.save()  # o create() acima já dispara — save() explícito prova idempotência do teste
@@ -221,7 +206,7 @@ def test_post_save_de_artifact_gera_evento_de_replicacao(tenant):
 
 def test_eventos_para_peer_respeita_desde(tenant):
     peer = Maquina.objects.create(
-        apelido="replica", organizacao=tenant, dono=tenant.owner, modo="replica", token_hash="x",
+        apelido="replica", organizacao=tenant, dono=tenant.owner, token_hash="x",
     )
     a1 = _artifact(tenant)
     a2 = _artifact(tenant)
@@ -241,7 +226,7 @@ def test_endpoint_replicacao_recusa_sem_token(client):
 
 def test_endpoint_replicacao_recusa_token_invalido(tenant, client):
     Maquina.objects.create(
-        apelido="replica", organizacao=tenant, dono=tenant.owner, modo="replica",
+        apelido="replica", organizacao=tenant, dono=tenant.owner,
         token_hash=hashlib.sha256(b"token-certo").hexdigest(),
     )
     resp = client.get("/cluster/api/v1/replicacao/eventos/?desde=0", HTTP_X_MACHINE_TOKEN="token-errado")
@@ -250,7 +235,7 @@ def test_endpoint_replicacao_recusa_token_invalido(tenant, client):
 
 def test_endpoint_replicacao_devolve_eventos_com_token_valido(tenant, client):
     Maquina.objects.create(
-        apelido="replica", organizacao=tenant, dono=tenant.owner, modo="replica",
+        apelido="replica", organizacao=tenant, dono=tenant.owner,
         token_hash=hashlib.sha256(b"token-certo").hexdigest(),
     )
     artefato = _artifact(tenant)
@@ -265,7 +250,7 @@ def test_endpoint_replicacao_devolve_eventos_com_token_valido(tenant, client):
 
 def _maquina_ollama(tenant, apelido="notebook", endpoint="http://10.0.0.1:11434"):
     m = Maquina.objects.create(
-        apelido=apelido, organizacao=tenant, dono=tenant.owner, modo="compute",
+        apelido=apelido, organizacao=tenant, dono=tenant.owner,
         token_hash="x", ollama_endpoint=endpoint,
     )
     _heartbeat(m, tenant, cpu_percent=5.0, cpu_count=8)  # deixa a máquina "online"
@@ -405,54 +390,6 @@ def test_gateway_recusa_sem_bearer_correto(settings, client):
     resp = client.post("/v1/chat/completions", data="{}", content_type="application/json",
                        HTTP_AUTHORIZATION="Bearer errado")
     assert resp.status_code == 401
-
-
-# ─── Descoberta automática (StatusPublicoView + JoinAPIView) ───────────────
-
-def test_status_publico_reporta_hospeda_infra_por_padrao(client):
-    resp = client.get("/cluster/api/v1/status/")
-    assert resp.status_code == 200
-    assert resp.json()["hospeda_infra_compartilhada"] is True
-
-
-def test_status_publico_reporta_nao_hospeda_infra_quando_configurado(settings, client):
-    settings.CLUSTER_HOSPEDA_INFRA = False
-    resp = client.get("/cluster/api/v1/status/")
-    assert resp.json()["hospeda_infra_compartilhada"] is False
-
-
-def test_join_sem_segredo_configurado_devolve_404(settings, client):
-    settings.CLUSTER_JOIN_SECRET = ""
-    resp = client.post("/cluster/api/v1/join/", data="{}", content_type="application/json")
-    assert resp.status_code == 404
-
-
-def test_join_recusa_segredo_errado(settings, client):
-    settings.CLUSTER_JOIN_SECRET = "segredo-certo"
-    resp = client.post("/cluster/api/v1/join/", data="{}", content_type="application/json",
-                       HTTP_X_CLUSTER_JOIN_SECRET="segredo-errado")
-    assert resp.status_code == 401
-
-
-def test_join_cria_maquina_e_devolve_token(tenant, settings, client):
-    settings.CLUSTER_JOIN_SECRET = "segredo-certo"
-    corpo = json.dumps({"apelido": "nova-maquina", "organizacao": tenant.slug, "modo": "compute"})
-    resp = client.post("/cluster/api/v1/join/", data=corpo, content_type="application/json",
-                       HTTP_X_CLUSTER_JOIN_SECRET="segredo-certo")
-    assert resp.status_code == 201
-    corpo_resp = resp.json()
-
-    maquina = Maquina.objects.get(apelido="nova-maquina")
-    assert str(maquina.id) == corpo_resp["machine_id"]
-    assert maquina.token_hash == hashlib.sha256(corpo_resp["machine_token"].encode()).hexdigest()
-
-
-def test_join_organizacao_inexistente_devolve_400(settings, client):
-    settings.CLUSTER_JOIN_SECRET = "segredo-certo"
-    corpo = json.dumps({"apelido": "x", "organizacao": "nao-existe", "modo": "compute"})
-    resp = client.post("/cluster/api/v1/join/", data=corpo, content_type="application/json",
-                       HTTP_X_CLUSTER_JOIN_SECRET="segredo-certo")
-    assert resp.status_code == 400
 
 
 def test_gateway_responde_no_formato_openai_sem_cluster(settings, client):

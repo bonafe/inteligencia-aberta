@@ -73,8 +73,10 @@ Esta ADR misturava dois cenários: o **cluster** (A — máquinas do mesmo dono 
 **Fica (Cenário A, `apps/cluster`):**
 
 - Perfis de nó por capacidade, offline-first e heterogeneidade de papel entre máquinas.
-- Motor de posicionamento **entre máquinas do mesmo dono**: espaço em disco, marcação explícita de réplica, sensibilidade do dado. Mesma disciplina do `policy_engine` (determinístico, auditável).
+- ~~Motor de posicionamento entre máquinas do mesmo dono~~ — **superado (emenda da ADR 010, 2026-10-04):** a replicação entre as máquinas do mesmo dono passa pelo mecanismo da federação, e os critérios (disco, marcação de réplica, sensibilidade) viram parte da política de replicação (`federacao.md`, seção 16), com a mesma disciplina do `policy_engine` (determinístico, auditável).
 - Roteador de LLM e gateway autenticado entre peers (ADR 009).
 - "Nunca replicação nativa do Postgres/Garage/Qdrant" e "nunca failover automático".
 
 **Em aberto (fora da ADR 010):** a reciprocidade de **computação de LLM entre donos diferentes** (a ADR 009 usa um token igual em todos os nós, o que só serve a um cluster de confiança única). Quando for tratada, a autorização entre donos deve se apoiar na identidade e nos espaços da federação, e não num token compartilhado.
+
+**Emenda de 2026-10-04 (topologia `compute` removida):** o modo `compute` (várias máquinas sobre um banco compartilhado), `scripts/entrar_no_cluster.py`, o endpoint de join, os overlays `docker-compose.worker-node.yml` e `docker-compose.no-infraestrutura.yml` e os campos `Maquina.modo` e `Maquina.hospeda_infra_compartilhada` foram removidos. Toda máquina é uma instância completa; o "perfil de nó por capacidade" restante é o do LLM (ADR 009). Máquinas muito fracas (ex.: VPS de 1 GB) ficam como borda, a definir.

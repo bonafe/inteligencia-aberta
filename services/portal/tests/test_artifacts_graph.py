@@ -253,7 +253,7 @@ def test_maquina_de_estruturacao_llm_vem_da_fk_nao_do_log(tenant):
     artifact = _artifact(tenant)
     doc_text = _document_text(artifact)
     maquina = Maquina.objects.create(
-        apelido="antares", organizacao=tenant, dono=tenant.owner, modo="compute", token_hash="x",
+        apelido="antares", organizacao=tenant, dono=tenant.owner, token_hash="x",
     )
     execucao = EstruturacaoLLM.objects.create(
         document_text=doc_text, tenant=tenant, provider="ollama", model_name="llama3.1:8b",

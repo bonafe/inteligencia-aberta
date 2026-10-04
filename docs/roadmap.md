@@ -131,11 +131,13 @@ Cada fase deve entregar valor real a pelo menos uma persona. Nenhuma fase é "s�
 **Objetivo:** Sistema pronto para múltiplos usuários simultâneos e operação contínua.
 
 **Entregáveis:**
-- [x] Cluster multi-máquina, dono único, descoberta automática via
-  Tailscale/MagicDNS — registro de máquina, heartbeat de recursos
-  (`MaquinaStatus`), roteador de LLM entre Ollamas locais, gateway
-  compatível com OpenAI, replicação por log de eventos (lado de saída)
-  ([`docs/operacao/escala-multimaquina.md`](../operacao/escala-multimaquina.md))
+- [x] Cluster de roteamento de LLM — registro de máquina, heartbeat de
+  recursos (`MaquinaStatus`), roteador de LLM entre Ollamas, gateway
+  compatível com OpenAI e chamada entre nós pelo gateway autenticado
+  ([`docs/operacao/escala-multimaquina.md`](operacao/escala-multimaquina.md)).
+  A topologia `compute` (várias máquinas sobre um banco compartilhado) foi
+  removida em 2026-10-04; toda máquina é uma instância completa e dado só se
+  move pela federação
 - [ ] Cluster adaptativo multi-proprietário: perfis de nó por capacidade
   (armazenamento/computação/borda pública/offline), motor de posicionamento
   com critério (dono do destino, espaço disponível, sensibilidade do dado),
@@ -149,9 +151,10 @@ Cada fase deve entregar valor real a pelo menos uma persona. Nenhuma fase é "s�
   resolver nada específico do domínio (quem replica para quem, sob qual
   critério) e por o Tailscale/Headscale já resolver a descoberta sem esse
   custo
-- [ ] Lado de recepção da replicação (hoje só o lado de saída existe) e
-  failover — depende de replicação real de dado entre máquinas, não só de
-  descoberta
+- [ ] Replicação entre máquinas do mesmo dono **pelo mecanismo da federação**
+  ([ADR-010](arquitetura/decisoes/010-federacao-por-log-assinado.md), emenda de
+  2026-10-04; substitui o lado de recepção do `EventoReplicacao`) e failover —
+  depende de replicação real de dado entre máquinas, não só de descoberta
 - [ ] Escalabilidade horizontal de agentes e workers (filas Celery nomeadas
   por perfil de máquina)
 - [ ] Monitoramento: Prometheus + Grafana — métricas agregadas alimentadas pelo log de eventos da Fase 1, não uma coleta paralela

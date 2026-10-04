@@ -1,9 +1,6 @@
 import hashlib
-import json
 import logging
-import socket
 
-from django.conf import settings
 from django.http import JsonResponse
 from django.shortcuts import render
 from django.utils.crypto import constant_time_compare
@@ -14,7 +11,6 @@ from django.views.decorators.csrf import csrf_exempt
 from apps.accounts.views import orgs_do_usuario
 
 from .models import Maquina
-from .provisionamento import ProvisionamentoError, criar_maquina
 from .replicacao import eventos_para_peer
 
 logger = logging.getLogger(__name__)
@@ -77,63 +73,6 @@ class ReplicacaoEventosAPIView(View):
         })
 
 
-class StatusPublicoView(View):
-    """`GET /cluster/api/v1/status/` — sem autenticação: só diz se este
-    processo hospeda a infraestrutura compartilhada, pra
-    `scripts/entrar_no_cluster.py` achar o nó certo perguntando a cada peer
-    do tailnet (a maioria recusa a conexão ou não roda este projeto — isso é
-    esperado, não erro). Informação de baixo risco (não expõe dado nenhum) e
-    só alcançável por quem já está na VPN do usuário."""
-
-    def get(self, request):
-        hospeda = getattr(settings, "CLUSTER_HOSPEDA_INFRA", True)
-        return JsonResponse({"hospeda_infra_compartilhada": hospeda, "apelido": socket.gethostname()})
-
-
-@method_decorator(csrf_exempt, name="dispatch")
-class JoinAPIView(View):
-    """`POST /cluster/api/v1/join/` — autorregistro de máquina nova, usado
-    por `scripts/entrar_no_cluster.py` depois de descobrir o nó de infra via
-    `StatusPublicoView`. Autenticado por um segredo único do cluster
-    (`X-Cluster-Join-Secret`), não por máquina — a máquina ainda não tem
-    identidade própria neste ponto, é isto que a está criando.
-    """
-
-    def post(self, request):
-        esperado = getattr(settings, "CLUSTER_JOIN_SECRET", "")
-        if not esperado:
-            return JsonResponse({"error": "join desabilitado"}, status=404)
-
-        recebido = request.headers.get("X-Cluster-Join-Secret", "")
-        if not constant_time_compare(recebido, esperado):
-            logger.warning("join de máquina recusado — X-Cluster-Join-Secret ausente ou inválido")
-            return JsonResponse({"error": "Não autorizado"}, status=401)
-
-        try:
-            corpo = json.loads(request.body)
-        except json.JSONDecodeError:
-            return JsonResponse({"error": "JSON inválido"}, status=400)
-
-        apelido = corpo.get("apelido")
-        organizacao_slug = corpo.get("organizacao")
-        modo = corpo.get("modo")
-        if not apelido or not organizacao_slug or modo not in Maquina.Modo.values:
-            return JsonResponse(
-                {"error": "'apelido', 'organizacao' e 'modo' (compute|replica) são obrigatórios"}, status=400,
-            )
-
-        try:
-            maquina, token = criar_maquina(
-                apelido=apelido, organizacao_slug=organizacao_slug, modo=modo,
-                hostname=corpo.get("hostname", ""), ollama_endpoint=corpo.get("ollama_endpoint", ""),
-                gateway_endpoint=corpo.get("gateway_endpoint", ""),
-            )
-        except ProvisionamentoError as exc:
-            return JsonResponse({"error": str(exc)}, status=400)
-
-        return JsonResponse({"machine_id": str(maquina.id), "machine_token": token}, status=201)
-
-
 class PainelClusterView(View):
     """Tela `/cluster/` — lista as máquinas do cluster (das organizações do
     usuário logado), status de recursos e capacidade de LLM de cada uma.
@@ -148,7 +87,7 @@ class PainelClusterView(View):
             Maquina.objects.filter(organizacao__in=orgs_do_usuario(request.user))
             .select_related("status")
             .prefetch_related("modelos_ollama")
-            .order_by("-hospeda_infra_compartilhada", "apelido")
+            .order_by("apelido")
         )
 
         from django.db.models import Count, IntegerField, Q, Sum

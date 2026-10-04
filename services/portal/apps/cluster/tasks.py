@@ -43,15 +43,12 @@ def _coletar_recursos() -> dict:
 
 def _autorregistrar_no_local():
     """Cria (ou encontra) a `Maquina` que representa esta própria instância,
-    quando ela hospeda a infraestrutura compartilhada — pra esse nó nunca
-    precisar rodar `registrar_maquina` contra si mesmo, o mesmo motivo por
-    trás do autorregistro de peers via `scripts/entrar_no_cluster.py`, só que
-    sem precisar de rede nenhuma (é o próprio processo).
+    para ela nunca precisar rodar `registrar_maquina` contra si mesma.
 
-    Só age quando `CLUSTER_HOSPEDA_INFRA=true` (default) e existe exatamente
-    uma `Organization` — com mais de uma, não há como adivinhar a dona sem
-    ambiguidade, e o autorregistro simplesmente não acontece (segue exigindo
-    `CLUSTER_MACHINE_ID`/`registrar_maquina` explícito nesse caso).
+    Só age quando existe exatamente uma `Organization` — com mais de uma, não
+    há como adivinhar a dona sem ambiguidade, e o autorregistro simplesmente
+    não acontece (segue exigindo `CLUSTER_MACHINE_ID`/`registrar_maquina`
+    explícito nesse caso).
 
     O apelido vem de `CLUSTER_LOCAL_APELIDO` (uma linha no `.env`, estável
     entre reinícios de container) — nunca de `socket.gethostname()` sozinho:
@@ -64,9 +61,6 @@ def _autorregistrar_no_local():
 
     from .models import Maquina
 
-    if not getattr(settings, "CLUSTER_HOSPEDA_INFRA", True):
-        return None
-
     orgs = list(Organization.objects.all()[:2])
     if len(orgs) != 1:
         return None
@@ -77,9 +71,7 @@ def _autorregistrar_no_local():
         organizacao=organizacao, apelido=apelido,
         defaults={
             "dono": organizacao.owner,
-            "modo": Maquina.Modo.COMPUTE,
             "hostname_declarado": apelido,
-            "hospeda_infra_compartilhada": True,
             # Sem token: esta Maquina nunca autentica contra si mesma por
             # HTTP (X-Machine-Token é para peers remotos puxando replicação)
             # — é o próprio processo chamando funções Python diretamente.
@@ -97,11 +89,10 @@ def _autorregistrar_no_local():
 def emitir_heartbeat_maquina():
     """Emite `maquina.heartbeat` para a `Maquina` desta instância.
 
-    Com `CLUSTER_MACHINE_ID` configurado (peer que se autorregistrou via
-    `scripts/entrar_no_cluster.py`), usa essa identidade. Sem ele, tenta
-    `_autorregistrar_no_local()` — cobre o caso comum (esta máquina hospeda a
-    infra compartilhada). Sem nenhum dos dois (múltiplas organizações,
-    ambíguo demais pra adivinhar), a task roda e não faz nada — não é erro."""
+    Com `CLUSTER_MACHINE_ID` configurado, usa essa identidade. Sem ele, tenta
+    `_autorregistrar_no_local()` — cobre o caso comum (uma única organização).
+    Sem nenhum dos dois (múltiplas organizações, ambíguo demais pra adivinhar),
+    a task roda e não faz nada — não é erro."""
     from django.conf import settings
 
     from apps.events.emit import emit
