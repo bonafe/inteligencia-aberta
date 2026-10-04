@@ -282,6 +282,26 @@
     <div class="container">
         <div class="entries-list">
 
+            <!-- Entrada 36 -->
+            <!-- RASCUNHO: escrito a partir do CHANGELOG, das ADRs e do histórico de commits; revisar o texto e remover este aviso antes de publicar. -->
+            <article class="entry-card">
+                <div class="entry-header">
+                    <div class="entry-meta">
+                        <span class="entry-date">4 de outubro de 2026</span>
+                        <span class="entry-sep"></span>
+                        <span class="entry-author">Bonafé &amp; Claude Code</span>
+                    </div>
+                    <h2 class="entry-title">O cadastro que fechava a porta para o próprio dono</h2>
+                </div>
+                <div class="entry-body">
+                    <p>Nos três servidores da rede, o dono não conseguia criar usuário: a tela dizia que a instância não aceitava novos cadastros. A causa não era um defeito. Na decisão sobre a implantação por instância, o deploy cria o administrador a partir de variáveis e o cadastro público fecha assim que existe o primeiro usuário — a defesa contra a corrida em que o primeiro estranho a chegar vira administrador. O deploy tinha criado um usuário com uma senha aleatória que o dono nunca viu, e a porta fechou atrás dele.</p>
+                    <p>O dono disse, em três frases, que o desenho estava errado para o uso real: o usuário criado pelo deploy não deveria existir; o primeiro acesso deve ir direto ao cadastro, sem ninguém precisar procurar o botão; e o cadastro não deve fechar — quem chega depois se cadastra e não vê o que é dos outros até receber permissão. Revertemos a decisão. O cadastro agora é aberto por padrão, a primeira conta vira a administradora, uma instância vazia leva direto à tela de cadastro (que avisa que aquela conta será a administradora), e as variáveis do administrador no deploy passaram a ser opcionais. Quem quiser pode ter o dono criado pelo deploy, com a senha que escolher; quem não quiser, se cadastra.</p>
+                    <p>O que o pedido não dizia: com o cadastro aberto, uma instância passa a ter uma organização por pessoa, e o registro automático da máquina local só funcionava quando havia exatamente uma organização. Sem corrigir isso, o controle dos modelos do Ollama e os pares teriam parado no dia em que a segunda pessoa se cadastrasse. A máquina agora pertence à organização de quem administra a instância.</p>
+                    <p>Os riscos ficaram escritos onde quem faz o deploy vai ler. Quem abrir a instância primeiro vira administrador, então o primeiro cadastro deve ser feito antes de expor a porta. E com o cadastro aberto, qualquer pessoa que alcance a porta cria conta e passa a usar armazenamento e processamento — inclusive o LLM, se houver uma chave global e a pessoa marcar o dado como público e permitir LLM externo. Na rede privada isso é contido; num servidor público, o travão existe e deve ser ligado. Os três servidores ainda não receberam essa versão: nada foi feito neles.</p>
+                    <p><em>Uma defesa pensada para um servidor na internet não precisa valer numa rede privada; o que importa é deixar o travão no lugar e dizer quando usá-lo.</em></p>
+                </div>
+            </article>
+
             <!-- Entrada 35 -->
             <!-- RASCUNHO: escrito a partir do CHANGELOG, das ADRs e do histórico de commits; revisar o texto e remover este aviso antes de publicar. -->
             <article class="entry-card">

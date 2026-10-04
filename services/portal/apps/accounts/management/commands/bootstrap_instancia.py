@@ -7,14 +7,15 @@ altera nada):
 
 1. aplica as migrations;
 2. cria os buckets do Garage (S3) que faltarem;
-3. cria o superusuário a partir de DJANGO_SUPERUSER_USERNAME / _EMAIL / _PASSWORD,
-   com sua organização pessoal, SOMENTE se ainda não existir nenhum usuário;
+3. **opcionalmente** cria o superusuário a partir de DJANGO_SUPERUSER_USERNAME / _EMAIL /
+   _PASSWORD (com sua organização pessoal), SOMENTE se ainda não existir nenhum usuário. Sem
+   as três variáveis nada é criado e o primeiro cadastro em /registro/ vira o administrador;
 4. gera a chave Ed25519 da instância (ADR 010), se ainda não existir.
 
 O passo 3 só olha para "existe algum usuário": uma vez que a instância tem dono,
-mudar as variáveis não cria nem altera ninguém. Também é ele que evita a corrida
-do "primeiro cadastro vira superusuário" numa instância exposta — o dono nasce aqui,
-antes de qualquer porta abrir, e o registro público já nasce fechado.
+mudar as variáveis não cria nem altera ninguém. O cadastro público é **aberto**
+(`REGISTRO_ABERTO`): com as variáveis o dono nasce aqui; sem elas, quem se cadastrar
+primeiro vira o administrador — então faça esse primeiro cadastro antes de expor a porta.
 """
 
 import os
@@ -78,12 +79,13 @@ class Command(BaseCommand):
         email = os.getenv("DJANGO_SUPERUSER_EMAIL", "").strip()
         password = os.getenv("DJANGO_SUPERUSER_PASSWORD", "")
         if not (username and email and password):
-            # Sem as variáveis o dono nasce pelo primeiro cadastro em /registro/
-            # (dev) — mas em produção isso é a janela de corrida; avisa alto.
-            self.stderr.write(self.style.WARNING(
-                "  DJANGO_SUPERUSER_USERNAME/EMAIL/PASSWORD ausentes: nenhum superusuário criado. "
-                "O primeiro cadastro em /registro/ será o dono da instância."
-            ))
+            # Sem as variáveis o administrador nasce pelo primeiro cadastro em /registro/
+            # (que é aberto): quem abrir a instância primeiro vira o dono. É o comportamento
+            # esperado; só vale ficar atento a não expor a porta antes de fazer o primeiro cadastro.
+            self.stdout.write(
+                "  DJANGO_SUPERUSER_* ausentes: nenhum superusuário criado — o primeiro cadastro "
+                "em /registro/ será o administrador da instância."
+            )
             return
         if password.lower().startswith(("change_me", "substitua-por")):
             raise CommandError("DJANGO_SUPERUSER_PASSWORD está com o valor de exemplo.")

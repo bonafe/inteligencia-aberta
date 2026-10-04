@@ -15,7 +15,7 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml ps   # tudo "hea
 
 O passo `bootstrap` roda a cada `up`: aplica migrations, garante os buckets do Garage (S3), cria o superusuário inicial e gera a chave Ed25519 da instância (ver "Chave da instância", abaixo). É idempotente e o portal, o worker e o beat só sobem depois dele terminar com sucesso. Não há passo manual.
 
-Critério de sucesso para a automação: nenhum serviço `unhealthy` e `bootstrap` como `Exited (0)` (é o esperado: roda e sai). `worker` e `beat` não têm healthcheck — basta estarem `Up`. Verificar a aplicação com `/health` (ver o contrato abaixo).
+Critério de sucesso para a automação: nenhum serviço `unhealthy` e `bootstrap` como `Exited (0)` (é o esperado: roda e sai). `worker`, `worker-ollama` e `beat` não têm healthcheck — basta estarem `Up` (o `worker-ollama` é o que instala modelos do Ollama; sem ele as instalações ficam pendentes). Verificar a aplicação com `/health` (ver o contrato abaixo).
 
 ## Contrato para automação (Ansible)
 
@@ -28,12 +28,14 @@ Resumo operacional para quem implanta por código. O restante deste documento ex
 1. `git clone` (ou `git pull`) do repositório.
 2. Gerar o `.env` a partir de `.env.example` — **cada segredo aleatório e distinto por host** (tabela em "Segredos"). Permissão `0600`. Valores mínimos de produção:
    - `DJANGO_SETTINGS_MODULE=config.settings.production`
-   - os 6 segredos, mais `DJANGO_SUPERUSER_USERNAME`, `DJANGO_SUPERUSER_EMAIL`, `DJANGO_SUPERUSER_PASSWORD`
+   - os 6 segredos, **mais `FIELD_ENCRYPTION_KEY`** (gerar uma vez por host, **preservar**, e definir **antes do primeiro `up`** — ver "Chave da instância"; trocá-la ou defini-la depois deixa a chave Ed25519 da instância ilegível)
+   - **o administrador — uma decisão do dono, em duas formas** (ver "Cadastro de usuários"): **(A)** definir as três `DJANGO_SUPERUSER_USERNAME`, `DJANGO_SUPERUSER_EMAIL`, `DJANGO_SUPERUSER_PASSWORD` com os valores que o dono escolheu (o `bootstrap` cria o dono no primeiro boot, idempotente); ou **(B)** deixar as três **vazias**, e o primeiro cadastro em `/registro/` vira o administrador. Nos dois casos o cadastro continua **aberto** para os demais (`REGISTRO_ABERTO`; num host público, `false`)
    - `ALLOWED_HOSTS` e `CSRF_TRUSTED_ORIGINS` (os nomes pelos quais o host é acessado; origens com `https://`)
    - `TLS_MODE` (`proxy` com `tailscale serve`/Caddy na frente; `none` só se HTTP puro for decisão consciente)
    - `BIND_ADDR`, `DATA_DIR`, `INSTANCIA_NOME`, `IA_VERSION` (sugestão: `git rev-parse --short HEAD`)
    - LLM do nó (opcional; ver "LLM por nó e entre nós"): `OLLAMA_HOST`/`COMPOSE_PROFILES`/`OLLAMA_MODELOS` conforme o modo, e, no cluster, `LLM_GATEWAY_TOKEN` + `LLM_GATEWAY_ENDPOINT_ANUNCIADO`
    - host com domínio público: também `IA_DOMINIO` e `ACME_EMAIL`, e `--profile publico` no comando
+   - **várias máquinas** (pares, ver "Pares"): `FEDERACAO_ENDPOINT_ANUNCIADO` (o endereço da VPN pelo qual os outros pares alcançam este host, ex.: `http://100.64.0.5:8000`) e `CLUSTER_LOCAL_APELIDO` (nome estável do host); com **Ollama nativo**, `OLLAMA_DATA_DIR_HOST` (o `~/.ollama` do host, para medir o espaço dos modelos)
 3. `docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build` (acrescentar `--profile publico` no host público). **Nunca sem os dois `-f`**: sem `-f` o compose carrega o `docker-compose.override.yml`, que é de desenvolvimento.
 4. Esperar e verificar (abaixo). Se `bootstrap` falhar (`docker compose ... logs bootstrap`), nada mais sobe — é a causa raiz a investigar.
 
@@ -52,10 +54,11 @@ Ambos devolvem JSON com `"status": "ok"`, `servico`, `instancia` (= `INSTANCIA_N
 
 - Um segredo vazio ou `CHANGE_ME` faz o serviço recusar a subida, com a lista de variáveis na mensagem de erro.
 - `POSTGRES_PASSWORD` só vale na criação dos dados em `DATA_DIR`; trocá-lo depois não altera a senha já gravada. As chaves do Garage (`S3_*`) são reimportadas a cada boot pelo `garage`, mas o `GARAGE_RPC_SECRET` fica gravado no nó. Gere uma vez por host e preserve.
-- `DJANGO_SUPERUSER_*` só é lido enquanto não existe nenhum usuário; mudá-lo depois não cria nem altera ninguém.
-- `/registro/` fica fechado (403) depois do primeiro usuário — é o comportamento desejado em produção.
+- `DJANGO_SUPERUSER_*` é **opcional** e só é lido enquanto não existe nenhum usuário; mudá-lo depois não cria nem altera ninguém.
+- `/registro/` é **aberto**: o primeiro cadastro vira o administrador e quem vem depois ganha uma organização só sua. `REGISTRO_ABERTO=false` fecha o cadastro depois do primeiro usuário (ver "Cadastro de usuários").
 - O projeto compose se chama `inteligencia-aberta` (fixo); dois checkouts no mesmo host colidiriam.
-- Atualizar de versão é repetir os passos 1 a 4: o `bootstrap` reaplica as migrations e os dados ficam em `DATA_DIR`.
+- Atualizar de versão é repetir os passos 1 a 4: o `bootstrap` reaplica as migrations e os dados ficam em `DATA_DIR`. **Atenção ao atualizar de uma versão anterior a 2026-10-04:** as migrations **removem** tabelas e campos antigos do cluster (`EventoReplicacao`, o token por máquina, os modos `compute`/`replica`); o serviço `worker-ollama` é novo; e as máquinas **deixam de se enxergar** até serem enroladas como pares em `/cluster/pares/` (o roteador de LLM só usa pares confirmados). Se `FIELD_ENCRYPTION_KEY` não estava definida, **defina-a antes** da primeira subida da versão nova.
+- **O usuário criado pelo `bootstrap`** (opção A) é um usuário normal do portal; a senha em `DJANGO_SUPERUSER_PASSWORD` só é lida enquanto não existe usuário e **pode ser apagada do `.env` depois do primeiro boot**.
 
 ## Segredos
 
@@ -71,7 +74,7 @@ Cada um deve ser aleatório e **único por instância**. Em produção o process
 | `S3_SECRET_KEY` | Armazenamento de objetos (Garage): 64 hex — `openssl rand -hex 32` |
 | `S3_ACCESS_KEY` | Id da chave S3: `GK` + 24 hex — `echo "GK$(openssl rand -hex 12)"` (formato exigido pelo Garage) |
 | `GARAGE_RPC_SECRET` | Segredo do RPC do Garage: 64 hex — `openssl rand -hex 32` |
-| `DJANGO_SUPERUSER_PASSWORD` | Senha do dono inicial (só é lida no primeiro boot) |
+| `DJANGO_SUPERUSER_PASSWORD` | *Opcional.* Senha do dono criado pelo bootstrap (só é lida no primeiro boot). Sem as três variáveis `DJANGO_SUPERUSER_*`, o primeiro cadastro é o administrador |
 
 Gerar: `python3 -c "import secrets; print(secrets.token_urlsafe(32))"`.
 
@@ -117,7 +120,7 @@ A instalação de modelos roda no serviço **`worker-ollama`** (fila `ollama_adm
 | `CSRF_TRUSTED_ORIGINS` | vazio | Origens com esquema (`https://…`); necessário para login/registro atrás de proxy |
 | `TLS_MODE` | `proxy` | `proxy`: HTTPS terminado na frente (redirect, cookies seguros). `none`: HTTP puro |
 | `SECURE_HSTS_SECONDS` | `0` | HSTS é pegajoso no navegador; ligar só com HTTPS estável |
-| `REGISTRO_ABERTO` | `false` (prod) | Cadastro público; em produção fecha após o primeiro usuário |
+| `REGISTRO_ABERTO` | `true` | Cadastro público, aberto em todos os ambientes; `false` fecha depois do primeiro usuário |
 | `BIND_ADDR` | `127.0.0.1` | Interface onde 8000/8001 são publicadas |
 | `DATA_DIR` | `./data` | Onde ficam postgres, garage, qdrant, redis (pode ser outro disco) |
 | `GARAGE_VERSION` | `v2.4.1` | Versão do Garage embutida na imagem de `infra/garage/` (build-arg) |
@@ -129,7 +132,7 @@ A instalação de modelos roda no serviço **`worker-ollama`** (fila `ollama_adm
 | `OLLAMA_BIND_ADDR` / `OLLAMA_PORTA` | `127.0.0.1` / `11434` | Onde o container publica o Ollama; IP da VPN para o cluster alcançá-lo |
 | `GARAGE_CAPACITY` | `100GB` | Capacidade declarada do nó único; não reserva disco |
 | `CORS_ALLOWED_ORIGINS` | vazio em prod | Origens web do orchestrator; a extensão não precisa |
-| `DJANGO_SUPERUSER_USERNAME` / `_EMAIL` | vazio | Dono inicial; sem as três, nenhum é criado |
+| `DJANGO_SUPERUSER_USERNAME` / `_EMAIL` | vazio | Dono inicial opcional; sem as três, nenhum é criado e o primeiro cadastro vira o administrador |
 
 ## LLM por nó e entre nós (Ollama e gateway)
 
@@ -165,7 +168,7 @@ Regras de decisão para a automação:
 - Um nó só **chama** o gateway de um peer se tiver `LLM_GATEWAY_TOKEN` (e o peer anunciar `gateway_endpoint`); sem isso, o roteador cai no `ollama_endpoint` direto. Para fechar o Ollama dos peers: defina o token (igual em todos) e `LLM_GATEWAY_ENDPOINT_ANUNCIADO` em **todos** os nós, depois deixe `OLLAMA_BIND_ADDR=127.0.0.1`.
 - A porta 8000 em `BIND_ADDR` serve também o portal. No host com Caddy (`--profile publico`), o `infra/caddy/Caddyfile` responde `404` para `/v1/*`: o gateway **não** é publicado na internet, só fica acessível a quem alcança `BIND_ADDR:8000` (a VPN) — e ainda exige o token. Isso não vale para outros proxies: com `tailscale serve` ou outro na frente do portal, bloqueie `/v1/*` se a URL for pública.
 - `gateway_endpoint` (e `ollama_endpoint`) da `Maquina` é gravado **só quando ela é criada**: autorregistro local (usa `LLM_GATEWAY_ENDPOINT_ANUNCIADO`). Mudar a variável depois **não** atualiza uma `Maquina` existente — edite no admin do portal.
-- O autorregistro local só funciona com **uma** organização; com várias, defina `CLUSTER_MACHINE_ID` (ver `docs/operacao/escala-multimaquina.md`).
+- O autorregistro local coloca a máquina na organização do **administrador da instância** (o superusuário mais antigo); sem superusuário e com várias organizações, defina `CLUSTER_MACHINE_ID` (ver `docs/operacao/escala-multimaquina.md`).
 - Validação: `curl -fsS -X POST -H 'Authorization: Bearer <token>' -H 'Content-Type: application/json' -d '{"model":"<modelo>","messages":[{"role":"user","content":"oi"}]}' http://<ip-vpn>:8000/v1/chat/completions` deve devolver JSON no formato OpenAI; sem o header, `401`; sem `LLM_GATEWAY_TOKEN` no nó, `404`. Este comando **não foi testado entre máquinas reais**.
 
 ## Portas, rede e HTTPS
@@ -204,9 +207,12 @@ Tudo em `${DATA_DIR}`: `postgres/`, `garage/` (`meta/` e `data/`), `qdrant/`, `r
 
 ## Cadastro de usuários
 
-O superusuário nasce do bootstrap (`DJANGO_SUPERUSER_*`). Depois disso `/registro/` responde 403 e novos usuários são criados pelo admin (`/admin/`). Com `REGISTRO_ABERTO=true` o cadastro volta a ser livre.
+O **cadastro é aberto**. O **primeiro** usuário a se cadastrar vira o administrador da instância; numa instância sem nenhum usuário, `/entrar/` e qualquer página levam direto ao cadastro, que avisa disso. Quem se cadastra **depois** ganha uma conta e uma organização só sua e **não vê os dados dos outros** até receber permissão.
 
-Sem as variáveis `DJANGO_SUPERUSER_*`, o primeiro cadastro em `/registro/` vira o dono — uma janela de corrida numa instância exposta. Em produção, sempre defini-las.
+- **Faça o primeiro cadastro antes de expor a porta.** Quem abrir a instância primeiro vira o administrador (o `bootstrap` **não** cria o dono quando `DJANGO_SUPERUSER_*` não estão definidas).
+- **Se você quer outro dono que não o primeiro cadastro**, defina as três `DJANGO_SUPERUSER_*` antes do primeiro `up`: o bootstrap cria o dono. A role de deploy do ambiente da rede (fora deste repositório) pode preenchê-las — se você quer ser o primeiro cadastro, ela **não** deve fazê-lo.
+- **Cadastro aberto significa que qualquer pessoa que alcance a porta cria conta e organização** e passa a usar armazenamento e processamento (e o LLM, se houver uma chave global em `ANTHROPIC_API_KEY` e o usuário marcar o dado como público e permitir LLM externo; o padrão `restrito` bloqueia). Na tailnet isso é contido; **num host público, defina `REGISTRO_ABERTO=false`**: o cadastro fecha (403) assim que existe o primeiro usuário, e novos usuários passam a ser criados em `/admin/`.
+- **Instância que já tem um usuário que não deveria existir** (por exemplo um dono criado pelo bootstrap): ou se entra com ele e se cria o resto, ou se apaga esse usuário (`docker compose exec portal python manage.py shell`, `User.objects.get(username="...").delete()` — **apaga também a organização e os dados dele**) e o próximo cadastro vira o administrador; ou se promove a conta certa: `User.objects.filter(username="...").update(is_staff=True, is_superuser=True)`.
 
 ## Extensão do Chrome
 

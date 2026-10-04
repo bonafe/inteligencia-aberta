@@ -5,7 +5,7 @@ DEBUG = True
 
 ALLOWED_HOSTS = ["*"]
 
-# Em dev o cadastro segue livre, salvo se o .env disser o contrário.
+# O cadastro é aberto em todos os ambientes (ver base.py); esta linha só repete o padrão.
 REGISTRO_ABERTO = os.environ.get("REGISTRO_ABERTO", "true").lower() == "true"
 
 AUTH_PASSWORD_VALIDATORS = []

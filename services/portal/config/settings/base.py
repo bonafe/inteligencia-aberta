@@ -15,10 +15,12 @@ DEBUG = False
 
 ALLOWED_HOSTS = []
 
-# Registro público de contas. Em produção só fica aberto até existir o primeiro
-# usuário (que vira superusuário); depois, novos usuários entram pelo admin.
-# REGISTRO_ABERTO=true mantém o cadastro livre (desenvolvimento).
-REGISTRO_ABERTO = os.environ.get("REGISTRO_ABERTO", "false").lower() == "true"
+# Registro público de contas: **aberto por padrão**, em qualquer ambiente. O primeiro
+# usuário que se cadastra vira superusuário (o administrador da instância); quem
+# se cadastra depois ganha uma conta e uma organização só sua e não vê nada dos
+# outros até receber permissão (o isolamento é por organização). REGISTRO_ABERTO=false
+# é o travão opcional: fecha o cadastro assim que existe o primeiro usuário.
+REGISTRO_ABERTO = os.environ.get("REGISTRO_ABERTO", "true").lower() == "true"
 
 INSTALLED_APPS = [
     # daphne precisa vir ANTES de staticfiles: ele substitui o runserver por um

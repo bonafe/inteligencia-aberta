@@ -5,6 +5,17 @@
 <div style="max-width:440px;margin:3rem auto;">
   <div class="card">
     <h1>Criar conta</h1>
+    {% if primeiro_usuario %}
+      <p style="margin:.75rem 0 1rem;padding:.7rem .9rem;border-radius:6px;background:#ecfdf5;border:1px solid #6ee7b7;color:#065f46;font-size:.9rem;">
+        <strong>Esta instância ainda não tem nenhum usuário.</strong> A primeira conta criada aqui vira o
+        <strong>administrador</strong> da instância.
+      </p>
+    {% else %}
+      <p style="margin:.75rem 0 1rem;font-size:.85rem;color:#6b7280;">
+        Sua conta tem uma organização só sua. Você não vê os dados de outras pessoas desta instância
+        até receber permissão.
+      </p>
+    {% endif %}
     <form method="post">
       {% csrf_token %}
       {% for field in form %}
@@ -21,9 +32,11 @@
       {% endif %}
       <button type="submit" class="btn btn-primary" style="width:100%;">Criar conta</button>
     </form>
+    {% if not primeiro_usuario %}
     <p style="margin-top:1.25rem;font-size:.875rem;text-align:center;">
       Já tem conta? <a href="{% url 'login' %}">Entrar</a>
     </p>
+    {% endif %}
   </div>
 </div>
 {% endblock %}

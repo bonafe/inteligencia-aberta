@@ -106,8 +106,8 @@ Extensão Chrome → POST orchestrator:8001/api/v1/capture/mhtml
 - `docker-compose.prod.yml` — restart, portas em `BIND_ADDR`, serviço `bootstrap` (one-shot) e `caddy` (profile `publico`). `infra/caddy/Caddyfile` publica só o portal e `/api/v1/capture/*`.
 - `config/settings/production.py` — `TLS_MODE` (`proxy`|`none`), `ALLOWED_HOSTS`, `CSRF_TRUSTED_ORIGINS`; valida segredos na subida (`config/segredos.py`, com cópias em `orchestrator/` e `mcp/`).
 - `config/health.py` — `/health` do portal (checa o banco); orchestrator e mcp têm o seu. Devolvem `INSTANCIA_NOME` e `IA_VERSION`.
-- `apps/accounts/management/commands/bootstrap_instancia.py` — migrations, buckets do Garage (S3) e superusuário inicial (`DJANGO_SUPERUSER_*`), idempotente.
-- Registro: `/registro/` fecha (403) após o primeiro usuário, salvo `REGISTRO_ABERTO=true` (padrão em dev).
+- `apps/accounts/management/commands/bootstrap_instancia.py` — migrations, buckets do Garage (S3) e superusuário inicial opcional (`DJANGO_SUPERUSER_*`), idempotente.
+- Registro: `/registro/` é **aberto por padrão** (ADR 007, emenda de 2026-10-04): o primeiro cadastro vira o administrador, quem vem depois ganha uma organização só sua (isolamento por organização). Sem nenhum usuário, `/entrar/` vai direto ao cadastro. `REGISTRO_ABERTO=false` é o travão opcional (fecha após o primeiro usuário). `DJANGO_SUPERUSER_*` é opcional.
 
 **`services/portal/config/celery.py`** — app Celery do projeto. `config/__init__.py` o exporta para que `celery -A config` funcione.
 

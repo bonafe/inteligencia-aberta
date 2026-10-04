@@ -18,7 +18,7 @@ O gateway de LLM e a API entre máquinas só devem ser alcançáveis pela VPN do
 
 ## Registrando as máquinas e pares
 
-- **A própria instância** se autorregistra como `Maquina` no primeiro heartbeat (até 30 s depois de subir), desde que exista exatamente uma `Organization`, com o `did:key` da chave da instância, `confirmado` e `próprio`. Defina `CLUSTER_LOCAL_APELIDO` no `.env` (ex.: `antares`), estável entre reinícios. Com mais de uma organização é ambíguo demais adivinhar a dona: use `CLUSTER_MACHINE_ID`.
+- **A própria instância** se autorregistra como `Maquina` no primeiro heartbeat (até 30 s depois de subir), na organização do **administrador da instância** (o superusuário mais antigo; o cadastro é aberto e cada pessoa tem a sua organização), com o `did:key` da chave da instância, `confirmado` e `próprio`. Defina `CLUSTER_LOCAL_APELIDO` no `.env` (ex.: `antares`), estável entre reinícios. Com mais de uma organização é ambíguo demais adivinhar a dona: use `CLUSTER_MACHINE_ID`.
 - **As outras instâncias** entram como **pares**, por **convite**, em `/cluster/pares/` (ADR 011). Não há mais cadastro manual (`registrar_maquina` foi removido) nem token por máquina.
 
 ### Enrolamento por convite

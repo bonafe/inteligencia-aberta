@@ -120,6 +120,37 @@ Este arquivo documenta as alterações, configurações e implementações feita
 
 **Pendente:** cadastro de pares para o roteamento de LLM é manual em cada instância (`registrar_maquina`) até haver o cadastro de pares da federação; teste real do gateway entre duas máquinas continua em aberto.
 
+## [04-10-2026] - Documentação e site revisados depois do cadastro aberto (só documento e HTML)
+
+**Contexto:** o dono pediu a documentação necessária, incluindo o site, antes do commit e do push.
+
+**Documentação:** o **contrato para automação** do `deploy.md` estava incompleto e foi corrigido — agora lista `FIELD_ENCRYPTION_KEY` (definir **antes do primeiro `up`**), as duas formas de ter o administrador (o deploy cria o dono com os valores que o dono escolher, ou o primeiro cadastro), `FEDERACAO_ENDPOINT_ANUNCIADO`, `CLUSTER_LOCAL_APELIDO`, `OLLAMA_DATA_DIR_HOST`, o `worker-ollama` na verificação e o aviso de atualização (as migrations removem tabelas antigas do cluster; as máquinas só se enxergam de novo depois de enroladas como pares). **`README.md`:** passo novo "crie a sua conta (a primeira vira administradora)", o "zerar" e a dica do superusuário deixaram de mandar rodar `createsuperuser`. **`AGENTS.md`**, que descreve o repositório para outros agentes e estava sem tudo o que foi construído hoje, ganhou os módulos novos no mapa, quatro regras novas (não criar `Claim` direto, não expor o Ollama, não afirmar no site mais do que o código faz, compatibilidade não é requisito) e a dica do container desatualizado.
+
+**Site:** `index.html` ganhou em *Funciona hoje* o item do cadastro aberto (com o limite dito); `diario.html` ganhou a **entrada 36** ("O cadastro que fechava a porta para o próprio dono"), também como rascunho; `manifesto.html` foi lido por inteiro e só tem valores e visão, sem afirmação de status — **nada a corrigir**.
+
+**Limites:** o visual do site **continua sem ser verificado num navegador** (só o balanceamento das tags). As **sete** entradas novas do diário (30 a 36) são rascunhos escritos por mim a partir do histórico e levam a assinatura do dono; o push as publica como estão, com os comentários `RASCUNHO` (invisíveis na página) ainda no HTML.
+
+## [04-10-2026] - Cadastro aberto, e o primeiro usuário vai direto ao cadastro e vira o administrador (reverte a regra 4 da ADR 007)
+
+**Contexto:** nos hosts persas, antares e celtas o dono não conseguia criar usuário: o cadastro respondia "não aceita novos cadastros". A causa era o desenho da ADR 007: a role de deploy (fora deste repositório) preenche `DJANGO_SUPERUSER_*`, o `bootstrap_instancia` criou o usuário `bonafe`, e o `/registro/` fecha (403) depois do primeiro usuário. O dono disse que isso estava errado em três pontos: **o `bonafe` não deveria existir** (ele mesmo faria o primeiro cadastro), **o primeiro usuário deve ir direto ao cadastro** sem clicar em "cadastro", e **o cadastro não deve fechar** — outra pessoa que entrar se cadastra e não vê as coisas dos outros até ter permissão.
+
+**O que mudou**
+- **`REGISTRO_ABERTO` é `true` por padrão em qualquer ambiente** (`config/settings/base.py`). `false` continua existindo como **travão opcional**: fecha o cadastro assim que existe o primeiro usuário (o primeiro cadastro passa mesmo com o travão ligado).
+- **`EntrarView`** (`apps/accounts/views.py`): numa instância **sem nenhum usuário**, `/entrar/` — e, por redirecionamento, qualquer página protegida — vai direto a `/registro/`. A tela de cadastro avisa que a primeira conta será o **administrador** (e esconde o "Já tem conta?"); depois do primeiro usuário mostra que a conta tem uma organização só dela e que ela não vê os dados dos outros até receber permissão.
+- **`bootstrap_instancia`:** `DJANGO_SUPERUSER_*` é **opcional**; sem as três nada é criado e o comando só informa que o primeiro cadastro será o administrador (antes era um aviso de erro). `.env.example` deixa as três vazias (a senha não é mais `CHANGE_ME`).
+- **Cluster com várias organizações:** com o cadastro aberto, uma instância passa a ter uma organização por pessoa, e o autorregistro da máquina local só funcionava com **exatamente uma**. Agora a máquina vai para a organização do **administrador da instância** (o superusuário mais antigo, `pares.organizacao_da_instancia`); sem superusuário e com várias organizações continua exigindo `CLUSTER_MACHINE_ID`. Sem isso, o controle dos modelos do Ollama e os pares teriam parado de funcionar assim que alguém se cadastrasse.
+- **Documentação:** emenda na **ADR 007** (a regra 4 original ficou riscada, com o histórico), `deploy.md` (seção "Cadastro de usuários" reescrita, com os riscos e como corrigir um usuário que não deveria existir), `autenticacao.md`, `web.md`, `CLAUDE.md`, `.env.example` e `escala-multimaquina.md`.
+- **Testes:** `tests/test_cadastro_aberto.py` (13: redirecionamento ao cadastro, aviso do primeiro usuário, primeiro cadastro superusuário, segundo cadastro com organização própria e **sem acesso** ao artefato, às telas do cluster e às rotas de modelos do primeiro, travão, bootstrap sem variáveis) e um teste novo de autorregistro com várias organizações.
+
+**Riscos assumidos (ditos na ADR e no `deploy.md`)**
+- **Janela de corrida:** quem abrir a instância primeiro vira administrador; o primeiro cadastro deve ser feito **antes** de expor a porta.
+- **Cadastro aberto = qualquer pessoa que alcance a porta cria conta e organização** e usa armazenamento e processamento, **inclusive o LLM**, se houver chave global (`ANTHROPIC_API_KEY`) e o usuário marcar o dado como público e permitir LLM externo (o padrão `restrito` bloqueia). Na tailnet isso é contido; **num host público, use `REGISTRO_ABERTO=false`**.
+- O isolamento entre os usuários é o que já existia (por organização, `orgs_do_usuario`); este trabalho **não** o auditou de novo além dos testes acima.
+
+**O que NÃO foi feito**
+- **Os hosts persas, antares e celtas não foram tocados.** Neles o `bonafe` continua existindo, e o código novo ainda não está lá. Para o dono ser o administrador: atualizar o código; e **ou** entrar como `bonafe` e usar essa conta, **ou** apagar o `bonafe` (apaga também a organização e os dados dele) e fazer o primeiro cadastro, **ou** cadastrar a conta certa e promovê-la a superusuário. Os comandos estão no `deploy.md`. **A role de deploy (fora deste repositório) pode criar o dono ou não — é decisão do dono, e o código suporta as duas formas:** definindo as três `DJANGO_SUPERUSER_*` com o que o dono escolher, o bootstrap cria o administrador; deixando-as vazias, o primeiro cadastro é o administrador. Se o dono quer ser o primeiro cadastro, a role **não** deve defini-las (foi o que criou o `bonafe` com senha aleatória que ele não conhecia).
+- A corrida entre dois "primeiros cadastros" simultâneos não foi tratada (cada um veria `User.objects.exists()` falso); é a mesma janela de antes, só que agora aceita.
+
 ## [04-10-2026] - Site atualizado contra o código (só HTML estático; nada publicado)
 
 **Contexto:** o dono pediu para atualizar o site com base nas decisões tomadas. A verificação mostrou que o site não refletia o que existe e, na jornada, afirmava coisas que o código não sustenta. Escopo escolhido por ele: alinhar à realidade; página inicial, jornada, diário (rascunhos, uma entrada por tema), sobre e contribua.

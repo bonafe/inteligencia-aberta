@@ -33,7 +33,7 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml config -q
 
 Produção usa `docker-compose.prod.yml` **em vez do** override de dev — ver `docs/deploy.md`.
 
-Os testes do portal usam pytest + pytest-django (`services/portal/tests/`): `docker compose exec portal python -m pytest tests/ -q`. Para os serviços FastAPI ainda não há suíte; ao criá-la, colocar em `tests/` dentro do serviço e usar pytest.
+Os testes do portal usam pytest + pytest-django (`services/portal/tests/`): `docker compose exec portal python -m pytest tests/ -q` (a suíte completa leva mais de 2 minutos). Se o container parecer enxergar código antigo (`makemigrations` dizendo "sem mudanças" depois de mudar um model), recrie-o: `docker compose up -d --force-recreate portal worker beat`. Para os serviços FastAPI ainda não há suíte; ao criá-la, colocar em `tests/` dentro do serviço e usar pytest.
 
 ## Mapa de responsabilidades por arquivo
 
@@ -54,6 +54,11 @@ Os testes do portal usam pytest + pytest-django (`services/portal/tests/`): `doc
 | `services/portal/config/celery.py` | App Celery — não modificar sem entender impacto no worker/beat |
 | `services/portal/apps/accounts/models.py` | Multi-tenancy: User, Organization, Membership, Team |
 | `services/portal/config/settings/` | Django settings por ambiente (base/development/production) |
+| `services/portal/apps/accounts/permissoes.py` | Papéis: `exige_admin`/`eh_admin` (só OWNER/ADMIN vigentes); `orgs_do_usuario` continua sendo o isolamento por organização |
+| `services/portal/apps/artifacts/alegacoes.py` | **Único** caminho para criar `Claim`/`Evidence` (`registrar_alegacao`); alegação é imutável e nasce com evidência |
+| `services/portal/apps/artifacts/classificacao_dominio.py` | Regra "tudo deste domínio nasce, no mínimo, nível X": só sobe o nível, casa por sufixo de rótulo |
+| `services/portal/apps/federacao/` | Chave Ed25519 da instância, `Space`, motor de regras de replicação (`regras.py`, função pura), canal assinado (`canal.py`, `views_controle.py`) |
+| `services/portal/apps/cluster/` | `Maquina` = a instância local ou um **par**; enrolamento (`pares.py`), pull do estado dos pares (`pull.py`), roteador de LLM e **controle dos modelos do Ollama** (`ollama_admin.py`, `operacoes.py`, `views_modelos.py`) |
 
 ## Regras obrigatórias para agentes
 
@@ -64,6 +69,10 @@ Os testes do portal usam pytest + pytest-django (`services/portal/tests/`): `doc
 - **Não troque UUIDs por PKs inteiros** em nenhum modelo Django.
 - **Não renomeie os níveis de classificação** (`público`, `interno`, `restrito`, `confidencial`) — são contratos entre serviços.
 - **Não commite `.env`** — use `.env.example` como referência.
+- **Não crie `Claim`/`Evidence` direto** (`Claim.objects.create`): use `registrar_alegacao`, que valida e grava alegação e evidência juntas.
+- **Não exponha o Ollama nem crie rota que repasse tráfego a ele.** Ele não tem autenticação; entre instâncias o caminho é o canal assinado (`apps/federacao`), e o receptor **não consegue verificar** o papel que a origem afirma — por isso `próprio` é um rótulo que dá poder e exige confirmação.
+- **Não afirme no site (`index.html`, `jornada.html`, `diario.html`) mais do que o código faz:** um item só entra em "Funciona hoje" quando existe e roda. Entradas do diário levam a assinatura do dono: escreva-as como rascunho.
+- **Compatibilidade com outras instâncias e com dados existentes não é requisito por ora** (o dono pode zerar tudo); veja a seção correspondente do `CLAUDE.md`, que é a referência mais completa.
 - **Não escreva lógica de negócio no portal Django** que deveria estar no orchestrator. O portal é interface e persistência; o orchestrator é processamento.
 - **Não crie artefatos com psycopg2 direto no banco a partir do orchestrator.** O orchestrator deve chamar `POST portal:8000/artifacts/api/v1/artefatos/` para que o signal Django dispare o pipeline. Escrever diretamente no banco bypassa o ORM e o signal nunca é acionado.
 

@@ -160,9 +160,23 @@ def test_autorregistro_e_idempotente(tenant, monkeypatch):
     assert Maquina.objects.filter(apelido="minha-maquina").count() == 1
 
 
-def test_autorregistro_nao_acontece_com_mais_de_uma_organizacao(tenant, monkeypatch):
-    """Ambíguo demais adivinhar a dona — exige CLUSTER_MACHINE_ID explícito
-    nesse caso, não tenta escolher uma organização sozinho."""
+def test_autorregistro_vai_para_a_organizacao_do_administrador_mesmo_com_varias(tenant, monkeypatch):
+    """Cadastro aberto: cada pessoa tem a sua organização, mas a máquina é de quem
+    administra a instância (o superusuário mais antigo)."""
+    admin = User.objects.create_superuser(username="admin", password="x", email="a@x.com")
+    org_admin = Organization.objects.create(name="Org do Admin", slug="org-admin", org_type="individual", owner=admin)
+    Organization.objects.create(name="De outra pessoa", slug="outra-pessoa", org_type="individual",
+                                owner=User.objects.create_user(username="pessoa", password="x"))
+    monkeypatch.setenv("CLUSTER_LOCAL_APELIDO", "minha-maquina")
+    with mock.patch("apps.artifacts.extractors.ollama_client.listar_modelos", return_value=[]):
+        assert emitir_heartbeat_maquina() == "ok"
+    assert Maquina.objects.get(apelido="minha-maquina").organizacao_id == org_admin.id
+    assert Maquina.objects.count() == 1
+
+
+def test_autorregistro_nao_acontece_com_mais_de_uma_organizacao_e_nenhum_administrador(tenant, monkeypatch):
+    """Sem superusuário e com várias organizações, é ambíguo demais adivinhar a dona —
+    exige CLUSTER_MACHINE_ID explícito, não tenta escolher uma organização sozinho."""
     Organization.objects.create(
         name="Outra Org", slug="outra-org", org_type="individual", owner=tenant.owner,
     )

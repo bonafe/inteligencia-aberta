@@ -46,22 +46,19 @@ def _autorregistrar_no_local():
     `apps.cluster.pares.garantir_maquina_local`), para ela nunca precisar de cadastro
     manual contra si mesma.
 
-    Só age quando existe exatamente uma `Organization` — com mais de uma, não há como
-    adivinhar a dona sem ambiguidade, e o autorregistro simplesmente não acontece (segue
-    exigindo `CLUSTER_MACHINE_ID` explícito nesse caso).
+    A organização é a do administrador da instância (`pares.organizacao_da_instancia`): o
+    cadastro é aberto e cada pessoa tem a sua, mas a máquina é de quem administra a instância.
+    Sem como saber qual é (várias organizações e nenhum superusuário), o autorregistro não
+    acontece e segue exigindo `CLUSTER_MACHINE_ID` explícito.
 
     O apelido vem de `CLUSTER_LOCAL_APELIDO` (uma linha no `.env`, estável entre
     reinícios de container) — nunca de `socket.gethostname()` sozinho: dentro do Docker,
     o hostname do container muda a cada recriação.
     """
-    from apps.accounts.models import Organization
+    from .pares import garantir_maquina_local, organizacao_da_instancia
 
-    from .pares import garantir_maquina_local
-
-    orgs = list(Organization.objects.all()[:2])
-    if len(orgs) != 1:
-        return None
-    return garantir_maquina_local(orgs[0])
+    organizacao = organizacao_da_instancia()
+    return garantir_maquina_local(organizacao) if organizacao is not None else None
 
 
 def _disco_ollama_livre_gb():

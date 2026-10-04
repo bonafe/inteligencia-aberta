@@ -104,6 +104,23 @@ def _apelido_livre(organizacao, base: str) -> str:
     return apelido
 
 
+def organizacao_da_instancia():
+    """A organização a que pertence a máquina desta instância, ou `None` se ainda não dá para saber.
+
+    Com o **cadastro aberto**, uma instância tem várias organizações (uma por pessoa). A da
+    máquina é a do **administrador da instância**: a organização do superusuário mais antigo.
+    Sem superusuário, só vale se houver exatamente uma organização; com mais de uma e sem
+    superusuário é ambíguo demais para adivinhar (use `CLUSTER_MACHINE_ID`).
+    """
+    from apps.accounts.models import Organization
+
+    da_instancia = Organization.objects.filter(owner__is_superuser=True).order_by("created_at").first()
+    if da_instancia is not None:
+        return da_instancia
+    orgs = list(Organization.objects.all()[:2])
+    return orgs[0] if len(orgs) == 1 else None
+
+
 def garantir_maquina_local(organizacao) -> Maquina:
     """A `Maquina` desta própria instância na organização (cria se faltar; idempotente).
 

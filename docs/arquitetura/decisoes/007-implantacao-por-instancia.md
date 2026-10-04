@@ -14,10 +14,20 @@ O repositório só tinha o modo de desenvolvimento: `docker compose up` carregav
 1. **Produção é um arquivo de compose explícito** (`docker-compose.prod.yml`, usado com `-f` sobre o base, sem o override de dev), com `restart`, healthchecks e `depends_on` em `service_healthy`. Portas só do portal e do orchestrator, presas a `BIND_ADDR` (padrão `127.0.0.1`); MCP, bancos e MinIO ficam internos.
 2. **HTTPS em todos os hosts.** Nos hosts só-tailnet, `tailscale serve` termina o TLS na frente do portal. O tráfego da tailnet já é cifrado (WireGuard), mas o HTTPS dá defesa em profundidade e é necessário para `wss://` e cookies seguros; custa pouco com certificado automático. `TLS_MODE=proxy` é o padrão; `none` é exceção consciente. Um flag único substitui cinco flags soltos.
 3. **Host público: Caddy** (profile `publico`, domínio próprio, Let's Encrypt), publicando **apenas** o portal e `/api/v1/capture/*`. Os canais serviço-a-serviço (`X-Internal-Token`) são bloqueados no proxy; o orchestrator inteiro e o MCP nunca saem.
-4. **Registro público fecha após o primeiro usuário**, e em produção o dono nasce de um `bootstrap_instancia` idempotente (serviço one-shot do compose) antes de qualquer porta abrir. Isso elimina a corrida do "primeiro cadastro vira superusuário".
+4. ~~**Registro público fecha após o primeiro usuário**~~ *(revisto em 2026-10-04, ver a emenda abaixo)*: **Registro público fecha após o primeiro usuário**, e em produção o dono nasce de um `bootstrap_instancia` idempotente (serviço one-shot do compose) antes de qualquer porta abrir. Isso elimina a corrida do "primeiro cadastro vira superusuário".
 5. **Segredos obrigatórios são validados na subida**: vazio ou `CHANGE_ME` impede o serviço de iniciar, listando tudo de uma vez.
 6. **Cada instância se identifica** em `/health` (`INSTANCIA_NOME`, `IA_VERSION`), base para a futura comunicação entre instâncias.
 7. **A extensão aceita a URL da instância**, em vez de `localhost` fixo.
+
+## Emenda de 2026-10-04: cadastro aberto e o primeiro usuário como administrador
+
+Por decisão do dono, a regra 4 acima **foi revertida**: o cadastro **não fecha** e o dono **não nasce de uma variável do deploy**.
+
+- **O cadastro é aberto por padrão**, em qualquer ambiente (`REGISTRO_ABERTO=true`). Quem se cadastra ganha uma conta e uma **organização só sua**; não vê os dados de ninguém até receber permissão (o isolamento é por organização, como já era). `REGISTRO_ABERTO=false` continua existindo como **travão opcional**: fecha o cadastro assim que existe o primeiro usuário.
+- **O primeiro usuário vira o administrador** (`is_staff` e `is_superuser`), como a especificação já previa. Numa instância **sem nenhum usuário**, `/entrar/` e qualquer página protegida levam **direto ao cadastro**, que avisa que a primeira conta será o administrador.
+- **O `bootstrap_instancia` não precisa criar o dono:** `DJANGO_SUPERUSER_*` virou **opcional** (quem as define continua tendo o dono criado no primeiro boot). Sem elas, nada é criado e o primeiro cadastro é o administrador. A role de deploy que as preenche fica **fora deste repositório**: para que o primeiro cadastro seja do dono, ela não deve defini-las.
+- **Riscos assumidos, dito às claras:** (1) a **janela de corrida** — quem abrir a instância primeiro vira administrador, então o primeiro cadastro deve ser feito **antes** de expor a porta; (2) com o cadastro aberto, **qualquer pessoa que alcance a porta** cria conta e organização e passa a usar armazenamento e processamento — inclusive o LLM, se houver uma chave global (`ANTHROPIC_API_KEY`) e o usuário marcar o dado como público e permitir LLM externo (o padrão `restrito` bloqueia). Hoje as portas estão na tailnet, o que contém o risco; **numa instância pública, use `REGISTRO_ABERTO=false`**.
+- **Efeito no cluster:** com várias organizações, a máquina da instância pertence à organização do **administrador** (o superusuário mais antigo), não mais à "única organização".
 
 ## Alternativas consideradas
 

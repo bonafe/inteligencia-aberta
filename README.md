@@ -245,6 +245,8 @@ Para rodar o projeto na sua máquina (Modo MVP Local), você precisa ter o **Doc
    - **Orquestrador API (Docs):** [http://localhost:8001/docs](http://localhost:8001/docs)
    - **Armazenamento S3 (Garage):** UI web em [http://localhost:3909](http://localhost:3909) (garage-webui, só dev, requer `GARAGE_ADMIN_TOKEN` no `.env`); API S3 em `localhost:3900`
 
+4. **Crie a sua conta (a primeira vira administradora):** abra [http://localhost:8000](http://localhost:8000). Numa instância sem nenhum usuário, o portal leva direto ao cadastro, e a **primeira conta criada é a administradora**. O cadastro continua **aberto**: quem se cadastrar depois ganha uma organização só sua e não vê os dados dos outros até receber permissão. (`REGISTRO_ABERTO=false` no `.env` fecha o cadastro depois do primeiro usuário — use num servidor público; ver [`docs/deploy.md`](docs/deploy.md).)
+
 ### Implantação em produção
 
 Este README descreve o modo de desenvolvimento local. Para subir uma instância em um servidor (compose de produção, HTTPS, segredos, healthchecks, Caddy no host público, primeiro boot idempotente), siga **[`docs/deploy.md`](docs/deploy.md)** — inclui um contrato resumido para automação (Ansible). Em produção **não** se usa o `docker-compose.override.yml`.
@@ -273,8 +275,8 @@ docker compose -f docker-compose.yml -f docker-compose.override.yml up --build -
 # 3. Recrie as tabelas do banco de dados do Django
 docker compose exec portal python manage.py migrate
 
-# 4. (Opcional) Crie um usuário administrador novamente
-docker compose exec portal python manage.py createsuperuser
+# 4. Abra http://localhost:8000: com o banco vazio você cai direto no cadastro e a primeira
+#    conta vira a administradora. (`manage.py createsuperuser` só se preferir criar por aqui.)
 ```
 
 > Zerar também apaga a **chave Ed25519 da instância**: ao recriá-la (`docker compose exec portal python manage.py chave_instancia --criar`, ou no primeiro heartbeat) a instância ganha **outro `did:key`**, e os pares que a conheciam precisam ser **enrolados de novo**.
@@ -338,7 +340,7 @@ Para inspecionar detalhes completos no admin Django:
 
 **[http://localhost:8000/admin/artifacts/](http://localhost:8000/admin/artifacts/)**
 
-> Se ainda não criou um superusuário: `docker compose exec portal python manage.py createsuperuser`
+> Para entrar no admin é preciso uma conta de administrador: a **primeira conta cadastrada** no portal já é uma (ou `docker compose exec portal python manage.py createsuperuser`).
 
 ---
 
