@@ -1,12 +1,45 @@
+from django import forms
 from django.contrib import admin
+
 from .models import LLMProvider, MCPServer, MCPTool, ImageRegistry, ContainerImage
+
+
+class LLMProviderForm(forms.ModelForm):
+    """A chave nunca volta ao navegador: o campo é só de escrita. Vazio mantém a
+    atual; preenchido substitui; a caixa abaixo a remove."""
+
+    nova_api_key = forms.CharField(
+        label="Chave de API", required=False, strip=True,
+        widget=forms.PasswordInput(render_value=False, attrs={"autocomplete": "off"}),
+        help_text="Cifrada em repouso e nunca exibida depois de salva. Deixe em branco para manter a atual.",
+    )
+    remover_api_key = forms.BooleanField(label="Remover a chave salva", required=False)
+
+    class Meta:
+        model = LLMProvider
+        exclude = ("api_key_encrypted",)
+
+    def save(self, commit=True):
+        provider = super().save(commit=False)
+        if self.cleaned_data.get("remover_api_key"):
+            provider.set_api_key("")
+        elif self.cleaned_data.get("nova_api_key"):
+            provider.set_api_key(self.cleaned_data["nova_api_key"])
+        if commit:
+            provider.save()
+        return provider
 
 
 @admin.register(LLMProvider)
 class LLMProviderAdmin(admin.ModelAdmin):
-    list_display = ("name", "organization", "provider_type", "model_name", "is_active")
-    list_filter = ("provider_type", "is_active", "organization")
+    form = LLMProviderForm
+    list_display = ("name", "organization", "provider_type", "vendor", "model_name", "chave_configurada", "is_active")
+    list_filter = ("provider_type", "vendor", "is_active", "organization")
     search_fields = ("name", "model_name")
+
+    @admin.display(boolean=True, description="Chave")
+    def chave_configurada(self, obj):
+        return obj.tem_api_key
 
 
 @admin.register(MCPServer)

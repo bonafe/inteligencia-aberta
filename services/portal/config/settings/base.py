@@ -162,6 +162,12 @@ FRAGMENT_OVERLAP = int(os.environ.get("FRAGMENT_OVERLAP", "100"))
 MAPA_VIVO_LIMITE_ARTEFATOS = int(os.environ.get("MAPA_VIVO_LIMITE_ARTEFATOS", "150"))
 
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
+# Chave que cifra em repouso as chaves de LLM cadastradas por organização
+# (`LLMProvider.api_key_encrypted`, Fernet). Opcional: sem ela, deriva-se de
+# DJANGO_SECRET_KEY — nesse caso trocar o SECRET_KEY invalida as chaves salvas.
+# Para trocar de forma controlada, defina esta (32 bytes em base64 urlsafe:
+# `python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`).
+FIELD_ENCRYPTION_KEY = os.environ.get("FIELD_ENCRYPTION_KEY", "")
 LLM_CLASSIFIER_MODEL = os.environ.get("LLM_CLASSIFIER_MODEL", "claude-haiku-4-5")
 LLM_EXTRACTOR_MODEL = os.environ.get("LLM_EXTRACTOR_MODEL", "claude-sonnet-5")
 

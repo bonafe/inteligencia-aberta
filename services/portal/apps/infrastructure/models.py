@@ -1,6 +1,15 @@
 import uuid
+
+from django.core.exceptions import ValidationError
 from django.db import models
+
 from apps.accounts.models import Organization
+
+from . import crypto
+
+#: Níveis que nunca podem ir a um provider externo (espelha
+#: `apps.artifacts.policy` / `services/orchestrator/policy_engine.py`).
+_SEM_LLM_EXTERNO = {"restrito", "confidencial"}
 
 
 class LLMProvider(models.Model):
@@ -8,14 +17,21 @@ class LLMProvider(models.Model):
         EXTERNAL = "external", "Externo"
         LOCAL = "local", "Local"
 
+    class Vendor(models.TextChoices):
+        ANTHROPIC = "anthropic", "Anthropic (Claude)"
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     organization = models.ForeignKey(
         Organization, on_delete=models.CASCADE, related_name="llm_providers"
     )
     name = models.CharField(max_length=255)
     provider_type = models.CharField(max_length=20, choices=ProviderType.choices)
+    # Quem atende a chamada. Só `anthropic` tem adaptador hoje; o campo existe
+    # para o registro de providers (ADR 009, pendência) sem nova migration.
+    vendor = models.CharField(max_length=20, choices=Vendor.choices, default=Vendor.ANTHROPIC)
     endpoint_url = models.URLField(blank=True, null=True)
-    api_key_encrypted = models.CharField(max_length=255, blank=True, null=True)
+    # Fernet (apps.infrastructure.crypto). Só `set_api_key`/`get_api_key` tocam nele.
+    api_key_encrypted = models.TextField(blank=True, null=True)
     model_name = models.CharField(max_length=255)
     allowed_classifications = models.JSONField(default=list)
     is_active = models.BooleanField(default=True)
@@ -27,6 +43,28 @@ class LLMProvider(models.Model):
 
     def __str__(self):
         return f"{self.name} ({self.get_provider_type_display()})"
+
+    def set_api_key(self, chave: str) -> None:
+        """Cifra e guarda a chave; vazio apaga. Não chama `save()`."""
+        chave = (chave or "").strip()
+        self.api_key_encrypted = crypto.cifrar(chave) if chave else None
+
+    def get_api_key(self) -> str:
+        """Chave em claro, ou "" se não há. Levanta `crypto.ChaveIlegivel`."""
+        return crypto.decifrar(self.api_key_encrypted) if self.api_key_encrypted else ""
+
+    @property
+    def tem_api_key(self) -> bool:
+        return bool(self.api_key_encrypted)
+
+    def clean(self):
+        if self.provider_type == self.ProviderType.EXTERNAL:
+            proibidos = sorted(_SEM_LLM_EXTERNO & set(self.allowed_classifications or []))
+            if proibidos:
+                raise ValidationError({
+                    "allowed_classifications":
+                        f"Provider externo não pode receber dados {', '.join(proibidos)}.",
+                })
 
 
 class MCPServer(models.Model):

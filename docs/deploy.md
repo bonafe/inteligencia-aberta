@@ -75,7 +75,7 @@ Cada um deve ser aleatório e **único por instância**. Em produção o process
 
 Gerar: `python3 -c "import secrets; print(secrets.token_urlsafe(32))"`.
 
-`ANTHROPIC_API_KEY` é **opcional**: a stack sobe sem ela.
+`ANTHROPIC_API_KEY` é **opcional**: a stack sobe sem ela. É a chave **global** da instância; cada organização pode cadastrar a sua em Admin → *LLM providers* (tipo *Externo*, fornecedor *Anthropic*), e a da organização vence a global. As chaves cadastradas ficam cifradas no banco (Fernet) com `FIELD_ENCRYPTION_KEY`; sem ela, a cifra deriva de `DJANGO_SECRET_KEY`, e **trocar o `DJANGO_SECRET_KEY` depois torna as chaves salvas ilegíveis** (o sistema cai na chave global e registra aviso; é preciso cadastrá-las de novo). Para a automação: gere `FIELD_ENCRYPTION_KEY` uma vez por instância (`python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`), preserve-a e **inclua-a no backup** — sem ela os dados cifrados não se recuperam. Não é exigida pela validação de segredos.
 
 **Atenção:** `POSTGRES_PASSWORD` só vale na criação dos dados. Trocá-lo depois num `DATA_DIR` existente não altera a senha já gravada. Os formatos de `S3_ACCESS_KEY`, `S3_SECRET_KEY` e `GARAGE_RPC_SECRET` não são livres (hex de tamanho fixo): o `garage` recusa subir com outro formato, e o `token_urlsafe` indicado acima **não serve** para eles.
 

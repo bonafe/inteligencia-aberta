@@ -8,9 +8,12 @@ Ollama) para esses usos manuais — cada provider concreto vive no seu próprio
 módulo (llm_classifier.py para Anthropic, ollama_client.py para Ollama).
 """
 import json
+import logging
 import re
 
 from django.conf import settings
+
+logger = logging.getLogger(__name__)
 
 _CODE_FENCE_RE = re.compile(r"```(?:json)?\s*([\s\S]*?)```", re.IGNORECASE)
 _JSON_OBJECT_RE = re.compile(r"\{[\s\S]*\}", re.DOTALL)
@@ -36,8 +39,30 @@ def _extract_json(text: str) -> dict:
     raise json.JSONDecodeError("no JSON object found", text, 0)
 
 
-def _get_client():
-    api_key = getattr(settings, "ANTHROPIC_API_KEY", None)
+def _chave_anthropic(tenant_id=None) -> str:
+    """Chave Anthropic a usar: a da organização (`LLMProvider` externo, ativo,
+    vendor anthropic, com chave) se houver; senão a global do `.env`. Nunca
+    levanta — uma chave da organização ilegível cai na global, com aviso."""
+    if tenant_id:
+        try:
+            from apps.infrastructure.crypto import ChaveIlegivel
+            from apps.infrastructure.models import LLMProvider
+
+            for provider in LLMProvider.objects.filter(
+                organization_id=tenant_id, provider_type=LLMProvider.ProviderType.EXTERNAL,
+                vendor=LLMProvider.Vendor.ANTHROPIC, is_active=True,
+            ).exclude(api_key_encrypted__isnull=True).exclude(api_key_encrypted="").order_by("created_at"):
+                try:
+                    return provider.get_api_key()
+                except ChaveIlegivel:
+                    logger.warning("chave do provider %s ilegível — cadastre de novo", provider.id)
+        except Exception:
+            logger.exception("falha ao buscar a chave Anthropic da organização %s", tenant_id)
+    return getattr(settings, "ANTHROPIC_API_KEY", None) or ""
+
+
+def _get_client(tenant_id=None):
+    api_key = _chave_anthropic(tenant_id)
     if not api_key:
         return None
     import anthropic
@@ -109,9 +134,11 @@ def gerar_texto(
 
         from apps.events.llm_telemetria import ResultadoLLM, registrar_chamada_llm
 
-        client = _get_client()
+        client = _get_client(tenant_id)
         if not client:
-            raise RuntimeError("ANTHROPIC_API_KEY não configurada")
+            raise RuntimeError(
+                "Chave Anthropic não configurada (nem na organização, em LLMProvider, nem em ANTHROPIC_API_KEY)"
+            )
 
         chars_enviados = len(system) + len(prompt)
         t0 = perf_counter()

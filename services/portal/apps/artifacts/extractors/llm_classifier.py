@@ -61,9 +61,9 @@ def llm_classify(skeleton: str, url: str, *, artifact_id=None, tenant_id=None) -
     from apps.events.llm_telemetria import ResultadoLLM, registrar_chamada_llm
     from apps.events.models import Finalidade
 
-    client = _get_client()
+    client = _get_client(tenant_id)
     if not client:
-        logger.warning("llm_classify: ANTHROPIC_API_KEY não configurada")
+        logger.warning("llm_classify: chave Anthropic não configurada")
         return "desconhecido", 0.5, {}
 
     model = _classifier_model()

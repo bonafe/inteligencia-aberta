@@ -2,6 +2,22 @@
 
 Este arquivo documenta as alterações, configurações e implementações feitas por IAs (agentes) neste repositório. O objetivo é manter um histórico unificado e transparente sobre o estado do desenvolvimento, facilitando o onboarding de novas IAs e humanos na base de código.
 
+## [03-10-2026] - Chave de LLM (Claude) por organização, cifrada em repouso
+
+**Contexto e motivação:**
+- A única chave existente era `ANTHROPIC_API_KEY` no `.env`, global à instância: todas as organizações gastavam a mesma conta. O `LLMProvider` (infrastructure) existia só no admin, sem uso, e o `api_key_encrypted` era um `CharField` sem cifra, contrariando a spec (`web.md` §4.8). Escopo escolhido pelo usuário: uma chave por organização (sem registro completo de providers/ChatGPT).
+
+**O que foi implementado:**
+- **`apps/infrastructure/crypto.py`:** Fernet; chave `FIELD_ENCRYPTION_KEY` (opcional) ou derivada de `DJANGO_SECRET_KEY`. `cryptography` explícito no `requirements.txt`.
+- **`LLMProvider`** (migration `0002_vendor_e_chave_cifrada`): campo `vendor` (só `anthropic`), `api_key_encrypted` vira `TextField` (o token Fernet estourava 255), `set_api_key`/`get_api_key`/`tem_api_key` e `clean()` que recusa `restrito`/`confidencial` em provider externo.
+- **Admin:** formulário com chave só de escrita (em branco mantém, caixa remove); coluna "Chave".
+- **Resolução:** `llm_common._chave_anthropic(tenant_id)` — provider ativo/externo/anthropic da organização, senão `ANTHROPIC_API_KEY`; `gerar_texto` e `llm_classify` passam o `tenant_id`.
+- **Docs/config:** `web.md` §4.8, `autenticacao.md`, `deploy.md` (inclui `FIELD_ENCRYPTION_KEY` para a automação e o backup), `.env.example`.
+
+**Como foi validado:** suíte do portal completa no container (135 testes), com `tests/test_chaves_llm.py` cobrindo cifra, chave de cifra trocada, invariante do externo, formulário do admin (grava cifrado, mantém, remove), precedência organização > `.env`, provider inativo/de outra organização, chave ilegível e `gerar_texto` com o cliente criado com a chave da organização.
+
+**Não testado / pendente:** tela do admin no navegador; chamada real à API da Anthropic com a chave da organização; `model_name` do provider ainda não define o modelo (só a chave é usada); sem rotação de `FIELD_ENCRYPTION_KEY` (trocar exige recadastrar); `save()` direto não roda `clean()`; sem cota/limite de custo por organização; sem adaptador OpenAI/ChatGPT; linhas antigas de `api_key_encrypted` (texto puro, nunca usadas) ficam ilegíveis e caem na chave global.
+
 ## [03-10-2026] - Chamada entre nós pelo gateway autenticado (pendência do ADR 009)
 
 **Contexto e motivação:**

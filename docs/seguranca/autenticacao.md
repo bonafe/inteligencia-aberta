@@ -82,7 +82,7 @@ O registro (`/registro/`) cria um usuário + organização própria + `Membershi
 
 ## Segredos em produção
 
-Em produção portal, orchestrator, MCP, worker e beat se recusam a iniciar se `DJANGO_SECRET_KEY`, `JWT_SIGNING_KEY`, `INTERNAL_API_TOKEN`, `MCP_API_TOKEN`, `POSTGRES_PASSWORD` ou `S3_SECRET_KEY` estiverem vazios ou com o placeholder `CHANGE_ME` (`config/segredos.py` no portal; cópias em orchestrator e MCP). `ANTHROPIC_API_KEY` é opcional. Em desenvolvimento a checagem não se aplica.
+Em produção portal, orchestrator, MCP, worker e beat se recusam a iniciar se `DJANGO_SECRET_KEY`, `JWT_SIGNING_KEY`, `INTERNAL_API_TOKEN`, `MCP_API_TOKEN`, `POSTGRES_PASSWORD` ou `S3_SECRET_KEY` estiverem vazios ou com o placeholder `CHANGE_ME` (`config/segredos.py` no portal; cópias em orchestrator e MCP). `ANTHROPIC_API_KEY` (global) e `FIELD_ENCRYPTION_KEY` são opcionais. As chaves de LLM cadastradas por organização (`LLMProvider`) são cifradas em repouso com Fernet (`apps/infrastructure/crypto.py`; a cifra deriva de `DJANGO_SECRET_KEY` se `FIELD_ENCRYPTION_KEY` estiver vazia), nunca voltam ao navegador (campo só de escrita no admin) e a chave da organização vence a global. Em desenvolvimento a checagem não se aplica.
 
 ## Transporte e exposição (produção)
 

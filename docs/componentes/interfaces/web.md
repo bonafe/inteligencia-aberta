@@ -258,8 +258,9 @@ Provedor de LLM registrado para a organização. Define onde a inferência acont
 | `organization` | FK → Organization | |
 | `name` | string(255) | Nome legível: ex. "Claude 3.5 Sonnet", "Ollama local" |
 | `provider_type` | enum | `external` \| `local` |
+| `vendor` | enum | Quem atende a chamada. Só `anthropic` tem adaptador hoje |
 | `endpoint_url` | string (nullable) | Obrigatório para `local`; omitido para externos padronizados |
-| `api_key_encrypted` | string (nullable) | Obrigatório para `external`; cifrado em repouso |
+| `api_key_encrypted` | texto (nullable) | Para `external`. Fernet (`apps/infrastructure/crypto.py`); só `set_api_key()`/`get_api_key()` o tocam |
 | `model_name` | string(255) | Ex: `claude-sonnet-5`, `llama3.2:latest` |
 | `allowed_classifications` | JSONField (lista) | Níveis que podem ser enviados a este provedor |
 | `is_active` | boolean | Provedor inativo não é oferecido ao Orquestrador |
@@ -267,8 +268,10 @@ Provedor de LLM registrado para a organização. Define onde a inferência acont
 | `updated_at` | datetime | |
 
 **Invariantes:**
-- `allowed_classifications` para `external` nunca pode incluir `restrito` ou `confidencial` — validação de modelo impede.
-- `api_key_encrypted` nunca é serializado em resposta de API ou exibido após salvo; apenas substituível.
+- `allowed_classifications` para `external` nunca pode incluir `restrito` ou `confidencial` — `LLMProvider.clean()` impede (valida no admin; um `save()` direto não passa por `clean()`, e quem decide em runtime continua sendo `permite_llm_externo`).
+- `api_key_encrypted` nunca é serializado em resposta de API ou exibido após salvo; apenas substituível. No admin o campo é só de escrita (em branco mantém a atual; há caixa para remover).
+- **Resolução da chave** (`llm_common._chave_anthropic`): o primeiro `LLMProvider` ativo, `external`, `vendor=anthropic` e com chave da organização da chamada (`tenant_id`); senão `ANTHROPIC_API_KEY` do `.env`. Chave ilegível (cifra trocada) cai na global, com aviso.
+- O `model_name` do provider ainda **não** define o modelo usado: quem chama passa o modelo. O provider fornece só a chave.
 - Provedor `local` requer `endpoint_url` acessível na rede Docker interna.
 
 **Exemplo de configuração:**
