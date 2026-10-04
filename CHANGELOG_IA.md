@@ -2,6 +2,17 @@
 
 Este arquivo documenta as alterações, configurações e implementações feitas por IAs (agentes) neste repositório. O objetivo é manter um histórico unificado e transparente sobre o estado do desenvolvimento, facilitando o onboarding de novas IAs e humanos na base de código.
 
+## [04-10-2026] - Federação: as oito decisões da seção 14 fechadas, fonte de verdade = log assinado (só documento)
+
+**Contexto e motivação:**
+- Retomada da discussão da seção 14 de `docs/arquitetura/federacao.md`. O usuário questionou se a fonte de verdade não deveria ser um serviço de mensageria (Kafka ou similar) em vez de um log; os motivos dele são replay e verdade imutável.
+
+**Decidido (registrado no documento):** (1) um objeto pode estar em vários espaços; (3) o grafo é projeção, tecnologia (Neo4j ou Postgres) adiada para a Fase 2; fonte de verdade = log de eventos assinados com cadeia de hash por autor, guardado em tabela do Postgres (outbox, `UPDATE`/`DELETE` bloqueados no banco), com projeções reconstruíveis por replay e eventos que guardam resultados; broker só como transporte futuro. Nova subseção "Fonte de verdade e replay". (2) Chaveiro por usuário com chave escolhida por espaço, ligação entre chaves privada por padrão (revelável por opção), revogação por posição na cadeia, chaves privadas e chave de recuperação custodiadas no servidor por enquanto (limitação registrada; evolução na F4). Nova subseção "Chaveiro do usuário". (5) Apagamento só por tombstone; cifra por objeto adiada, com a possibilidade de zerar tudo enquanto o sistema não estiver em produção e nada tiver saído da instância (reavaliar antes do primeiro intercâmbio real). Nova subseção "Apagamento". (8) IDs `urn:uuid:` (origem pelo `author`, não pelo ID) e hash RFC 6920 `ni:` com SHA-256. Nova subseção "IDs e hash". (4) Logs por autor na v1, sem DAG, e (6) app novo para a federação separado de `apps/cluster`, com revisão da ADR 006: recomendações da análise adotadas. (7) `Space`/"Espaço" e namespace `ia:` = `https://w3id.org/inteligencia-aberta/v1#` via w3id.org, contexto embutido nas instâncias, registro no w3id adiado. Nova subseção "Nome e namespace"; URI do exemplo da seção 8 atualizada.
+
+**ADR:** escrita em `docs/arquitetura/decisoes/010-federacao-por-log-assinado.md`.
+
+**Pendente:** revisar a ADR 006, atualizar o roadmap (Neo4j) e registrar o namespace no w3id.org perto da F1. Nenhum código alterado.
+
 ## [03-10-2026] - Análise arquitetural da federação entre instâncias (só documento)
 
 **Contexto e motivação:**

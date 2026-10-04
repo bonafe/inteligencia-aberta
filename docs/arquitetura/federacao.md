@@ -1,6 +1,6 @@
 # Federação entre instâncias — análise arquitetural
 
-**Status:** proposta em discussão — **nada aqui está implementado nem decidido**. Escrita em 2026-10-03 para retomar a conversa depois; as decisões pendentes estão na seção 14. Quando fechadas, viram a ADR 010.
+**Status:** análise de 2026-10-03; as oito decisões da seção 14 foram fechadas em 2026-10-04 e consolidadas na [ADR 010](decisoes/010-federacao-por-log-assinado.md). **Nada aqui está implementado.** Onde o texto original divergir das decisões registradas (seção 14 e subseções ao final), valem as decisões e a ADR.
 
 **Aviso de método:** a avaliação dos padrões externos (seção 4) foi feita com conhecimento prévio, sem consulta à web. O estado de RDF 1.2/RDF-star, de ferramentas JSON-LD e de métodos DID deve ser reconferido antes de qualquer decisão que dependa deles.
 
@@ -146,7 +146,7 @@ Identificadores ilustrativos. `ia:` é um namespace placeholder; `ia:directorOf`
     "schema": "https://schema.org/",
     "prov": "http://www.w3.org/ns/prov#",
     "rdf": "http://www.w3.org/1999/02/22-rdf-syntax-ns#",
-    "ia": "https://vocab.example.org/ia/v1#"
+    "ia": "https://w3id.org/inteligencia-aberta/v1#"
   },
   "@graph": [
     { "@id": "did:key:z6MkCapturista", "@type": ["prov:Agent", "schema:Person"] },
@@ -324,16 +324,71 @@ A **F1b** é a mais valiosa: testa quase tudo (semântica, assinatura, blobs, po
 
 ## 14. Decisões pendentes (para a próxima conversa)
 
-Cada item traz a recomendação da análise; nenhum está decidido.
+Cada item traz a recomendação da análise. Itens marcados `[x]` foram decididos em 2026-10-04 (conversa com o usuário) e entram na ADR 010.
 
-- [ ] **1. Granularidade do espaço.** Um objeto pode estar em vários espaços ou só em um? *Recomendação: vários; a exportação é por espaço.*
-- [ ] **2. Identidade do usuário.** Chave pessoal portátil desde a F0, ou só chave por instância no início? *Sem recomendação firme: chave por instância é mais simples; chave pessoal custa pouco se o envelope já tiver `author` separado de `actor` (como no exemplo), mas traz o problema de guarda e recuperação da chave.*
-- [ ] **3. Neo4j.** O código não o tem. Tratar o grafo como **projeção**, nunca como fonte de verdade? *Recomendação: sim.*
-- [ ] **4. Vários escritores no mesmo espaço desde o início?** Decide entre logs por autor (simples) e DAG (pesado). *Recomendação: logs por autor na v1.*
-- [ ] **5. Apagamento legal.** Cifra por objeto com destruição de chave é requisito, ou basta tombstone? *Se for requisito, precisa estar no envelope desde a F2 — é difícil de acrescentar depois.*
-- [ ] **6. Cenários A e B.** Manter `apps/cluster` como está (A) e criar um app novo para o B, sem misturá-los? *Recomendação: sim; e revisar a ADR 006, que mistura os dois.*
-- [ ] **7. Nome do conceito** (Space, Context, Dataset, Collection…) e do namespace `ia:` (domínio do vocabulário próprio).
-- [ ] **8. Esquema de IDs** (`urn:uuid:` simples vs. prefixo da instância/DID) e **formato de hash** (RFC 6920 `ni:` vs. multihash).
+- [x] **1. Granularidade do espaço.** Um objeto pode estar em vários espaços ou só em um? **Decidido: vários espaços; a exportação é por espaço.**
+- [x] **2. Identidade do usuário.** Chave pessoal portátil ou só chave por instância? **Decidido: chaveiro por usuário, com chave escolhida por espaço, guarda custodiada pelo servidor por enquanto.** Ver "Chaveiro do usuário" abaixo.
+- [x] **3. Neo4j.** O código não o tem. Tratar o grafo como **projeção**, nunca como fonte de verdade? **Decidido: sim.** O princípio vale para qualquer tecnologia de grafo (Neo4j, tabelas de arestas no Postgres com `WITH RECURSIVE`, outra); a escolha da tecnologia fica para a Fase 2 do roadmap, que não deve prometer Neo4j como decisão tomada. Ver "Fonte de verdade" abaixo.
+- [x] **4. Vários escritores no mesmo espaço desde o início?** Decide entre logs por autor (simples) e DAG (pesado). **Decidido (recomendação adotada): logs por autor na v1**, com cadeia `prev` por chave (ver "Chaveiro do usuário"); DAG só se surgir necessidade real de ordenar escritas concorrentes.
+- [x] **5. Apagamento legal.** Cifra por objeto com destruição de chave é requisito, ou basta tombstone? **Decidido: só tombstone por enquanto.** Ver "Apagamento" abaixo.
+- [x] **6. Cenários A e B.** **Decidido (recomendação adotada): manter `apps/cluster` como está (A) e criar um app novo para a federação (B), sem misturá-los;** revisar a ADR 006, que mistura os dois.
+- [x] **7. Nome do conceito** (Space, Context, Dataset, Collection…) e do namespace `ia:`. **Decidido: `Space` e w3id.org.** Ver "Nome e namespace" abaixo.
+- [x] **8. Esquema de IDs** (`urn:uuid:` simples vs. prefixo da instância/DID) e **formato de hash** (RFC 6920 `ni:` vs. multihash). **Decidido: `urn:uuid:` para objetos e RFC 6920 (`ni:`, SHA-256) para hash.** Ver "IDs e hash" abaixo.
+
+### Fonte de verdade e replay (decidido em 2026-10-04)
+
+Pergunta que levou à decisão: a fonte de verdade deveria ser um serviço de mensageria (tipo Kafka) em vez de um log? Conclusão: o log **é** o modelo que se quer (eventos como verdade, estado derivado); o que se decide é onde ele mora. Motivos para o usuário: **replay** e **verdade imutável**.
+
+- **A fonte de verdade é o log de eventos assinados**, com cadeia de hash (`prev`) por autor. O envelope vale independentemente de onde estiver guardado.
+- **Armazenamento inicial:** tabela `FederationEvent` no Postgres, escrita na **mesma transação** do estado de domínio (outbox, sem escrita dupla), com `UPDATE` e `DELETE` bloqueados **no banco** (papel sem esses privilégios ou trigger), não só por convenção do código.
+- **Imutabilidade verificável:** assinatura do autor + cadeia de hash + imposição no banco. Contra a reescrita total do log pelo dono da instância: os pares guardam o último hash recebido (testemunha, seção 11) e podem-se publicar checkpoints assinados da cabeça da cadeia.
+- **Toda projeção é reconstruível por replay** (grafo, `PipelineRun`, Qdrant, visão consolidada) e registra a **versão do projetor** que a calculou. Projetores são determinísticos e idempotentes.
+- **Eventos guardam resultados, nunca instruções de reexecução:** o replay não chama de novo LLM nem serviços externos.
+- **Snapshots de projeção** só se o replay completo ficar lento; fora da v1.
+- **Broker (Kafka, NATS JetStream, Redis Streams) não é fonte de verdade.** Pode entrar depois como transporte/distribuição local às projeções, alimentado pelo log, sem mudar o envelope. Kafka não oferece assinatura nem cadeia de hash, sua retenção/compactação conflita com "nunca apagar evento" e não é protocolo entre partes que não confiam uma na outra.
+
+### Chaveiro do usuário (decidido em 2026-10-04)
+
+A pergunta "chave pessoal ou por instância" virou "um chaveiro por usuário, com a chave escolhida por espaço".
+
+- **Identidade** (usuário, id estável e local) tem **várias chaves** (par Ed25519, `did:key`), cada uma com rótulo (ex.: "trabalho", "pessoal"), data, estado (ativa, aposentada, comprometida) e tipo de guarda.
+- **Primeira chave automática:** o usuário novo recebe uma chave gerada pelo sistema.
+- **Chave por espaço:** cada membro de um espaço tem o vínculo `Membro → Chave`; sem escolha, vale a chave padrão do chaveiro. Isso substitui a ideia de "chave ativa" global.
+- **Privacidade por padrão:** o que a federação vê é só a chave usada naquele espaço. O chaveiro completo é privado; que duas chaves são da mesma pessoa **não é publicado**. O usuário pode **optar por revelar** a ligação (ex.: assinando as duas chaves com a chave de recuperação).
+- **Envelope:** `author` = id da chave (`did:key`), separado de `actor` (referência ao usuário). Todo evento carrega o id da chave. A cadeia `prev` vale por chave, ou seja, por (usuário, espaço). Na rotação, o primeiro evento da chave nova aponta para o último da antiga, com as duas assinaturas.
+- **Eventos do chaveiro** (`key.added`, `key.rotated`, `key.revoked`) vivem no mesmo log, assinados por uma chave já autorizada; a primeira chave se autoassina no cadastro.
+- **Revogação por posição, não por data:** "a chave K é suspeita a partir do evento nº N". A data declarada vale pouco, pois quem tem a chave roubada pode assinar com data anterior; a cadeia `prev` fixa a ordem e o registro de recebimento dos pares (seção 11) serve de testemunha. A consulta "tudo que a chave K assinou depois de N" é direta.
+- **Chave de recuperação:** autoriza adicionar e revogar as demais chaves (a chave comprometida não pode revogar a si mesma).
+- **Convites e papéis apontam para a chave** usada no espaço; trocar de chave num espaço exige evento de rotação visível aos membros.
+
+**Limitação assumida nesta fase:** as chaves privadas, **inclusive a de recuperação**, ficam **custodiadas no servidor da instância**, cifradas em repouso (mesmo padrão de `apps/infrastructure/crypto.py`). Consequências, que devem constar na ADR 010:
+
+- A instância continua sendo a raiz de confiança: o dono ou um invasor do servidor pode assinar como qualquer usuário local e revogar ou adicionar chaves.
+- Como a recuperação está no mesmo lugar das demais chaves, **não há recuperação independente** diante de comprometimento do servidor; a revogação depende da própria instância.
+- O ganho atual é separar autorias por chave, rotacionar, revogar e isolar contextos (trabalho × pessoal), não a autoria à prova da instância.
+
+**Caminho de evolução (F4, sem mudar envelope nem eventos):** registrar chave pública cuja privada nunca chega ao servidor (assinatura no navegador ou na extensão Chrome) e mover a chave de recuperação para fora do servidor (guarda offline do usuário).
+
+### Apagamento (decidido em 2026-10-04)
+
+- **Só tombstone/retratação** (seção 12): o autor ou administrador do espaço emite o evento; o receptor marca, e a política local decide a remoção física. Sem cifra por objeto na v1.
+- **Por que dá para adiar:** o sistema ainda não está em produção, então é possível **recomeçar do zero** (zerar bancos e log) se a cifra por objeto virar requisito, adotando o novo formato de envelope desde o primeiro evento.
+- **Prazo dessa liberdade:** ela vale só enquanto **nenhum evento tiver saído da instância**. Depois que outra instância (ou um pacote offline da F1b) guardar cópias, zerar localmente não recolhe o que os pares já têm, e eventos antigos sem cifra ficam para sempre em claro nelas. **Reavaliar antes do primeiro intercâmbio com uma instância real** (F1b/F2); até lá, trocas só entre instâncias de teste descartáveis.
+- **Evolução:** o `@context` e a versão do envelope são versionados e imutáveis (seção 7); o payload cifrado entra como nova versão do envelope, sem alterar as anteriores.
+
+### IDs e hash (decidido em 2026-10-04)
+
+- **IDs de objetos:** `urn:uuid:<uuid>`, coerente com os UUIDs como PKs do projeto. O ID **não carrega a origem**: quem criou é dito pelo `author` (chave) do evento e pelo espaço, não pelo prefixo do ID.
+- **Hash de conteúdo:** RFC 6920, `ni:///sha-256;<base64url>`, usado também como identificador do blob (seção 9). O nome do algoritmo viaja com o hash, o que permite trocá-lo no futuro sem reinterpretar valores antigos. Nesta fase, SHA-256.
+- **Consequência para a F0:** o hash do MHTML é calculado no ato da captura e gravado já nesse formato; o backfill dos MHTMLs existentes usa o mesmo formato.
+
+### Nome e namespace (decidido em 2026-10-04)
+
+- **Conceito:** `Space` nos nomes técnicos (modelos `Space`, `SpacePolicy`, campo `space` em todo evento, API e protocolo) e **"Espaço"** na interface. Escolhido por não colidir com nada existente (`Context` colidiria com o `@context` do JSON-LD). A palavra "projeto" (ADR 006) deixa de ser conceito próprio: o `Projeto` vira um `Space` (seção 6); se a interface mantiver "projeto", será só um rótulo de tipo de espaço.
+- **Namespace do vocabulário próprio:** `ia:` = `https://w3id.org/inteligencia-aberta/v1#`, via **w3id.org** (redirecionamento permanente da comunidade W3C), independente de domínio ou hospedagem. O segmento `inteligencia-aberta` é a proposta inicial; é o único ponto ainda ajustável antes do registro.
+- **Versionamento:** o `v1` é imutável (seção 7); mudanças incompatíveis criam `v2`, nunca alteram o `v1`.
+- **Sem busca em tempo de execução:** o `@context` vem **embutido** em cada instância e nos pacotes; nenhuma instância depende de resolver a URI para entender um evento (requisito do pacote offline da F1b). A URL pode resolver para a documentação dos termos, mas é só conveniência.
+- **Registro:** o pedido ao repositório do w3id.org (pull request público) **não foi feito** e fica para perto da F1; até lá a URI é só identificador reservado na ADR 010.
 
 ## 15. Fora de escopo deste documento
 
