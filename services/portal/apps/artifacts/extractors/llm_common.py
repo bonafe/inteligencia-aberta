@@ -160,9 +160,12 @@ def gerar_texto(
         # chamada duas vezes.
         execucao = escolher_execucao(model_name)
         if execucao:
+            # Peer com gateway autenticado (ADR 009): vai por ele, não direto
+            # no Ollama dele. `gateway` só entra nos kwargs quando preenchido.
+            extra = {"gateway": execucao.gateway} if execucao.gateway else {}
             texto = gerar(model_name, system, prompt, host=execucao.host,
                           num_thread=execucao.num_thread, maquina_id=execucao.maquina_id,
-                          finalidade=finalidade, subject_id=subject_id, tenant_id=tenant_id)
+                          finalidade=finalidade, subject_id=subject_id, tenant_id=tenant_id, **extra)
             return texto, execucao.maquina_id
         return gerar(model_name, system, prompt,
                       finalidade=finalidade, subject_id=subject_id, tenant_id=tenant_id), None

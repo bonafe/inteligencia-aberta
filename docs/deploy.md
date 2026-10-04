@@ -95,6 +95,8 @@ Gerar: `python3 -c "import secrets; print(secrets.token_urlsafe(32))"`.
 | `COMPOSE_PROFILES` | vazio | `ollama` sobe o Ollama em container (modo `container`, ADR 009) |
 | `OLLAMA_HOST` | `http://host.docker.internal:11434` | Ollama que esta instância usa: nativo (padrão), `http://ollama:11434` (container) ou vazio (sem LLM local) |
 | `OLLAMA_ENDPOINT_ANUNCIADO` | = `OLLAMA_HOST` | Endpoint informado aos peers no heartbeat; precisa ser alcançável pela VPN |
+| `LLM_GATEWAY_TOKEN` | vazio | Segredo do gateway OpenAI-compatível; igual em todos os nós do cluster. Vazio = gateway desligado |
+| `LLM_GATEWAY_ENDPOINT_ANUNCIADO` | vazio | Base (sem `/v1`) do gateway anunciada aos peers, ex.: `http://<ip-vpn>:8000`; por ele os peers chamam o LLM deste nó (ADR 009) |
 | `OLLAMA_MODELOS` | vazio | Modelos baixados no `up` pelo `ollama-pull` (separados por espaço) |
 | `OLLAMA_BIND_ADDR` / `OLLAMA_PORTA` | `127.0.0.1` / `11434` | Onde o container publica o Ollama; IP da VPN para o cluster alcançá-lo |
 | `GARAGE_CAPACITY` | `100GB` | Capacidade declarada do nó único; não reserva disco |

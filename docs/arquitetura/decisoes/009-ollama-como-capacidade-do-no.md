@@ -27,8 +27,20 @@ O Ollama é uma **capacidade do nó**, não um serviço obrigatório da stack. C
 - Quem migra do Ollama nativo para o container na mesma máquina precisa mudar `OLLAMA_PORTA` (a 11434 do host já está ocupada) ou parar o nativo.
 - Overlay `docker-compose.gpu.yml` não foi testado (a máquina de desenvolvimento não tem `nvidia-smi`).
 
+## Chamada entre nós pelo gateway autenticado
+
+Implementado. Antes, o roteador chamava o `ollama_endpoint` do peer diretamente, o que obrigava a expor um Ollama sem autenticação na VPN. Agora:
+
+- **Anúncio.** Cada máquina anuncia `Maquina.gateway_endpoint` (`LLM_GATEWAY_ENDPOINT_ANUNCIADO`, base sem `/v1`, alcançável pela VPN). O segredo é o `LLM_GATEWAY_TOKEN`, **igual em todos os nós do cluster** e não guardado no banco.
+- **Roteamento.** `llm_router.escolher_execucao` preenche `ExecucaoOllama.gateway` quando a máquina escolhida é um peer com gateway **e** esta instância tem `LLM_GATEWAY_TOKEN`. Para a máquina local, ou sem token, nada muda: fala direto com o Ollama. Um peer que só anuncia gateway (sem `ollama_endpoint`) também é candidato — o Ollama dele pode ficar em loopback.
+- **Chamada.** `ollama_client._chamar(gateway=...)` faz `POST <gateway>/v1/chat/completions` com `Bearer` e converte a resposta ao formato do Ollama. Sem fallback para o Ollama direto: se o gateway falhar, a chamada falha.
+- **Um salto só.** O cliente envia `X-Cluster-Encaminhado`; o gateway que o recebe executa no Ollama local e não consulta o cluster de novo, então gateways não formam laço.
+- **Velocidade aprendida.** O gateway devolve `x_ollama.eval_duration_ns` (extensão nossa, fora da API OpenAI); sem ele o tokens/segundo do peer não seria aprendido.
+- **Migração.** `ollama_endpoint` continua sendo anunciado e usado quando não há gateway/token. Para fechar o Ollama dos peers: definir `LLM_GATEWAY_TOKEN` (igual em todos) e `LLM_GATEWAY_ENDPOINT_ANUNCIADO` em cada nó, e então pôr `OLLAMA_BIND_ADDR=127.0.0.1`. O `gateway_endpoint` só é gravado quando a `Maquina` é criada; para uma já registrada, editá-lo no admin.
+
+Limites conhecidos: `num_thread`/`num_ctx` ficam a cargo do peer (só `temperature` e `top_p` atravessam o gateway); a mesma chamada gera telemetria no chamador (com a `maquina_id` do peer) e no gateway do peer (finalidade `GATEWAY_EXTERNO`); a aplicação da política de classificação no destino segue em aberto.
+
 ## Pendências (fora desta decisão)
 
-- **Chamada entre nós pelo gateway autenticado** (`LLM_GATEWAY_TOKEN`, `apps/cluster/gateway.py`) em vez de falar direto com o Ollama do peer. Hoje o roteador chama o `ollama_endpoint` do peer diretamente, o que obriga a expor um Ollama sem autenticação na VPN. Recomendado migrar: cumpre "tudo passa pelo inteligencia-aberta" e permite aplicar a política de classificação no destino.
 - **Registro de providers de LLM** (Ollama interno/externo, Claude, ChatGPT): hoje `provider` é `anthropic|ollama` fixo em `llm_common.py`.
 - Viabilidade da stack completa no netuno (1 GB): talvez só Caddy/proxy.

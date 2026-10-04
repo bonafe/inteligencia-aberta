@@ -61,3 +61,20 @@ def test_ollama_com_cluster_devolve_maquina_do_roteador():
         "qwen3.5:9b", "sistema", "prompt", host="http://antares:11434", num_thread=16, maquina_id="abc-123",
         finalidade=Finalidade.ESTRUTURACAO_MANUAL, subject_id=None, tenant_id=None,
     )
+
+
+@pytest.mark.django_db
+def test_ollama_com_peer_com_gateway_chama_pelo_gateway():
+    from apps.cluster.llm_router import ExecucaoOllama
+
+    execucao = ExecucaoOllama(
+        maquina_id="abc-123", host="http://antares:11434", num_thread=16, gateway="http://antares:8000",
+    )
+    with mock.patch("apps.cluster.llm_router.escolher_execucao", return_value=execucao), \
+         mock.patch("apps.artifacts.extractors.ollama_client.gerar", return_value="ok") as gerar_mock:
+        texto, maquina_id = gerar_texto(
+            "ollama", "qwen3.5:9b", "sistema", "prompt", finalidade=Finalidade.ESTRUTURACAO_MANUAL,
+        )
+
+    assert (texto, maquina_id) == ("ok", "abc-123")
+    assert gerar_mock.call_args.kwargs["gateway"] == "http://antares:8000"

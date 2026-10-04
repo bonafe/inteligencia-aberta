@@ -44,6 +44,12 @@ class Maquina(models.Model):
     # fora do Docker — mesma ressalva de OLLAMA_HOST em settings/base.py).
     # Vazio = esta máquina não participa do roteamento de LLM (llm_router.py).
     ollama_endpoint = models.CharField(max_length=255, blank=True)
+    # Base do gateway autenticado desta máquina (`POST <base>/v1/chat/completions`,
+    # apps/cluster/gateway.py). É por ele — e não pelo `ollama_endpoint`, que
+    # não tem autenticação — que os peers devem chamar o LLM desta máquina
+    # (ADR 009). Vazio = sem gateway; o token (`LLM_GATEWAY_TOKEN`) é do
+    # cluster, não da máquina, e não é guardado aqui.
+    gateway_endpoint = models.CharField(max_length=255, blank=True)
     # Capacidade, não hierarquia (ADR-006): esta máquina roda o Postgres/
     # Redis/MinIO/Qdrant que as demais compartilham. Nenhum outro código
     # trata uma `Maquina` com isto em `True` como "mais importante" — o

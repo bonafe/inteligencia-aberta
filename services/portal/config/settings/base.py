@@ -231,6 +231,10 @@ CLUSTER_JOIN_SECRET = os.environ.get("CLUSTER_JOIN_SECRET", "")
 # máquinas do cluster, nunca com provider externo. Vazio = gateway desligado
 # (404), fail-closed por padrão.
 LLM_GATEWAY_TOKEN = os.environ.get("LLM_GATEWAY_TOKEN", "")
+# Base (sem /v1) que esta máquina ANUNCIA aos peers para chegarem ao seu gateway
+# pela VPN, ex.: http://100.64.0.7:8000. Vazio = não anuncia (peers não a usam
+# via gateway). Só faz sentido com LLM_GATEWAY_TOKEN definido.
+LLM_GATEWAY_ENDPOINT_ANUNCIADO = os.environ.get("LLM_GATEWAY_ENDPOINT_ANUNCIADO", "")
 
 SIMPLE_JWT = {
     "SIGNING_KEY": JWT_SIGNING_KEY,

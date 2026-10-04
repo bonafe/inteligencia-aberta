@@ -85,6 +85,7 @@ def _autorregistrar_no_local():
             # — é o próprio processo chamando funções Python diretamente.
             "token_hash": "",
             "ollama_endpoint": getattr(settings, "OLLAMA_ENDPOINT_ANUNCIADO", ""),
+            "gateway_endpoint": getattr(settings, "LLM_GATEWAY_ENDPOINT_ANUNCIADO", ""),
         },
     )
     if criada:

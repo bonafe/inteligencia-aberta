@@ -45,6 +45,45 @@ def listar_modelos(host: str | None = None, timeout: float = 3.0) -> list[str]:
         return []
 
 
+#: Cabeçalho que marca um pedido já encaminhado por outro nó: o gateway que o
+#: recebe executa no Ollama local, sem reencaminhar (um salto só, sem laços).
+HEADER_ENCAMINHADO = "X-Cluster-Encaminhado"
+
+
+def _chamar_gateway(gateway: str, model: str, messages: list[dict], *, extra_options: dict | None, timeout: float) -> dict:
+    """POST {gateway}/v1/chat/completions (apps.cluster.gateway de um peer) e
+    devolve a resposta já no formato do Ollama, para `_chamar` tratar igual nos
+    dois caminhos. Levanta requests.RequestException/ValueError/KeyError/
+    TypeError, como o caminho direto."""
+    corpo = {"model": model, "messages": messages, "stream": False}
+    for chave in ("temperature", "top_p"):
+        if chave in (extra_options or {}):
+            corpo[chave] = extra_options[chave]
+    resp = requests.post(
+        f"{gateway.rstrip('/')}/v1/chat/completions",
+        json=corpo, timeout=timeout,
+        headers={
+            "Authorization": f"Bearer {getattr(settings, 'LLM_GATEWAY_TOKEN', '')}",
+            HEADER_ENCAMINHADO: "1",
+        },
+    )
+    resp.raise_for_status()
+    data = resp.json()
+    escolha = data["choices"][0]
+    usage = data.get("usage") or {}
+    return {
+        "model": data.get("model", model),
+        "message": {"role": "assistant", "content": escolha["message"]["content"]},
+        "done_reason": escolha.get("finish_reason", ""),
+        "prompt_eval_count": usage.get("prompt_tokens"),
+        "eval_count": usage.get("completion_tokens"),
+        # Extensão do nosso gateway (não faz parte da API OpenAI): sem isto não
+        # há como aprender tokens/segundo de um peer — o tempo de parede inclui
+        # rede e avaliação do prompt.
+        "eval_duration": (data.get("x_ollama") or {}).get("eval_duration_ns"),
+    }
+
+
 def _chars_enviados(messages: list[dict]) -> int:
     return sum(len(m.get("content", "") or "") for m in messages)
 
@@ -54,6 +93,7 @@ def _chamar(
     host: str | None = None, num_thread: int | None = None, num_ctx: int | None = None,
     maquina_id=None, timeout: float | None = None, extra_options: dict | None = None,
     finalidade: str | None = None, subject_id=None, tenant_id=None,
+    gateway: str | None = None,
 ) -> dict:
     """POST {host}/api/chat — devolve a resposta crua do Ollama (não só o
     texto), porque quem chama pode precisar do payload inteiro (gateway
@@ -65,6 +105,10 @@ def _chamar(
     registro). `finalidade`/`subject_id`/`tenant_id` default para o caso do
     gateway externo, cujas chamadas não têm um artefato por trás.
 
+    Com `gateway` (base do gateway autenticado de um peer — ADR 009), a chamada
+    vai para `{gateway}/v1/chat/completions` em vez de `{host}/api/chat`;
+    `host` é ignorado e `num_thread`/`num_ctx` ficam a cargo do peer.
+
     Levanta OllamaIndisponivel em qualquer falha de rede/timeout/status —
     quem chama decide se isso vira status=falhou.
     """
@@ -75,7 +119,7 @@ def _chamar(
 
     finalidade = finalidade or Finalidade.GATEWAY_EXTERNO
 
-    alvo = _host(host)
+    alvo = gateway or _host(host)
     timeout = timeout or getattr(settings, "OLLAMA_TIMEOUT_S", 120)
     num_ctx = num_ctx or getattr(settings, "OLLAMA_NUM_CTX", 4096)
     # num_thread vai em toda chamada, para qualquer modelo — não depende de o
@@ -89,19 +133,22 @@ def _chamar(
     chars_enviados = _chars_enviados(messages)
     t0 = perf_counter()
     try:
-        resp = requests.post(
-            f"{alvo}/api/chat",
-            json={"model": model, "messages": messages, "stream": False, "options": options},
-            timeout=timeout,
-        )
-        resp.raise_for_status()
-        data = resp.json()
+        if gateway:
+            data = _chamar_gateway(gateway, model, messages, extra_options=extra_options, timeout=timeout)
+        else:
+            resp = requests.post(
+                f"{alvo}/api/chat",
+                json={"model": model, "messages": messages, "stream": False, "options": options},
+                timeout=timeout,
+            )
+            resp.raise_for_status()
+            data = resp.json()
         if "message" not in data:
             raise KeyError("message")
     except requests.RequestException as exc:
         erro = OllamaIndisponivel(f"Ollama indisponível em {alvo}: {exc}")
     except (ValueError, KeyError, TypeError) as exc:
-        erro = OllamaIndisponivel(f"resposta inesperada do Ollama: {exc}")
+        erro = OllamaIndisponivel(f"resposta inesperada de {alvo}: {exc}")
     else:
         erro = None
 
@@ -140,6 +187,7 @@ def gerar_chat(
     host: str | None = None, num_thread: int | None = None, num_ctx: int | None = None,
     maquina_id=None, timeout: float | None = None, extra_options: dict | None = None,
     finalidade: str | None = None, subject_id=None, tenant_id=None,
+    gateway: str | None = None,
 ) -> dict:
     """Como `_chamar`, mas nome público — usado pelo gateway compatível com
     OpenAI (`apps.cluster.gateway`), que precisa da resposta completa
@@ -147,7 +195,7 @@ def gerar_chat(
     return _chamar(
         model, messages, host=host, num_thread=num_thread, num_ctx=num_ctx,
         maquina_id=maquina_id, timeout=timeout, extra_options=extra_options,
-        finalidade=finalidade, subject_id=subject_id, tenant_id=tenant_id,
+        finalidade=finalidade, subject_id=subject_id, tenant_id=tenant_id, gateway=gateway,
     )
 
 
@@ -156,6 +204,7 @@ def gerar(
     host: str | None = None, num_thread: int | None = None,
     maquina_id=None, timeout: float | None = None,
     finalidade: str | None = None, subject_id=None, tenant_id=None,
+    gateway: str | None = None,
 ) -> str:
     """Wrapper fino de `_chamar` para o caso comum (um system + um prompt,
     só o texto da resposta) — mantém a assinatura que
@@ -164,6 +213,6 @@ def gerar(
         model,
         [{"role": "system", "content": system}, {"role": "user", "content": prompt}],
         host=host, num_thread=num_thread, maquina_id=maquina_id, timeout=timeout,
-        finalidade=finalidade, subject_id=subject_id, tenant_id=tenant_id,
+        finalidade=finalidade, subject_id=subject_id, tenant_id=tenant_id, gateway=gateway,
     )
     return data["message"]["content"]

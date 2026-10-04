@@ -154,6 +154,27 @@ cluster inteiro sem saber que há mais de uma máquina por trás.
   só *qual máquina local*, não cruza esse limite.
 - Sem streaming: todo pedido vira uma chamada única (`stream: false`) ao
   Ollama.
+- A resposta traz `x_ollama.eval_duration_ns` (extensão fora da API OpenAI),
+  usada por quem encaminha o pedido para aprender tokens/segundo da máquina.
+
+### Chamada entre nós pelo gateway (ADR 009)
+
+O roteador não fala mais direto com o Ollama de um peer quando ele anuncia
+gateway. Cada nó define, no `.env`:
+
+```bash
+LLM_GATEWAY_TOKEN=<o mesmo em todos os nós do cluster>
+LLM_GATEWAY_ENDPOINT_ANUNCIADO=http://<ip-vpn>:8000   # base, sem /v1
+```
+
+`scripts/entrar_no_cluster.py` e `registrar_maquina` aceitam
+`--gateway-endpoint` (o script usa a variável acima por padrão). Com isso o
+Ollama do peer pode ficar em `127.0.0.1` (`OLLAMA_BIND_ADDR`), sem
+autenticação exposta na VPN. Sem token local ou sem gateway anunciado, o
+roteador volta a chamar o `ollama_endpoint` direto. O pedido encaminhado leva
+`X-Cluster-Encaminhado` e o gateway de destino o executa localmente, sem
+reencaminhar. `gateway_endpoint` só é gravado ao criar a `Maquina`; em uma já
+registrada, edite no admin.
 
 ## Observando o cluster
 

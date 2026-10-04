@@ -46,12 +46,18 @@ class Command(BaseCommand):
                  "Vazio = a máquina não entra no roteamento de LLM (apps.cluster.llm_router).",
         )
 
+        parser.add_argument(
+            "--gateway-endpoint", default="",
+            help="Base do gateway autenticado desta máquina (ex.: http://<ip-vpn>:8000), "
+                 "por onde os peers chamam o LLM dela em vez de falar direto com o Ollama.",
+        )
+
     def handle(self, *args, **opts):
         try:
             maquina, token = criar_maquina(
                 apelido=opts["apelido"], organizacao_slug=opts["organizacao"], modo=opts["modo"],
                 dono_username=opts.get("dono"), hostname=opts["hostname"],
-                ollama_endpoint=opts["ollama_endpoint"],
+                ollama_endpoint=opts["ollama_endpoint"], gateway_endpoint=opts["gateway_endpoint"],
             )
         except ProvisionamentoError as exc:
             raise CommandError(str(exc))

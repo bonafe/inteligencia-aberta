@@ -150,6 +150,16 @@ def test_autorregistro_anuncia_endpoint_alcancavel_e_consulta_o_local(tenant, se
     listar.assert_called_once_with(host="http://ollama:11434")
 
 
+def test_autorregistro_anuncia_endpoint_do_gateway(tenant, settings, monkeypatch):
+    """ADR 009: os peers chegam ao LLM desta máquina pelo gateway autenticado."""
+    settings.LLM_GATEWAY_ENDPOINT_ANUNCIADO = "http://100.64.0.7:8000"
+    monkeypatch.setenv("CLUSTER_LOCAL_APELIDO", "antares")
+    with mock.patch("apps.artifacts.extractors.ollama_client.listar_modelos", return_value=[]):
+        emitir_heartbeat_maquina()
+
+    assert Maquina.objects.get(apelido="antares").gateway_endpoint == "http://100.64.0.7:8000"
+
+
 def test_autorregistro_sem_ollama_local_nao_anuncia_endpoint(tenant, settings, monkeypatch):
     """Modo nenhum: OLLAMA_HOST vazio → sem endpoint anunciado, a máquina não vira
     candidata do roteador de LLM e nem tenta listar modelos."""
@@ -331,6 +341,53 @@ def test_escolher_execucao_entre_testadas_prefere_mais_rapida(tenant):
     assert execucao.host == "http://10.0.0.2:11434"
 
 
+def test_escolher_execucao_usa_gateway_do_peer_quando_ha_token(tenant, settings):
+    settings.LLM_GATEWAY_TOKEN = "segredo"
+    settings.CLUSTER_MACHINE_ID = "outra-maquina"
+    peer = _maquina_ollama(tenant, apelido="peer", endpoint="http://10.0.0.2:11434")
+    peer.gateway_endpoint = "http://10.0.0.2:8000/"
+    peer.save()
+    _heartbeat(peer, tenant, modelos_ollama=["qwen3.5:9b"])
+
+    execucao = escolher_execucao("qwen3.5:9b")
+    assert execucao.gateway == "http://10.0.0.2:8000"
+    assert execucao.host == "http://10.0.0.2:11434"  # legado, até o chamador migrar
+
+
+def test_escolher_execucao_sem_token_nao_usa_gateway(tenant, settings):
+    settings.LLM_GATEWAY_TOKEN = ""
+    settings.CLUSTER_MACHINE_ID = "outra-maquina"
+    peer = _maquina_ollama(tenant, apelido="peer", endpoint="http://10.0.0.2:11434")
+    peer.gateway_endpoint = "http://10.0.0.2:8000"
+    peer.save()
+    _heartbeat(peer, tenant, modelos_ollama=["qwen3.5:9b"])
+
+    assert escolher_execucao("qwen3.5:9b").gateway == ""
+
+
+def test_escolher_execucao_maquina_local_nao_usa_gateway(tenant, settings):
+    settings.LLM_GATEWAY_TOKEN = "segredo"
+    local = _maquina_ollama(tenant, apelido="local", endpoint="http://10.0.0.1:11434")
+    local.gateway_endpoint = "http://10.0.0.1:8000"
+    local.save()
+    settings.CLUSTER_MACHINE_ID = str(local.id)
+    _heartbeat(local, tenant, modelos_ollama=["qwen3.5:9b"])
+
+    assert escolher_execucao("qwen3.5:9b").gateway == ""
+
+
+def test_escolher_execucao_aceita_peer_so_com_gateway(tenant, settings):
+    settings.LLM_GATEWAY_TOKEN = "segredo"
+    settings.CLUSTER_MACHINE_ID = "outra-maquina"
+    peer = _maquina_ollama(tenant, apelido="peer", endpoint="")
+    peer.gateway_endpoint = "http://10.0.0.2:8000"
+    peer.save()
+    _heartbeat(peer, tenant, modelos_ollama=["qwen3.5:9b"])
+
+    execucao = escolher_execucao("qwen3.5:9b")
+    assert execucao.gateway == "http://10.0.0.2:8000"
+
+
 def test_escolher_execucao_sem_candidata_devolve_none(tenant):
     assert escolher_execucao("modelo-que-ninguem-tem") is None
 
@@ -419,3 +476,78 @@ def test_gateway_responde_no_formato_openai_sem_cluster(settings, client):
     assert corpo["choices"][0]["message"]["content"] == "oi"
     assert corpo["usage"] == {"prompt_tokens": 10, "completion_tokens": 3, "total_tokens": 13}
     gerar_chat.assert_called_once()
+
+
+# ─── Chamada entre nós pelo gateway autenticado (ADR 009) ───────────────────
+
+def test_ollama_client_via_gateway_converte_resposta_openai(settings):
+    from apps.artifacts.extractors.ollama_client import HEADER_ENCAMINHADO, gerar_chat
+
+    settings.LLM_GATEWAY_TOKEN = "segredo"
+    openai = {
+        "model": "qwen3.5:9b",
+        "choices": [{"message": {"role": "assistant", "content": "oi"}, "finish_reason": "stop"}],
+        "usage": {"prompt_tokens": 10, "completion_tokens": 3},
+        "x_ollama": {"eval_duration_ns": 300_000_000},
+    }
+    with mock.patch("apps.artifacts.extractors.ollama_client.requests.post") as post, \
+         mock.patch("apps.events.llm_telemetria.registrar_chamada_llm") as telemetria:
+        post.return_value.json.return_value = openai
+        data = gerar_chat("qwen3.5:9b", [{"role": "user", "content": "oi"}],
+                          gateway="http://10.0.0.2:8000/", maquina_id="m1")
+
+    assert post.call_args.args[0] == "http://10.0.0.2:8000/v1/chat/completions"
+    cabecalhos = post.call_args.kwargs["headers"]
+    assert cabecalhos["Authorization"] == "Bearer segredo" and cabecalhos[HEADER_ENCAMINHADO] == "1"
+    assert data["message"]["content"] == "oi"
+    assert data["eval_count"] == 3 and data["eval_duration"] == 300_000_000
+    resultado = telemetria.call_args.kwargs["resultado"]
+    assert resultado.sucesso and resultado.eval_duration_ns == 300_000_000
+
+
+def test_ollama_client_via_gateway_falha_vira_ollama_indisponivel(settings):
+    import requests as _requests
+
+    from apps.artifacts.extractors.ollama_client import OllamaIndisponivel, gerar_chat
+
+    settings.LLM_GATEWAY_TOKEN = "segredo"
+    with mock.patch("apps.artifacts.extractors.ollama_client.requests.post",
+                    side_effect=_requests.ConnectionError("fora")), \
+         mock.patch("apps.events.llm_telemetria.registrar_chamada_llm") as telemetria:
+        with pytest.raises(OllamaIndisponivel):
+            gerar_chat("m", [{"role": "user", "content": "x"}], gateway="http://10.0.0.2:8000")
+    assert telemetria.call_args.kwargs["resultado"].sucesso is False
+
+
+def test_gateway_pedido_encaminhado_executa_local_sem_reencaminhar(settings, client):
+    from apps.cluster.llm_router import ExecucaoOllama
+
+    settings.LLM_GATEWAY_TOKEN = "segredo"
+    with mock.patch("apps.cluster.gateway.escolher_execucao") as escolher, \
+         mock.patch("apps.cluster.gateway.gerar_chat",
+                    return_value={"message": {"content": "ok"}, "eval_duration": 5}) as gerar_chat:
+        resp = client.post(
+            "/v1/chat/completions",
+            data='{"model": "m", "messages": [{"role": "user", "content": "oi"}]}',
+            content_type="application/json", HTTP_AUTHORIZATION="Bearer segredo",
+            HTTP_X_CLUSTER_ENCAMINHADO="1",
+        )
+    assert resp.status_code == 200
+    escolher.assert_not_called()
+    assert "gateway" not in gerar_chat.call_args.kwargs
+    assert resp.json()["x_ollama"] == {"eval_duration_ns": 5}
+
+
+def test_gateway_sem_cabecalho_encaminha_ao_gateway_do_peer(settings, client):
+    from apps.cluster.llm_router import ExecucaoOllama
+
+    settings.LLM_GATEWAY_TOKEN = "segredo"
+    execucao = ExecucaoOllama(maquina_id="m2", host="", num_thread=8, gateway="http://10.0.0.2:8000")
+    with mock.patch("apps.cluster.gateway.escolher_execucao", return_value=execucao), \
+         mock.patch("apps.cluster.gateway.gerar_chat", return_value={"message": {"content": "ok"}}) as gerar_chat:
+        client.post(
+            "/v1/chat/completions",
+            data='{"model": "m", "messages": [{"role": "user", "content": "oi"}]}',
+            content_type="application/json", HTTP_AUTHORIZATION="Bearer segredo",
+        )
+    assert gerar_chat.call_args.kwargs["gateway"] == "http://10.0.0.2:8000"

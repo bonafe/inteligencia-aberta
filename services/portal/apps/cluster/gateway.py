@@ -24,7 +24,7 @@ from django.utils.decorators import method_decorator
 from django.views import View
 from django.views.decorators.csrf import csrf_exempt
 
-from apps.artifacts.extractors.ollama_client import OllamaIndisponivel, gerar_chat
+from apps.artifacts.extractors.ollama_client import HEADER_ENCAMINHADO, OllamaIndisponivel, gerar_chat
 
 from .llm_router import escolher_execucao
 
@@ -59,6 +59,9 @@ def _resposta_openai(model: str, resposta_ollama: dict) -> dict:
             "completion_tokens": completion_tokens,
             "total_tokens": prompt_tokens + completion_tokens,
         },
+        # Extensão nossa: o nó que nos encaminhou o pedido (llm_router/gateway)
+        # usa isto para aprender tokens/segundo desta máquina.
+        "x_ollama": {"eval_duration_ns": resposta_ollama.get("eval_duration")},
     }
 
 
@@ -90,9 +93,15 @@ class ChatCompletionsView(View):
         if "top_p" in corpo:
             extra_options["top_p"] = corpo["top_p"]
 
-        execucao = escolher_execucao(model)
+        # Pedido já encaminhado por outro nó: executa aqui (Ollama local),
+        # sem consultar o cluster — um salto só, sem laço entre gateways.
+        if request.headers.get(HEADER_ENCAMINHADO):
+            execucao = None
+        else:
+            execucao = escolher_execucao(model)
         kwargs = (
-            {"host": execucao.host, "num_thread": execucao.num_thread, "maquina_id": execucao.maquina_id}
+            {"host": execucao.host, "num_thread": execucao.num_thread, "maquina_id": execucao.maquina_id,
+             **({"gateway": execucao.gateway} if execucao.gateway else {})}
             if execucao else {}
         )
 

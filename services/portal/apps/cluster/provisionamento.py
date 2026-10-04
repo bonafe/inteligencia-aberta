@@ -23,6 +23,7 @@ class ProvisionamentoError(Exception):
 def criar_maquina(
     *, apelido: str, organizacao_slug: str, modo: str,
     dono_username: str | None = None, hostname: str = "", ollama_endpoint: str = "",
+    gateway_endpoint: str = "",
 ) -> tuple[Maquina, str]:
     """Cria a `Maquina` e devolve `(maquina, token_em_claro)`.
 
@@ -55,5 +56,6 @@ def criar_maquina(
         modo=modo,
         token_hash=token_hash,
         ollama_endpoint=ollama_endpoint,
+        gateway_endpoint=gateway_endpoint,
     )
     return maquina, token

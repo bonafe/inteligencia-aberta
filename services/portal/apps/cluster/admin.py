@@ -7,7 +7,7 @@ from .models import EventoReplicacao, Maquina, MaquinaModeloOllama, MaquinaStatu
 class MaquinaAdmin(admin.ModelAdmin):
     list_display = (
         "apelido", "modo", "hospeda_infra_compartilhada", "organizacao", "dono",
-        "ollama_endpoint", "ativa", "criada_em",
+        "ollama_endpoint", "gateway_endpoint", "ativa", "criada_em",
     )
     list_filter = ("modo", "hospeda_infra_compartilhada", "ativa", "organizacao")
     search_fields = ("apelido", "hostname_declarado")

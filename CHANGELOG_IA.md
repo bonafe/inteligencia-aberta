@@ -2,6 +2,23 @@
 
 Este arquivo documenta as alterações, configurações e implementações feitas por IAs (agentes) neste repositório. O objetivo é manter um histórico unificado e transparente sobre o estado do desenvolvimento, facilitando o onboarding de novas IAs e humanos na base de código.
 
+## [03-10-2026] - Chamada entre nós pelo gateway autenticado (pendência do ADR 009)
+
+**Contexto e motivação:**
+- O roteador de LLM chamava o `ollama_endpoint` do peer diretamente, o que obrigava a expor um Ollama sem autenticação na VPN. A pendência estava registrada no ADR 009 ("Chamada entre nós pelo gateway autenticado"); decisão do usuário: implementá-la, em quatro passos (campo, roteador, cliente, documentação).
+
+**O que foi implementado:**
+- **Modelo/config:** `Maquina.gateway_endpoint` (migration `0006_maquina_gateway_endpoint`), setting `LLM_GATEWAY_ENDPOINT_ANUNCIADO` (`.env.example`); anunciado no autorregistro e aceito em `criar_maquina`, no join, em `registrar_maquina --gateway-endpoint` e em `scripts/entrar_no_cluster.py --gateway-endpoint`; visível no admin.
+- **Roteador (`apps/cluster/llm_router.py`):** `ExecucaoOllama.gateway`, preenchido só para peer com gateway quando esta instância tem `LLM_GATEWAY_TOKEN`; máquina local e instalações sem token seguem direto no Ollama. Peer que só anuncia gateway também é candidato. `escolher_execucao(..., permitir_gateway=False)` zera o campo.
+- **Cliente (`ollama_client.py`):** `_chamar(gateway=...)` faz `POST <gateway>/v1/chat/completions` com `Bearer` e converte a resposta ao formato do Ollama; `llm_common.gerar_texto` e `gateway.py` passam o gateway escolhido. Sem fallback para o Ollama direto do peer.
+- **Sem laço:** o cliente envia `X-Cluster-Encaminhado`; o gateway que o recebe executa localmente e não reencaminha (um salto só).
+- **Velocidade aprendida:** o gateway devolve `x_ollama.eval_duration_ns` (extensão fora da API OpenAI) para o tokens/segundo do peer continuar sendo aprendido.
+- **Docs:** ADR 009 (pendência virou seção), `docs/operacao/escala-multimaquina.md`, `docs/deploy.md`.
+
+**Como foi validado:** suíte do portal completa no container (122 testes), incluindo novos testes de roteador (peer com/sem token, máquina local, peer só com gateway), cliente (conversão, falha → `OllamaIndisponivel`, telemetria), gateway (pedido encaminhado não reencaminha; sem cabeçalho encaminha) e `gerar_texto`.
+
+**Não testado / pendente:** chamada real entre duas máquinas pela VPN; `gateway_endpoint` só é gravado na criação da `Maquina` (em uma já registrada, editar no admin — o heartbeat não sincroniza); a mesma chamada gera telemetria no chamador e no gateway do peer (finalidade `GATEWAY_EXTERNO`); `num_thread`/`num_ctx` ficam a cargo do peer; política de classificação no destino; streaming; registro de providers de LLM.
+
 ## [03-10-2026] - Implantação por instância: compose de produção, HTTPS/Caddy, registro fechado, bootstrap e segredos
 
 **Contexto e motivação:**

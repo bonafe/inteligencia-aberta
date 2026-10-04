@@ -14,7 +14,10 @@ benchmark sintético (ver apps.cluster.projecao.aplicar_metrica_llm).
 
 import dataclasses
 import logging
+import os
 
+from django.conf import settings
+from django.db.models import Q
 from django.utils import timezone
 
 logger = logging.getLogger(__name__)
@@ -30,12 +33,43 @@ class ExecucaoOllama:
     maquina_id: str
     host: str
     num_thread: int | None
+    #: Base do gateway autenticado da máquina escolhida (ADR 009), preenchida só
+    #: quando ela é um peer que anuncia gateway E esta instância tem
+    #: `LLM_GATEWAY_TOKEN` para autenticar. Vazio = falar direto com `host`.
+    gateway: str = ""
 
 
-def escolher_execucao(nome_modelo: str) -> ExecucaoOllama | None:
+def _eh_local(maquina) -> bool:
+    """A `Maquina` é a desta instância? (Para ela não há por que passar pelo
+    gateway: o Ollama local é alcançado direto.) Mesma regra de identidade do
+    heartbeat — `CLUSTER_MACHINE_ID`, senão o apelido do autorregistro."""
+    machine_id = getattr(settings, "CLUSTER_MACHINE_ID", "") or os.environ.get("CLUSTER_MACHINE_ID", "")
+    if machine_id:
+        return str(maquina.id) == machine_id
+    return maquina.hospeda_infra_compartilhada and maquina.apelido == (
+        os.environ.get("CLUSTER_LOCAL_APELIDO") or _hostname()
+    )
+
+
+def _hostname() -> str:
+    import socket
+
+    return socket.gethostname()
+
+
+def _gateway_para(maquina) -> str:
+    if not maquina.gateway_endpoint or not getattr(settings, "LLM_GATEWAY_TOKEN", ""):
+        return ""
+    return "" if _eh_local(maquina) else maquina.gateway_endpoint.rstrip("/")
+
+
+def escolher_execucao(nome_modelo: str, *, permitir_gateway: bool = True) -> ExecucaoOllama | None:
     """Melhor máquina do cluster para rodar `nome_modelo` agora, ou `None` se
     nenhuma máquina ativa+online tem esse modelo (chamador cai para o Ollama
-    local — ver `llm_common.gerar_texto`)."""
+    local — ver `llm_common.gerar_texto`).
+
+    `permitir_gateway=False` zera `ExecucaoOllama.gateway`: usado pelo gateway
+    ao atender um pedido já encaminhado por outro nó, para nunca reencaminhar."""
     from .models import Maquina
 
     try:
@@ -46,7 +80,7 @@ def escolher_execucao(nome_modelo: str) -> ExecucaoOllama | None:
                 modelos_ollama__nome_modelo=nome_modelo,
                 modelos_ollama__visto_pela_ultima_vez__gte=limite_visto,
             )
-            .exclude(ollama_endpoint="")
+            .filter(~Q(ollama_endpoint="") | ~Q(gateway_endpoint=""))
             .select_related("status")
             .prefetch_related("modelos_ollama")
         )
@@ -73,4 +107,7 @@ def escolher_execucao(nome_modelo: str) -> ExecucaoOllama | None:
 
     melhores.sort(key=lambda t: t[0], reverse=True)
     _, maquina, cpu_count = melhores[0]
-    return ExecucaoOllama(maquina_id=str(maquina.id), host=maquina.ollama_endpoint, num_thread=cpu_count)
+    return ExecucaoOllama(
+        maquina_id=str(maquina.id), host=maquina.ollama_endpoint, num_thread=cpu_count,
+        gateway=_gateway_para(maquina) if permitir_gateway else "",
+    )

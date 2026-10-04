@@ -83,9 +83,10 @@ def descobrir_no_infraestrutura() -> str | None:
     return None
 
 
-def entrar(no_infra: str, secret: str, apelido: str, organizacao: str, modo: str, ollama_endpoint: str) -> dict:
+def entrar(no_infra: str, secret: str, apelido: str, organizacao: str, modo: str, ollama_endpoint: str, gateway_endpoint: str = "") -> dict:
     corpo = json.dumps({
         "apelido": apelido, "organizacao": organizacao, "modo": modo, "ollama_endpoint": ollama_endpoint,
+        "gateway_endpoint": gateway_endpoint,
     }).encode()
     req = urllib.request.Request(
         f"http://{no_infra}:{PORTA_PORTAL}/cluster/api/v1/join/", data=corpo, method="POST",
@@ -150,6 +151,9 @@ def main():
     parser.add_argument("--ollama-endpoint", default=os.environ.get("OLLAMA_ENDPOINT_ANUNCIADO", ""),
                         help="URL do Ollama nesta máquina, alcançável pelos outros nós (ex.: http://100.x.y.z:11434), se houver. "
                              "Default: OLLAMA_ENDPOINT_ANUNCIADO do ambiente.")
+    parser.add_argument("--gateway-endpoint", default=os.environ.get("LLM_GATEWAY_ENDPOINT_ANUNCIADO", ""),
+                        help="Base do gateway LLM autenticado desta máquina, alcançável pelos outros nós (ex.: http://100.x.y.z:8000). "
+                             "Default: LLM_GATEWAY_ENDPOINT_ANUNCIADO do ambiente.")
     parser.add_argument("--sem-subir", action="store_true",
                         help="Só descobre/registra/escreve o .env — não roda docker compose.")
     args = parser.parse_args()
@@ -171,7 +175,8 @@ def main():
         )
 
     print(f"==> registrando '{apelido}' ({args.modo}) na organização '{args.organizacao}'…")
-    resposta = entrar(no_infra, args.secret, apelido, args.organizacao, args.modo, args.ollama_endpoint)
+    resposta = entrar(no_infra, args.secret, apelido, args.organizacao, args.modo, args.ollama_endpoint,
+                       args.gateway_endpoint)
 
     destino = escrever_env(no_infra, resposta["machine_id"], resposta["machine_token"])
     print(f"==> {destino} escrito (CLUSTER_MACHINE_ID={resposta['machine_id']}).")

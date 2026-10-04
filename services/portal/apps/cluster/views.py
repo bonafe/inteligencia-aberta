@@ -126,6 +126,7 @@ class JoinAPIView(View):
             maquina, token = criar_maquina(
                 apelido=apelido, organizacao_slug=organizacao_slug, modo=modo,
                 hostname=corpo.get("hostname", ""), ollama_endpoint=corpo.get("ollama_endpoint", ""),
+                gateway_endpoint=corpo.get("gateway_endpoint", ""),
             )
         except ProvisionamentoError as exc:
             return JsonResponse({"error": str(exc)}, status=400)
