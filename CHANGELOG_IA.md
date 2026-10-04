@@ -2,6 +2,22 @@
 
 Este arquivo documenta as alterações, configurações e implementações feitas por IAs (agentes) neste repositório. O objetivo é manter um histórico unificado e transparente sobre o estado do desenvolvimento, facilitando o onboarding de novas IAs e humanos na base de código.
 
+## [04-10-2026] - F0 da federação, passo 1: hash de conteúdo do MHTML (ADR 010)
+
+**Contexto e motivação:**
+- Primeira entrega de código da federação: o MHTML não tinha identidade de conteúdo. Formato decidido na ADR 010: RFC 6920, `ni:///sha-256;<base64url>`.
+
+**O que foi implementado:**
+- **`config/conteudo_hash.py`** (portal) e cópia em **`orchestrator/conteudo_hash.py`** (cada serviço tem seu contexto de build, como `segredos.py`): `hash_ni`, `formato_valido`, `verificar`. Testado com o vetor do próprio RFC.
+- **Orchestrator** (`/api/v1/capture/mhtml`): calcula o hash sobre os bytes recebidos, antes de gravar; vai no payload dos eventos `captura.recebida`, `captura.armazenada` e `captura.orfa` (`hash_ni`) e no POST ao portal (`blob_hash`).
+- **Portal:** `Artifact.blob_hash` (nulo, indexado, **não único** — duas capturas com bytes idênticos geram dois artefatos com o mesmo hash), migration `0015_artifact_blob_hash`; `ArtefatoCreateAPIView` valida o formato (400 se malformado) e grava. O hash replica aos peers do cluster porque `signals_replicacao` serializa todos os campos.
+- **`manage.py calcular_hashes`** (backfill): `--simular`, `--limite`, `--verificar` (reconfere contra o blob atual e relata divergência sem sobrescrever; blob ausente é relatado e não interrompe). Grava com `save(update_fields=["blob_hash"])`, sem alterar `updated_at`.
+- Testes: `tests/test_conteudo_hash.py` (21); suíte completa com 156 passando. Migration aplicada e backfill rodado no banco de desenvolvimento (1 artefato, conferido com `--verificar`).
+
+**Limites conhecidos:** o hash é calculado no orchestrator, não na extensão; não cobre a integridade extensão → orchestrator. `orchestrator/sync_minio_postgres.py` (recuperação de órfãos) insere artefatos por SQL sem hash; o `calcular_hashes` os cobre depois. O portal não verifica o hash recebido (não tem os bytes na API); a conferência é o `--verificar`. Não foi feita uma captura real ponta a ponta pela extensão: o orchestrator só foi verificado importando o módulo no container.
+
+**Falta da F0:** ID global, `Claim`/`Evidence` como conceitos de domínio, chave Ed25519 por instância. Rodar `calcular_hashes` em cada instância existente depois de aplicar a migration.
+
 ## [04-10-2026] - Federação: as oito decisões da seção 14 fechadas, fonte de verdade = log assinado (só documento)
 
 **Contexto e motivação:**
