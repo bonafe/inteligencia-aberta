@@ -109,6 +109,16 @@ Extensão Chrome → POST orchestrator:8001/api/v1/capture/mhtml
 - **Produção × dev:** produção é `-f docker-compose.yml -f docker-compose.prod.yml`; `docker compose up` sem `-f` carrega o override de dev (runserver, `--reload`, portas abertas). Segredos com valor `CHANGE_ME` ou vazio são recusados em produção.
 - **Classificação de dados:** os quatro níveis do `policy_engine` (`público → confidencial`) determinam se LLM externo pode ser usado e se auditoria é exigida. Esse contrato não deve ser quebrado.
 
+## Fase de desenvolvimento: compatibilidade com outras instâncias não é requisito (por ora)
+
+O projeto ainda não está em produção e **o dono pode zerar tudo** (bancos, Garage, log) quando precisar. Enquanto ele não disser o contrário:
+
+- **Não se preocupe com outras instâncias nem com dados já existentes.** Pode mudar formato de envelope, IDs, nomes de campo, schema e contratos entre serviços sem escrever migração de dados, backfill, camada de compatibilidade ou fallback para o formato antigo. Prefira o desenho certo a um caminho de transição.
+- **Mesmo assim**, as migrations do Django continuam sendo geradas normalmente, e os serviços **da mesma instância** têm de continuar consistentes entre si (portal, orchestrator, mcp, worker).
+- **Avise quando uma mudança invalidar dados existentes** (ex.: novo formato de hash ou de ID, campo obrigatório novo), numa linha no resumo, para o dono decidir se zera. Não trate isso como bloqueio nem peça confirmação antes de mudar.
+- **Isto não afrouxa "O que nunca tocar"** (abaixo): `policy_engine`, `AuditLog`, UUIDs como PKs, níveis de classificação, `PipelineEvent` e a semântica de `status` seguem valendo — são contratos do próprio sistema, não de compatibilidade com terceiros.
+- **Quando o dono disser que agora é preciso compatibilidade** com outras instâncias (por exemplo, antes do primeiro intercâmbio real da federação, ADR 010), esta seção deve ser removida ou revista, e as decisões "difíceis de reverter" do `docs/arquitetura/federacao.md` (seção 7) passam a valer como restrição de verdade.
+
 ## O que nunca tocar
 
 - **`policy_engine.py`** — é intencionalmente determinístico. Não adicionar lógica de LLM nem condições que dependam de heurísticas. Qualquer mudança nas regras de classificação impacta auditoria, compliance e multi-tenancy.
