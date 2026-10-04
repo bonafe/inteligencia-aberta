@@ -23,7 +23,7 @@ O Ollama é uma **capacidade do nó**, não um serviço obrigatório da stack. C
 
 ## Consequências
 
-- Netuno não tenta subir LLM; antares pode subir um modelo pequeno em CPU ou só usar o persas; os Macs seguem nativos e anunciam o endpoint da VPN.
+- Um nó pequeno (VPS sem GPU) não tenta subir LLM; um nó intermediário pode subir um modelo pequeno em CPU ou só usar o de um nó com GPU; os Macs seguem nativos e anunciam o endpoint da VPN. Quais hosts são quais é decisão da automação de implantação, não deste repositório.
 - Quem migra do Ollama nativo para o container na mesma máquina precisa mudar `OLLAMA_PORTA` (a 11434 do host já está ocupada) ou parar o nativo.
 - Overlay `docker-compose.gpu.yml` não foi testado (a máquina de desenvolvimento não tem `nvidia-smi`).
 
@@ -43,4 +43,4 @@ Limites conhecidos: `num_thread`/`num_ctx` ficam a cargo do peer (só `temperatu
 ## Pendências (fora desta decisão)
 
 - **Registro de providers de LLM** (Ollama interno/externo, Claude, ChatGPT): hoje `provider` é `anthropic|ollama` fixo em `llm_common.py`.
-- Viabilidade da stack completa no netuno (1 GB): talvez só Caddy/proxy.
+- Viabilidade da stack completa num nó de 1 GB: talvez só Caddy/proxy.
