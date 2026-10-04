@@ -2,6 +2,7 @@ import uuid
 from django.db import models
 from django.db.models import Index
 from apps.accounts.models import User, Organization
+from apps.federacao.ids import urn_de
 
 
 class Artifact(models.Model):
@@ -57,6 +58,11 @@ class Artifact(models.Model):
 
     def __str__(self):
         return f"{self.get_artifact_type_display()} / {self.id}"
+
+    @property
+    def urn(self) -> str:
+        """Identificador global (`urn:uuid:`), o próprio PK — ADR 010."""
+        return urn_de(self.id)
 
 
 class ArtifactLineage(models.Model):

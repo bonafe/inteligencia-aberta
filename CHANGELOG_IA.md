@@ -2,6 +2,17 @@
 
 Este arquivo documenta as alterações, configurações e implementações feitas por IAs (agentes) neste repositório. O objetivo é manter um histórico unificado e transparente sobre o estado do desenvolvimento, facilitando o onboarding de novas IAs e humanos na base de código.
 
+## [04-10-2026] - F0 da federação, passo 3: ID global `urn:uuid:` (ADR 010)
+
+**Decisão de implementação:** os modelos já usam UUID como PK, então o identificador global **é o próprio PK** escrito como URN — sem coluna nova nem tabela de mapeamento. Objetos que passarem entre instâncias **mantêm** o UUID de origem; a origem é dita pelo `author` e pelo espaço no envelope, não pelo ID.
+
+**O que foi implementado:**
+- **`apps/federacao/ids.py`:** `urn_de`, `uuid_de_urn`, `eh_urn_valida`, `normalizar`. Emissão sempre canônica (minúscula, com hífens), porque IDs entram em bytes assinados; leitura aceita `URN:UUID:` em maiúsculas (RFC 8141) e normaliza. Rejeita ausência de hífens, chaves, `urn:uuid:` duplicado, espaços/quebra de linha, UUID nulo, máximo e variantes não RFC 4122.
+- **`Artifact.urn`** (propriedade). Os demais modelos (`DocumentText`, fragmentos, `ArtifactLineage`) ganham a propriedade quando um evento precisar citá-los: o helper aceita qualquer UUID.
+- Testes: `tests/test_federacao_ids.py` (27); suíte completa com 204 passando.
+
+**Falta da F0:** `Claim`/`Evidence` como conceitos de domínio (precisa de conversa de modelagem antes). Com isso a F0 fecha: hash do MHTML (feito), ID global (feito), chave Ed25519 da instância (feito).
+
 ## [04-10-2026] - Deploy: `FIELD_ENCRYPTION_KEY` e a chave da instância
 
 - `docs/deploy.md` ganhou a seção "Chave da instância (federação)": o `bootstrap` agora cria a chave Ed25519; `FIELD_ENCRYPTION_KEY` deve ser definida **antes do primeiro `up`** (se a cifra mudar depois, a privada fica ilegível e não há comando para recifrá-la ou recriá-la sem perder o DID), perder a privada significa perder a identidade da instância (diferente das chaves de LLM, que se recadastram) e o backup precisa de `FIELD_ENCRYPTION_KEY` **e** do banco. O passo 4 do `bootstrap` foi acrescentado à descrição e `.env.example` ganhou o aviso.
