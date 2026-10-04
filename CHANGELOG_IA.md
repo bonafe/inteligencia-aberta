@@ -13,7 +13,9 @@ Este arquivo documenta as alterações, configurações e implementações feita
 
 **Revisões:** ADR 006 ganhou status "parcialmente revisado" e a seção "Revisão de 2026-10-04" (`Projeto` vira `Space`; dado entre donos vai pela federação; motor de posicionamento e roteador de LLM ficam no cluster; reciprocidade de LLM entre donos segue em aberto). `docs/roadmap.md`: Neo4j na Fase 2 virou "grafo como projeção, tecnologia a decidir"; `Projeto` virou `Space`; novo item de federação F0–F5 na Fase 4.
 
-**Pendente:** `docs/seguranca/compartilhamento.md` e `docs/visao/perfis-de-implantacao.md` (D5) ainda falam de `Projeto`; registrar o namespace no w3id.org perto da F1. Nenhum código alterado.
+**Também corrigido:** `docs/seguranca/compartilhamento.md`, `docs/visao/perfis-de-implantacao.md` (D5) e uma frase de `docs/operacao/escala-multimaquina.md` trocaram `Projeto` por `Space`.
+
+**Pendente:** registrar o namespace no w3id.org perto da F1. Nenhum código alterado.
 
 ## [03-10-2026] - Análise arquitetural da federação entre instâncias (só documento)
 

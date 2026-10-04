@@ -8,10 +8,9 @@ infraestrutura compartilhada (Postgres/Redis/Garage/Qdrant). Nenhum outro
 tratamento depende disso; o roteador de LLM, por exemplo, trata toda
 `Maquina` como igual, hospede infra ou não. O rumo — múltiplos donos, mais
 capacidades por máquina (armazenamento/borda pública/offline), motor de
-posicionamento com critério e colaboração entre organizações via `Projeto`
-— está desenhado em [ADR-006](../arquitetura/decisoes/006-cluster-adaptativo-multiproprietario.md)
+posicionamento com critério — está desenhado em [ADR-006](../arquitetura/decisoes/006-cluster-adaptativo-multiproprietario.md)
 e nos [perfis de implantação](../visao/perfis-de-implantacao.md), ainda não
-implementado. O desenho atual (`Maquina.organizacao`, `EventoReplicacao`)
+implementado. A colaboração entre donos diferentes (antes `Projeto`) saiu do cluster e é tratada pela federação ([ADR-010](../arquitetura/decisoes/010-federacao-por-log-assinado.md)). O desenho atual (`Maquina.organizacao`, `EventoReplicacao`)
 já carrega os campos necessários para essa evolução sem precisar de
 retrofit.
 

@@ -62,12 +62,12 @@ Ver [ADR-006](../arquitetura/decisoes/006-cluster-adaptativo-multiproprietario.m
 
 ---
 
-## D5 — Colaboração entre donos via Projeto
+## D5 — Colaboração entre donos via Space
 
 **Contexto:** Pessoas de organizações diferentes (colegas de trabalho, por exemplo) quiseram compartilhar seletivamente: algumas informações entre si, e capacidade de computação de LLM (usar a máquina do outro, e vice-versa) — sem que isso signifique confiança total entre as organizações inteiras.
 
-**Necessidade:** Um espaço de colaboração que não seja "a mesma organização" (confiança total, isolamento por padrão entre organizações continua valendo) nem "um compartilhamento pontual de um documento" (`Sharing`, já existe, mas é por artefato e revogável, não uma relação contínua). É o `Projeto` do ADR-006.
+**Necessidade:** Um espaço de colaboração que não seja "a mesma organização" (confiança total, isolamento por padrão entre organizações continua valendo) nem "um compartilhamento pontual de um documento" (`Sharing`, já existe, mas é por artefato e revogável, não uma relação contínua). É o `Space` (Espaço), antes `Projeto` no ADR-006, redefinido na federação do ADR-010.
 
-**Critério de sucesso:** Dois colegas de organizações diferentes entram num mesmo projeto, cada um decide o que daquela organização entra no projeto, e as requisições de LLM de um podem ser atendidas pela máquina do outro quando ambos autorizarem.
+**Critério de sucesso:** Dois colegas de organizações diferentes entram num mesmo espaço e cada um decide o que daquela organização entra nele; o que entra é trocado entre as instâncias como eventos assinados (ADR-010). As requisições de LLM de um serem atendidas pela máquina do outro, quando ambos autorizarem, segue em aberto (o gateway atual, ADR-009, pressupõe confiança única).
 
-**Critério de falha:** Participar de um projeto vaza, mesmo que sem querer, dado de uma organização inteira para a outra — a autorização tem que ser sempre explícita e por item/categoria, nunca implícita por fazer parte do mesmo projeto.
+**Critério de falha:** Participar de um espaço vaza, mesmo que sem querer, dado de uma organização inteira para a outra — a autorização tem que ser sempre explícita e por item/categoria, nunca implícita por fazer parte do mesmo espaço.
