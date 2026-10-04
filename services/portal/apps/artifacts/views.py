@@ -26,6 +26,7 @@ from apps.accounts.views import orgs_do_usuario
 from config.conteudo_hash import formato_valido
 from apps.events.context import set_correlation_id, set_tenant_id
 from apps.events.emit import emit
+from .classificacao_dominio import aplicar_regras
 from .graph import artifacts_para_mapa, dominio_de, montar_grafo
 from .models import Artifact, Comparacao, DocumentText, EstruturacaoLLM
 from .policy import permite_llm_externo
@@ -81,6 +82,11 @@ class ArtefatoCreateAPIView(View):
         # Validate allow_external_llm against classification level (mirrors policy_engine logic)
         requested_llm = bool(data.get("allow_external_llm", False))
         level = data.get("classification_level", Artifact.ClassificationLevel.RESTRICTED)
+        # Regra de classificação por domínio: só sobe o nível, nunca rebaixa. Vem
+        # ANTES do cálculo de allow_llm — subir para restrito/confidencial tem de
+        # fechar o LLM externo, mesmo que a extensão o tenha pedido.
+        classificacao = aplicar_regras(org.id, content.get("url", ""), level)
+        level = classificacao.nivel
         allow_llm = requested_llm and level not in (
             Artifact.ClassificationLevel.RESTRICTED,
             Artifact.ClassificationLevel.CONFIDENTIAL,
@@ -117,7 +123,22 @@ class ArtefatoCreateAPIView(View):
             artifact.id, artifact.artifact_type, artifact.classification_level, artifact.allow_external_llm,
         )
 
-        return JsonResponse({"artifact_id": str(artifact.id)}, status=201)
+        if classificacao.elevado:
+            emit("captura.classificada", "ok",
+                 correlation_id=correlation_id, source="portal",
+                 subject_type="artifact", subject_id=artifact.id, tenant_id=org.id,
+                 message=f"nível elevado para {level} pela regra do domínio {classificacao.dominio}",
+                 payload={"nivel_pedido": data.get("classification_level", "restrito"),
+                          "nivel_efetivo": level, "dominio": classificacao.dominio,
+                          "regra_id": classificacao.regra_id,
+                          "allow_external_llm_pedido": requested_llm,
+                          "allow_external_llm_efetivo": allow_llm})
+
+        return JsonResponse({
+            "artifact_id": str(artifact.id),
+            "classification_level": level,
+            "classificacao_elevada": classificacao.elevado,
+        }, status=201)
 
 
 @method_decorator(login_required, name="dispatch")

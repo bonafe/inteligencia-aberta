@@ -272,6 +272,7 @@ async def capture_mhtml(
         # Registra o artefato no Portal via API Django (dispara o pipeline automaticamente).
         # X-Internal-Token autentica o canal serviço-a-serviço; user_id/tenant_id
         # vêm do JWT já validado, então o portal pode confiar neles.
+        classificacao_elevada = False
         try:
             resp = httpx.post(
                 f"{PORTAL_URL}/artifacts/api/v1/artefatos/",
@@ -291,7 +292,11 @@ async def capture_mhtml(
                 timeout=10.0,
             )
             resp.raise_for_status()
-            artifact_id = resp.json()["artifact_id"]
+            corpo_portal = resp.json()
+            artifact_id = corpo_portal["artifact_id"]
+            # O portal pode elevar o nível por regra de domínio; devolvemos o efetivo.
+            classification_level = corpo_portal.get("classification_level", classification_level)
+            classificacao_elevada = bool(corpo_portal.get("classificacao_elevada", False))
         except Exception as api_err:
             # Captura órfã: o MHTML está no MinIO mas nenhum Artifact existe, então
             # o catch-up do Beat (que varre Artifact, não o bucket) jamais a verá.
@@ -310,6 +315,8 @@ async def capture_mhtml(
         return {
             "status": "success",
             "artifact_id": artifact_id,
+            "classification_level": classification_level,
+            "classificacao_elevada": classificacao_elevada,
             "correlation_id": correlacao,
             "message": "MHTML capturado e salvo no armazenamento seguro."
         }

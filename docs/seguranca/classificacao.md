@@ -65,6 +65,18 @@ Todo artefato e documento no sistema carrega:
 }
 ```
 
+## Classificação por domínio de origem
+
+Uma regra por organização (`RegraClassificacaoDominio`, cadastrada no admin) diz "tudo capturado de `bancodobrasil.com.br` nasce, no mínimo, `confidencial`". É aplicada **na criação do artefato**, antes de decidir se o LLM externo pode ser usado:
+
+- **Só sobe o nível:** vale o maior entre o que o usuário escolheu na extensão e o da regra; nunca rebaixa. Se a elevação leva a `restrito` ou `confidencial`, o LLM externo é fechado mesmo que a extensão o tenha pedido.
+- **Casa por sufixo de rótulo:** `bancodobrasil.com.br` cobre `www.` e `login.ap.`, mas não `meubancodobrasil.com.br` nem `bancodobrasil.com.br.outro.com`. O domínio é normalizado (minúsculas, sem esquema, caminho ou porta, em punycode); IPs não são suportados.
+- **Várias regras:** vale a de maior nível.
+- **Não reclassifica o que já existe:** a regra vale para capturas novas; o que já foi capturado segue como estava (ver "Reclassificação").
+- **Rastro:** quando a regra eleva o nível, emite-se o evento `captura.classificada` (nível pedido, efetivo, domínio, regra, e o efeito sobre `allow_external_llm`). A resposta da captura traz `classification_level` e `classificacao_elevada`.
+
+Os níveis seguem sendo os quatro do `policy_engine`, que não é alterado.
+
 ## Reclassificação
 
 A classificação de um artefato não é mutável em operação. Para reclassificar:

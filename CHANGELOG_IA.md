@@ -13,6 +13,43 @@ Este arquivo documenta as alterações, configurações e implementações feita
 
 **Falta da F0:** `Claim`/`Evidence` como conceitos de domínio (precisa de conversa de modelagem antes). Com isso a F0 fecha: hash do MHTML (feito), ID global (feito), chave Ed25519 da instância (feito).
 
+## [04-10-2026] - Classificação por domínio de origem na captura
+
+**Contexto:** o usuário quer que tudo capturado de `bancodobrasil.com.br` nasça `confidencial`. Até aqui o nível vinha de um seletor global no popup da extensão (padrão `restrito`), igual para todas as capturas. É útil por si só, sem federação, e depois alimenta as regras de replicação (o nível viaja com o objeto).
+
+**O que foi implementado:**
+- **`RegraClassificacaoDominio`** (por organização; `dominio`, `nivel`, `ativa`; único por organização+domínio; migration `artifacts.0016`) e registro no admin. O domínio é normalizado ao salvar (minúsculas, sem esquema/caminho/porta/ponto final, punycode; IPs e domínios de um rótulo são recusados).
+- **`apps/artifacts/classificacao_dominio.py`** (funções puras + `aplicar_regras`): **só sobe o nível**, nunca rebaixa; casa por **sufixo de rótulo** (`bancodobrasil.com.br` cobre `www.`/`login.`, não `meubancodobrasil.com.br` nem `…com.br.outro.com`); várias regras → a de maior nível; nível pedido desconhecido conta como `restrito` na comparação; sem regra, devolve o nível pedido intacto.
+- **`ArtefatoCreateAPIView`** aplica a regra **antes** de calcular `allow_external_llm`: subir para `restrito`/`confidencial` fecha o LLM externo mesmo que a extensão o tenha pedido. Emite `captura.classificada` (só quando eleva) e a resposta traz `classification_level` e `classificacao_elevada`; o orchestrator repassa os dois na resposta da captura.
+- Documentado em `docs/seguranca/classificacao.md` (nova seção) e `docs/componentes/observabilidade.md` (estágio novo). O `policy_engine` não foi tocado.
+- Testes: `tests/test_classificacao_dominio.py` (54); suíte completa com 251 passando.
+
+**Limites conhecidos:** **não reclassifica o que já foi capturado** (a reclassificação é ato explícito; não há relatório do que ficou abaixo da regra — no banco de desenvolvimento só há uma captura, de `localhost`). A regra **não foi cadastrada** no banco: o domínio do Banco do Brasil precisa ser criado no admin (*Regras de classificação por domínio*). Não escreve `AuditLog` (nenhum código escreve nele hoje; o rastro é o evento). A extensão não mostra o nível efetivo; só recebe o dado. Domínios públicos de sufixo (ex.: `com.br`) não são tratados à parte: uma regra em `com.br` elevaria todo o `.com.br`, o que é seguro (só sobe) mas amplo. Sem regra por IP.
+
+**Pendente:** ADR da política de replicação; `Claim`/`Evidence` (fecha a F0).
+
+## [04-10-2026] - Federação: P1, P2, P4, P5, P7 e P8 fechadas — política de replicação completa (só documento)
+
+**Decidido (seção 16 e subseção "Política de replicação: decisões P1, P2, P4, P5, P7 e P8"):** (P1) `Par` com dois campos — tipo (próprio/terceiro) e confiança (ignorar, quarentena, alegação, aceitar e repassar; padrão alegação para terceiro e repassar para próprio); (P2) interseção emissor × receptor, negação por padrão, receptor recusa em silêncio; (P4) tudo é regra, objeto individual só por concessão ou negação com escopo de objeto; (P5) eventos sempre, texto e dados estruturados como resultados nos eventos, blobs em espelho entre máquinas próprias (com limite de disco) e sob demanda por hash com terceiros, **vetores não replicam** (recalculados localmente); (P7) o espaço é o limite e aponta para uma organização local (dedicada por padrão para terceiros), objeto que já existe mantém o `tenant`, UUID de origem preservado; (P8) `AuditLog` só para `restrito`/`confidencial` e concessões (permitidas e bloqueadas), `PipelineEvent` para o fluxo todo, sem conteúdo, motor num ponto único.
+
+**Com isso, as oito decisões da seção 16 (P1–P8) estão fechadas.** Falta consolidar numa ADR (011) e implementar; nenhum código alterado. **Pendente:** ADR da política de replicação, classificação por domínio, `Claim`/`Evidence` (fecha a F0).
+
+## [04-10-2026] - Federação: P6 fechada, cadastro de pares e enrolamento (só documento)
+
+**Decidido (seção 16, P6, e subseção "Cadastro de pares e enrolamento"):** tabela `Par` (nome, `did:key`, endpoint, tipo próprio/terceiro, estado) fundida com `Maquina` (o roteador de LLM lê dos pares; `registrar_maquina` some); **enrolamento por convite** (token de uso único + DID + endpoint) com **conferência da impressão digital pelo administrador nos dois lados**, sem confiar no primeiro contato; **tipo atribuído localmente por cada lado** (a prova de "mesmo dono" é humana); revogar não recolhe cópias; rotação por evento assinado pela chave antiga. Alcançabilidade entre instâncias fica para a F2.
+
+**Também registrado (P3):** o domínio de origem **não** é condição de replicação na v1; o caso "tudo de `bancodobrasil.com.br` é `confidencial`" vira uma **regra de classificação por domínio na captura** (só sobe o nível, casa por sufixo, não reclassifica o existente), funcionalidade à parte **ainda não implementada**.
+
+**Pendente:** P1, P2, P4, P5, P7, P8; classificação por domínio; nenhum código alterado.
+
+## [04-10-2026] - Federação: P3 fechada, motor de regras de replicação (só documento)
+
+**Contexto:** a proposta de uma tabela de tetos de classificação por tipo de par foi corrigida (mandar `interno` a terceiro contradiz a definição do nível) e, a pedido do usuário, substituída por um **motor de regras** onde se acrescentam regras (ex.: um notebook recebe `confidencial` e outro não).
+
+**Decidido (seção 16, P3, e subseção "Motor de regras de replicação"):** três camadas — pisos não editáveis (`interno` nunca sai para terceiro; `restrito`/`confidencial` a terceiro só por concessão explícita; rótulo desconhecido = `confidencial`; receptor não rebaixa), padrões editáveis (própria recebe tudo; terceiro recebe `público`) e regras do usuário; **negar vence**, sem prioridade, e negação por padrão; regras valem nos dois lados; condições da v1: par, nível, tipo de objeto, espaço e validade (domínio de origem fica como extensão não decidida); função pura separada do `policy_engine`, avaliador próprio, regras em tabela auditada. Depende do cadastro de pares (P6).
+
+**Pendente:** P1, P2, P4–P8; nenhum código alterado.
+
 ## [04-10-2026] - Remoção da topologia `compute` do cluster
 
 **Contexto:** o usuário não usa nenhuma máquina como `compute` e decidiu que toda máquina é uma instância completa (dado só se move pela federação, então não há duplicação cega); máquinas muito fracas (VPS de 1 GB) ficam como borda, a definir depois.

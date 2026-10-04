@@ -59,7 +59,7 @@ A separação entre `vazio` e `falhou` é a razão de ser deste modelo. Antes de
 
 | Prefixo | Emitido por | Cobre |
 |---|---|---|
-| `captura.*` | orchestrator, portal | `recebida`, `armazenada` (Garage/S3; o nome do estágio `minio` é mantido por compatibilidade com o histórico), `registrada`, `orfa` |
+| `captura.*` | orchestrator, portal | `recebida`, `armazenada` (Garage/S3; o nome do estágio `minio` é mantido por compatibilidade com o histórico), `registrada`, `classificada` (só quando uma regra de domínio elevou o nível; ver `seguranca/classificacao.md`), `orfa` |
 | `artefato.*` | portal | `ignorado` — as saídas silenciosas do signal `post_save` |
 | `extracao.*` | worker | `iniciada`, `reiniciada`, `ignorada`, `minio`, `mhtml`, `trafilatura`, `texto_completo`, `dom2parser`, `extruct`, `deterministico`, `concluida` |
 | `deteccao.*` | worker | `page_type` |

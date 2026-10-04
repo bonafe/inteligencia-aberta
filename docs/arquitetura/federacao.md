@@ -398,6 +398,73 @@ A pergunta "chave pessoal ou por instância" virou "um chaveiro por usuário, co
 - **`apps/cluster` fica com:** o heartbeat e o roteamento de LLM com o gateway (ADR 009). A topologia `compute` (várias máquinas sobre um banco compartilhado) **foi removida** (2026-10-04, não era usada), e a de "réplica com stack própria" passa à federação: toda máquina é uma instância completa, e dado só se move por federação, então não há duplicação cega.
 - **Efeito sobre a ADR 006:** o "motor de posicionamento entre máquinas do mesmo dono" (disco, marcação de réplica, sensibilidade) deixa de ser peça do cluster e vira parte da política de replicação abaixo.
 
+### Motor de regras de replicação (decidido em 2026-10-04, P3)
+
+A pergunta "qual o teto de classificação por tipo de par" virou "um motor onde se possam acrescentar regras" (ex.: um notebook recebe `confidencial` e outro não). A tabela de tetos que se cogitou é só o conjunto de **regras padrão** do motor.
+
+**Três camadas**
+
+1. **Pisos (não editáveis)** — o que os níveis de `docs/seguranca/classificacao.md` já impõem; nenhuma regra os contorna:
+   - `interno` **nunca** sai para terceiro (o nível é "restrito à organização");
+   - `restrito` e `confidencial` só saem para terceiro por **concessão explícita**, por objeto, com validade e revogável (como o `Sharing`);
+   - rótulo de classificação desconhecido vale como `confidencial` (seção 10);
+   - o receptor nunca rebaixa o nível (seção 7).
+2. **Padrões (editáveis)** — todos de efeito *permitir*: **máquina própria** (mesmo dono) recebe todos os níveis; **terceiro** (qualquer outra pessoa ou organização) recebe `público`.
+3. **Regras do usuário** — acrescentadas livremente. Exemplos: negar `confidencial` ao par `notebook-trabalho`; permitir `confidencial` ao `notebook-viagem`; negar tudo do espaço `familia` a qualquer par; **concessão** = regra de permitir com escopo de objeto e validade (ex.: `restrito` à Maria, só este objeto, até uma data).
+
+**Avaliação.** Para cada (objeto, par destino, espaço): (1) aplicam-se os pisos; (2) juntam-se as regras que casam; (3) **se alguma `negar` casa → nega** (negar vence, **sem prioridade nem ordem**); (4) senão, se alguma `permitir` casa → permite; (5) senão, **nega** (negação por padrão). Como todos os padrões são *permitir*, as regras de *negar* do usuário sempre prevalecem.
+
+- **Nos dois lados:** o emissor aplica as suas regras ao enviar e o receptor as dele ao aceitar (a interseção da P2). Um notebook pode ter "não aceito `confidencial`" e se protege mesmo que o emissor envie.
+- **Condições da v1:** par (por nome/chave), nível de classificação, tipo de objeto, espaço e validade. O **domínio de origem da captura não é condição de replicação na v1**: o caso de uso (ex.: tudo de `bancodobrasil.com.br` é `confidencial`) se resolve **classificando na captura**, e então os pisos e as regras por par já agem sobre o nível. Essa **classificação por domínio** é uma funcionalidade à parte, **implementada em 2026-10-04** (`RegraClassificacaoDominio`, ver `docs/seguranca/classificacao.md`): regra de domínio → nível aplicada na captura, que **só sobe** o nível (nunca rebaixa o escolhido na extensão), casa por sufixo (`bancodobrasil.com.br` cobre `www.` e `login.`) e não reclassifica o que já existe (a reclassificação é um ato explícito, `classificacao.md`). Hoje o nível vem de um seletor global no popup da extensão (padrão `restrito`).
+- **Explicável e auditável:** cada decisão devolve a regra que decidiu e o motivo; isso alimenta o registro da P8 ("por que isto não foi para o notebook B?").
+- **Determinístico:** função pura, sem LLM nem heurística, **separada do `policy_engine`** (que decide uso de LLM e não é tocado). Avaliador próprio, pequeno, em vez de uma biblioteca de política (Casbin, OPA, Cedar não foram avaliados a fundo; reavaliar se o domínio crescer).
+- **Armazenamento:** regras em tabela no banco, editáveis pelo admin no início; toda mudança de regra é auditada.
+- **Dependência:** regras referenciam pares por nome e chave, então o motor e o **cadastro de pares (P6)** precisam nascer juntos.
+
+### Cadastro de pares e enrolamento (decidido em 2026-10-04, P6)
+
+- **Cadastro de pares:** tabela `Par`, por instância, com nome (ex.: `notebook-viagem`), `did:key` da instância remota, endpoint, tipo (`próprio` ou `terceiro`) e estado (pendente, confirmado, revogado). É a referência das regras do motor (P3).
+- **Enrolamento por convite:** a instância A gera um convite (token de uso único, o seu DID e o endpoint) e o administrador o cola na instância B. As duas trocam os DIDs e cada uma mostra uma **impressão digital curta** do DID da outra; **o administrador confere que batem e confirma nos dois lados** (a chave registrada fora de banda da seção 11). Não se confia no primeiro contato, nem dentro da VPN.
+- **O tipo é decidido localmente por cada lado.** "Próprio" é um rótulo que o administrador atribui no enrolamento; não há prova criptográfica de "mesmo dono" (não existe identidade de usuário entre instâncias). A prova é humana: foi a mesma pessoa que executou os dois lados. Cada instância escolhe sozinha o tipo que dá à outra, e os dois podem divergir.
+- **Revogar:** marca o estado e para de enviar; **não recolhe** o que já foi copiado. **Rotação de chave do par:** evento assinado pela chave antiga; se a chave se perdeu, refaz-se o enrolamento.
+- **`Par` e `Maquina` são uma coisa só:** o par tem, opcionalmente, `gateway_endpoint` e `ollama_endpoint`; o roteador de LLM passa a ler dos pares e o `registrar_maquina` deixa de existir (substitui o cadastro manual que ficou depois da remoção do `compute`). Sem compatibilidade a preservar, a tabela `Maquina` pode ser reformulada.
+- **Fora desta decisão:** como duas instâncias se alcançam (NAT, VPN, quem puxa de quem) — é a F2 (transporte); o cadastro vale para o pacote offline da F1b também.
+
+### Política de replicação: decisões P1, P2, P4, P5, P7 e P8 (decididas em 2026-10-04)
+
+**P1 — tipo e confiança do par.** O **tipo** (`próprio` ou `terceiro`) diz *quem* o par é e define o que pode sair para ele (P3). A **confiança** diz *o que se faz com o que ele envia*. São dois campos separados no `Par`:
+
+| Confiança | O que o receptor faz | Padrão para |
+|---|---|---|
+| ignorar | descarta, não guarda | par pausado ou revogado |
+| quarentena | guarda o envelope original **sem projetar**; o administrador revisa antes de aceitar | (escolha do administrador) |
+| alegação | projeta como **alegação do autor**, nunca como fato | terceiro |
+| aceitar e repassar | aceita e pode reexportar a outros pares | próprio |
+
+O que se repassa continua sujeito aos pisos e às regras, e o nível do objeto viaja junto. O administrador pode mudar o padrão (ex.: um terceiro em quarentena).
+
+**P2 — quem decide o que sai.** A **interseção, com negação por padrão dos dois lados**: o emissor aplica as suas regras ao enviar e o receptor as dele ao aceitar. O receptor recusa em silêncio, sem devolver o motivo, para não vazar metadados sobre as suas regras.
+
+**P4 — granularidade.** **Tudo é regra**; a granularidade vem das condições (par, espaço, tipo, nível, validade). Para um objeto individual: **concessão** = regra *permitir* com escopo de objeto e validade; **"não federar este objeto"** = regra *negar* com escopo de objeto. Não há mecanismo separado de marcação por objeto.
+
+**P5 — o que se replica.**
+- **Eventos:** sempre, a todos que as regras permitem.
+- **Texto extraído e dados estruturados:** replicam como **resultados** dentro dos eventos; nada é reprocessado.
+- **Blobs (o MHTML):** **espelho em segundo plano entre as máquinas próprias**; **sob demanda por hash com terceiros**, e só de hashes que o próprio par anunciou (seção 9). O espelho para quando o espaço livre em disco cai abaixo de um **limite configurável**.
+- **Embeddings (vetores):** **não replicam**. Dependem do modelo e da versão; cada instância calcula os seus a partir do texto replicado. Custa CPU em cada máquina, mas evita carregar vetores incompatíveis.
+
+**P7 — organização do objeto importado.** **O espaço é o limite** e cada espaço aponta para uma organização local, escolhida ao entrar nele:
+- **espaço de terceiro:** por padrão cria-se uma organização dedicada ("Federado: <espaço>"), para os dados nunca se misturarem com os do dono e o isolamento por organização valer;
+- **espaço próprio:** o administrador escolhe em qual organização sua cai, com padrão na principal;
+- **objeto que já existe localmente:** permanece no `tenant` em que estava e só ganha a associação ao novo espaço (um objeto pode estar em vários, decisão 1);
+- o objeto importado **mantém o UUID de origem** (`urn:uuid:`).
+
+**P8 — auditoria.** Cada decisão de enviar ou receber registra quem (par/chave), quando, o objeto (`urn`), a **regra que decidiu** e o motivo.
+- **`AuditLog`:** só decisões sobre `restrito` e `confidencial` e as concessões, **permitidas e bloqueadas** — é a trilha de compliance (campos `operation`, `outcome`, `reason`, `metadata`).
+- **`PipelineEvent`:** o fluxo todo, de todos os níveis, como diário operacional. Os dois **não se fundem**.
+- O registro **nunca guarda conteúdo**, só identificadores.
+- O motor fica num **ponto único**, sucessor de `eventos_para_peer`.
+
 ## 15. Fora de escopo deste documento
 
 Replicação de infraestrutura (Cenário A), roteamento de LLM entre nós (já em `apps/cluster/` e ADR 009), e qualquer implementação. Nenhuma alteração de código foi feita junto com esta análise.
@@ -406,14 +473,14 @@ Replicação de infraestrutura (Cenário A), roteamento de LLM entre nós (já e
 
 Quem recebe o quê. Parte do que já foi decidido: a política do **espaço** é determinística, com negação por padrão, e o **nível de confiança por par** é {ignorar, quarentena, aceitar só como alegação, aceitar e repassar} (seção 11), agora acrescido de **próprio** (máquina do mesmo dono). Cada item traz a recomendação; nenhum está decidido.
 
-- [ ] **P1. Níveis de confiança por par.** O que cada nível permite a quem recebe, e o que "próprio" acrescenta. *Recomendação: "próprio" = aceitar e repassar, com ligação entre chaves revelada (decisão 2) e sem exigir corroboração.*
-- [ ] **P2. Quem decide o que sai.** Só o emissor (política do espaço), só o receptor (nível do par) ou a interseção. *Recomendação: interseção, com negação por padrão dos dois lados: nada atravessa sem que o emissor permita enviar e o receptor aceite receber.*
-- [ ] **P3. Teto de classificação por tipo de par.** *Proposta a validar: própria máquina → até `confidencial`; mesma organização → até `restrito`; outra pessoa → até `interno`, e `público` por padrão. O `policy_engine` não muda: isto decide só o que sai da instância, não o uso de LLM externo.*
-- [ ] **P4. Granularidade da autorização.** Por espaço, por tipo de objeto ou por objeto (marcação explícita, como `Sharing`). *Recomendação: o espaço dá o padrão; o objeto pode ser excluído ou limitado por marcação.*
-- [ ] **P5. O que se replica.** Eventos sempre; blobs (o MHTML) em espelho ou sob demanda por hash (seção 9). *Recomendação: espelho entre as próprias máquinas, sob demanda com os demais.*
-- [ ] **P6. Como uma máquina passa a ser "minha".** Enrolamento da chave do par e prova de que é o mesmo dono. *Recomendação: enrolamento fora de banda com impressão digital conferida (seção 11) e, entre máquinas próprias, a ligação entre as chaves do usuário revelada por padrão.*
-- [ ] **P7. Organização do objeto importado.** Os modelos têm `tenant`; um objeto que chega precisa de uma organização local. *Em aberto: mapear o espaço para uma organização local, ou o espaço ser o limite e o `tenant` derivado dele.*
-- [ ] **P8. Auditoria.** Toda decisão de enviar ou recusar é registrada (quem, quando, por qual regra), no espírito de `AuditLog` e `PipelineEvent` e da restrição da ADR 006. *Recomendação: sim, determinística e auditada, num ponto único (sucessor de `eventos_para_peer`).*
+- [x] **P1. Níveis de confiança por par.** **Decidido: dois campos no `Par` — tipo (quem é) e confiança (o que faço com o que ele manda).** Ver "Política de replicação: decisões P1, P2, P4, P5, P7 e P8" abaixo.
+- [x] **P2. Quem decide o que sai.** **Decidido: interseção, com negação por padrão dos dois lados.** Ver abaixo.
+- [x] **P3. Teto de classificação por tipo de par → motor de regras de replicação.** **Decidido: motor determinístico em três camadas (pisos, padrões, regras do usuário), negar vence.** Ver "Motor de regras de replicação" abaixo.
+- [x] **P4. Granularidade da autorização.** **Decidido: tudo é regra; a granularidade vem das condições.** Ver abaixo.
+- [x] **P5. O que se replica.** **Decidido: eventos sempre; blobs em espelho entre as próprias máquinas e sob demanda com terceiros; vetores não replicam.** Ver abaixo.
+- [x] **P6. Como uma máquina passa a ser "minha".** **Decidido: cadastro de pares por convite com conferência da impressão digital, tipo atribuído localmente por cada lado, `Par` fundido com `Maquina`.** Ver "Cadastro de pares e enrolamento" abaixo.
+- [x] **P7. Organização do objeto importado.** **Decidido: o espaço é o limite e aponta para uma organização local.** Ver abaixo.
+- [x] **P8. Auditoria.** **Decidido: `AuditLog` para `restrito`/`confidencial` e concessões; `PipelineEvent` para o fluxo todo.** Ver abaixo.
 
 ## Referências no repositório
 

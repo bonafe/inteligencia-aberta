@@ -4,6 +4,8 @@ from django.db.models import Index
 from apps.accounts.models import User, Organization
 from apps.federacao.ids import urn_de
 
+from .classificacao_dominio import normalizar_dominio
+
 
 class Artifact(models.Model):
     class Type(models.TextChoices):
@@ -339,3 +341,42 @@ class Comparacao(models.Model):
 
     def __str__(self):
         return f"Comparação({self.artifact_id}) — {self.status} — {len(self.referencias)} seções"
+
+
+class RegraClassificacaoDominio(models.Model):
+    """"Tudo capturado de `dominio` nasce com, no mínimo, o nível `nivel`."
+
+    Por organização (`tenant`), como o resto dos dados. Só sobe o nível, casa por
+    sufixo de rótulo e não reclassifica o que já foi capturado — ver
+    `apps.artifacts.classificacao_dominio`.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    tenant = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="regras_classificacao_dominio")
+    dominio = models.CharField(max_length=253, help_text="Ex.: bancodobrasil.com.br (cobre www., login. etc.)")
+    nivel = models.CharField(max_length=20, choices=Artifact.ClassificationLevel.choices)
+    ativa = models.BooleanField(default=True)
+    criada_por = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    criada_em = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "artifacts_regra_classificacao_dominio"
+        constraints = [
+            models.UniqueConstraint(fields=["tenant", "dominio"], name="uniq_regra_classificacao_tenant_dominio"),
+        ]
+
+    def __str__(self):
+        return f"{self.dominio} → {self.nivel}"
+
+    def clean(self):
+        from django.core.exceptions import ValidationError
+
+        try:
+            self.dominio = normalizar_dominio(self.dominio)
+        except ValueError as exc:
+            raise ValidationError({"dominio": str(exc)})
+
+    def save(self, *args, **kwargs):
+        # Normaliza também fora do admin: o casamento é por igualdade de string.
+        self.dominio = normalizar_dominio(self.dominio)
+        super().save(*args, **kwargs)

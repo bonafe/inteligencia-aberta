@@ -1,7 +1,7 @@
 from django.contrib import admin
 from .models import (
     Artifact, ArtifactLineage, AuditLog, Comparacao, DocumentFragment, DocumentText,
-    EstruturacaoLLM, Sharing, URLPatternCache,
+    EstruturacaoLLM, RegraClassificacaoDominio, Sharing, URLPatternCache,
 )
 
 
@@ -153,3 +153,19 @@ class ComparacaoAdmin(admin.ModelAdmin):
 
     def has_change_permission(self, request, obj=None):
         return False
+
+
+@admin.register(RegraClassificacaoDominio)
+class RegraClassificacaoDominioAdmin(admin.ModelAdmin):
+    """Só sobe o nível, casa por sufixo de rótulo e vale para capturas novas:
+    não reclassifica o que já existe (`apps.artifacts.classificacao_dominio`)."""
+
+    list_display = ("dominio", "nivel", "tenant", "ativa", "criada_por", "criada_em")
+    list_filter = ("nivel", "ativa", "tenant")
+    search_fields = ("dominio",)
+    readonly_fields = ("id", "criada_por", "criada_em")
+
+    def save_model(self, request, obj, form, change):
+        if not change:
+            obj.criada_por = request.user
+        super().save_model(request, obj, form, change)

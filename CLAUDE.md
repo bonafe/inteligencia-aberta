@@ -88,6 +88,8 @@ Extensão Chrome → POST orchestrator:8001/api/v1/capture/mhtml
 - `projecao.py`: `aplicar_evento()`, a única escrita em `PipelineRun`; usada tanto no caminho incremental quanto na reconstrução.
 - `consumers.py`: WebSocket do painel; assina apenas os grupos das organizações do usuário.
 
+**Classificação por domínio** (`apps/artifacts/classificacao_dominio.py`, model `RegraClassificacaoDominio`) — regra "tudo de `dominio.com.br` nasce, no mínimo, nível X", aplicada na criação do artefato em `ArtefatoCreateAPIView`; só sobe o nível, casa por sufixo de rótulo, não reclassifica o existente. Não altera o `policy_engine`.
+
 **`services/portal/apps/federacao/`** — base da federação entre instâncias (ADR 010; só a F0 existe, o resto é desenho em `docs/arquitetura/federacao.md`). `ChaveInstancia` guarda o par Ed25519 da instância com a privada cifrada; `did.py` e `chaves.py` geram o `did:key`, assinam e verificam. `Artifact.blob_hash` (RFC 6920, `ni:`) é a identidade de conteúdo do MHTML, calculada no orchestrator (`conteudo_hash.py`, com cópia em cada serviço). Fora de `apps/cluster` de propósito: cluster é confiança única, federação não.
 
 **Implantação** (ver `docs/deploy.md` e `docs/arquitetura/decisoes/007-implantacao-por-instancia.md`):
