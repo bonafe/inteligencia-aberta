@@ -503,6 +503,19 @@ Só **estrutura**: o espaço agrupa objetos e **não concede acesso a ninguém**
 - **Regra de inclusão:** só artefato da **mesma organização** do espaço entra; a exceção é o objeto `importado`, que mantém o `tenant` de origem e só ganha a associação (decisão P7) — um parâmetro explícito, **ainda sem uso** (não há importação). O admin aplica a regra estrita.
 - **Fora desta etapa:** membros e papéis, acesso por espaço, o motor de regras (que usará o espaço como condição) e eventos assinados.
 
+### Motor de regras de replicação — etapa 2 da F1 (implementado em 2026-10-04)
+
+O motor da ADR 011, **ainda sem nenhum fluxo de envio ligado a ele** (não há envio entre instâncias): é uma **função pura** testada, mais a tabela de regras, o serviço de banco e um comando para simular decisões.
+
+- **`apps/federacao/regras.py` (puro):** `avaliar(regras, contexto, agora)` devolve uma `Decisao` (permitido, motivo, origem `piso`/`regra`/`padrao-negar`, nível efetivo, a regra que decidiu, se era padrão, e as que casaram). Sem banco, sem rede, sem relógio próprio (`agora` entra de fora). Separado do `policy_engine`.
+- **Pisos (só ao *enviar*, a terceiro):** `interno` nunca sai, nem com concessão; `restrito` e `confidencial` só saem por **concessão** — regra de *permitir* **para aquele objeto e aquele par, com validade ainda vigente e ativa**. Uma regra permissiva comum não basta. Rótulo desconhecido vale `confidencial`. Ao *receber* não há pisos.
+- **Precedência:** negar vence (em qualquer ordem), senão permitir, senão **negar por padrão**. Toda condição preenchida precisa bater; as condições são **sentido (enviar/receber), par (nome/chave), tipo de par, nível, tipo de objeto, espaço, objeto e validade**.
+- **`RegraReplicacao`** (por organização; tabela `federacao_regra_replicacao`, migration `federacao.0003`): validada **também fora do admin** (nível, URNs normalizadas, `par_ref` aparado). Regra com `objeto_urn` **exige** `valida_ate` (também por `CHECK` no banco) e, se for *permitir*, um `par_ref`.
+- **Regras padrão**, semeadas por organização (`enviar-proprio-tudo`, `enviar-terceiro-publico`, `receber-proprio-tudo`, `receber-terceiro-tudo`), todas *permitir*. **Desative, não apague** (o admin não deixa apagar): sem `completo`, a semeadura só age se a organização não tem **nenhuma** padrão, então uma desativada não ressurge. A primeira `decidir` de uma organização as semeia.
+- **`apps/federacao/politica.py`:** `decidir`/`decidir_artefato` usam as regras **da organização dona do dado** (as de outra organização não valem); `conceder`/`revogar` (concessão exige validade no futuro e par; revogar desativa e não recolhe cópias); `registrar_decisao`, o rastro da P8: **`PipelineEvent`** `federacao.decisao` para toda decisão e **`AuditLog`** só para `restrito`/`confidencial` (permitidas e bloqueadas), **sem conteúdo**.
+- **`manage.py regras_replicacao`:** `--semear`, `--listar` e `--decidir` (simula e explica "por que isto não vai para o par X?"; **não registra nada**).
+- **Provisório:** o par é um `par_ref` em texto e um `par_tipo`; o cadastro de pares (`Par`) ainda não existe.
+
 ## 15. Fora de escopo deste documento
 
 Replicação de infraestrutura (Cenário A), roteamento de LLM entre nós (já em `apps/cluster/` e ADR 009), e qualquer implementação. Nenhuma alteração de código foi feita junto com esta análise.

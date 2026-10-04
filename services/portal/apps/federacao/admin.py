@@ -34,3 +34,26 @@ class SpaceAdmin(admin.ModelAdmin):
         formset.save_m2m()
         for removido in formset.deleted_objects:
             removido.delete()
+
+
+from .models import RegraReplicacao  # noqa: E402
+
+
+@admin.register(RegraReplicacao)
+class RegraReplicacaoAdmin(admin.ModelAdmin):
+    """Regras do motor de replicação (ADR 011). **Negar vence**, sem prioridade. As padrão
+    se **desativam, não se apagam**. Uma regra com objeto (concessão) exige validade e par."""
+
+    list_display = ("efeito", "sentido", "organizacao", "par_ref", "par_tipo", "nivel", "tipo_objeto",
+                    "espaco_urn", "objeto_urn", "valida_ate", "ativa", "padrao")
+    list_filter = ("efeito", "sentido", "ativa", "padrao", "organizacao")
+    search_fields = ("par_ref", "objeto_urn", "espaco_urn", "observacao")
+    readonly_fields = ("id", "padrao", "chave_padrao", "revogada_em", "criada_por", "criada_em")
+
+    def has_delete_permission(self, request, obj=None):
+        return obj is None or not obj.padrao
+
+    def save_model(self, request, obj, form, change):
+        if not change:
+            obj.criada_por = request.user
+        super().save_model(request, obj, form, change)

@@ -88,6 +88,8 @@ Extensão Chrome → POST orchestrator:8001/api/v1/capture/mhtml
 - `projecao.py`: `aplicar_evento()`, a única escrita em `PipelineRun`; usada tanto no caminho incremental quanto na reconstrução.
 - `consumers.py`: WebSocket do painel; assina apenas os grupos das organizações do usuário.
 
+**Motor de regras de replicação** (`apps/federacao/regras.py` puro, `politica.py` com o banco, model `RegraReplicacao`) — decide enviar/receber um objeto a/de um par: pisos não editáveis, regras com "negar vence" e negação por padrão. **Ainda não ligado a nenhum envio.** Não toca o `policy_engine`. Regras padrão se desativam, não se apagam.
+
 **Espaços** (`apps/federacao/espacos.py`, models `Space` e `EspacoArtefato`) — agrupam artefatos; um artefato pode estar em vários. Cada organização tem um **espaço padrão implícito, sem linha no banco** (ID derivado por `uuid5`). Por ora só estrutura: **não concedem acesso** (segue por organização) e não têm membros. Ver ADR 010/011.
 
 **Alegações** (`apps/artifacts/alegacoes.py`, models `Claim` e `Evidence`) — o que uma fonte *diz*, separado do que o sistema *sabe*. Imutáveis, nascem sempre com evidência pelo serviço único `registrar_alegacao` (nunca criar `Claim` direto). Primeiro produtor: JSON-LD via `extractors/claims_extruct.py`, na etapa `extracao.alegacoes`. Ver ADR 010 e `docs/arquitetura/federacao.md`.

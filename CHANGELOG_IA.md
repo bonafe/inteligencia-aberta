@@ -13,6 +13,21 @@ Este arquivo documenta as alterações, configurações e implementações feita
 
 **Falta da F0:** `Claim`/`Evidence` como conceitos de domínio (precisa de conversa de modelagem antes). Com isso a F0 fecha: hash do MHTML (feito), ID global (feito), chave Ed25519 da instância (feito).
 
+## [04-10-2026] - F1, etapa 2: motor de regras de replicação (ADR 011)
+
+**Escopo (decidido com o usuário):** implementar direto o motor puro com os testes dos pisos e da precedência, mais a tabela de regras. **Não está ligado a nenhum fluxo de envio** — não existe envio entre instâncias ainda.
+
+**O que foi implementado:**
+- **`apps/federacao/regras.py`**, função pura: pisos (`interno` nunca sai a terceiro; `restrito`/`confidencial` só por concessão — regra de *permitir* para aquele objeto e par, com validade vigente; rótulo desconhecido = `confidencial`), "negar vence", negação por padrão; a `Decisao` traz a regra que decidiu e as que casaram. Pisos só ao enviar.
+- **`RegraReplicacao`** (migration `federacao.0003`), por organização, validada também fora do admin; regra com objeto exige validade (também `CHECK` no banco) e, sendo *permitir*, um par.
+- **`apps/federacao/politica.py`:** regras padrão semeadas por organização (4, todas *permitir*; desativar, não apagar; não ressurgem sozinhas), `decidir`/`decidir_artefato` com as regras da organização dona do dado, `conceder`/`revogar`, e `registrar_decisao` (`PipelineEvent` `federacao.decisao` para toda decisão; `AuditLog` só para `restrito`/`confidencial`; sem conteúdo).
+- **Admin** (`RegraReplicacaoAdmin`; regra padrão não se apaga) e **`manage.py regras_replicacao`** (`--semear`, `--listar`, `--decidir` para simular e explicar).
+- Testes: `tests/test_federacao_regras.py` (62, incluindo o cenário dos dois notebooks e a ordem das regras embaralhada); suíte completa com 404 passando. Documentado em `federacao.md`, `observabilidade.md` e `CLAUDE.md`.
+
+**Limites conhecidos:** nada chama o motor ainda; o par é um texto (`par_ref`) e um tipo, sem o cadastro `Par`; `decidir` carrega todas as regras ativas da organização a cada chamada (um envio em lote deveria carregá-las uma vez); a primeira `decidir` de uma organização escreve as regras padrão no banco, até em simulação; não há tela no portal, só o admin; a condição de domínio de origem não existe (decidido: a classificação por domínio cobre); o motor não decide o que fazer com o que se recebe (`quarentena`/`alegação` é a confiança do `Par`, ainda inexistente).
+
+**Próximo na F1:** `Par` fundido com `Maquina` e o enrolamento; depois ligar o motor ao pacote offline (F1b).
+
 ## [04-10-2026] - F1, etapa 1: `Space` (só estrutura)
 
 **Decidido com o usuário:** (1) o `Space` é só estrutura — **não concede acesso** (continua por organização, em 12+ pontos das views) e **não tem membros** ainda; (2) o **espaço padrão de cada organização é implícito, sem linhas**.
