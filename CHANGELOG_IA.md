@@ -2,6 +2,22 @@
 
 Este arquivo documenta as alterações, configurações e implementações feitas por IAs (agentes) neste repositório. O objetivo é manter um histórico unificado e transparente sobre o estado do desenvolvimento, facilitando o onboarding de novas IAs e humanos na base de código.
 
+## [04-10-2026] - F0 da federação, passo 2: chave Ed25519 da instância (ADR 010)
+
+**Contexto e motivação:**
+- Segundo item da F0: a instância precisa de um par de chaves para, mais adiante, assinar o log de eventos federados. Pela decisão 6 da ADR 010, vive num **app novo**, `apps/federacao`, separado de `apps/cluster`.
+
+**O que foi implementado:**
+- **`apps/federacao/did.py`:** `did:key` Ed25519 (multicodec `0xed01` + base58btc), sem dependências além da stdlib. Verificado contra o `did:key` conhecido da chave pública do vetor 1 da RFC 8032 e contra o exemplo do W3C.
+- **`ChaveInstancia`** (`federacao_chave_instancia`): `did` (contém a pública, por isso não há campo à parte), `privada_cifrada` (semente de 32 bytes, Fernet de `apps.infrastructure.crypto`), `estado` (ativa/aposentada/comprometida), `criada_em`. Restrição parcial: no máximo **uma** chave `ativa`. Migration `federacao.0001`.
+- **`chaves.py`:** `garantir_chave_ativa()` (idempotente; a corrida é resolvida pela restrição e o perdedor relê), `ChaveInstancia.assinar()`, `verificar_assinatura(did, msg, assinatura)` (só com o DID; nunca levanta).
+- **`manage.py chave_instancia [--criar]`:** mostra o `did:key`; a privada nunca é exibida. **`bootstrap_instancia`** ganhou o passo 4/4 (cria a chave se faltar; idempotente).
+- Testes: `tests/test_federacao_chave.py` (24); suíte completa com 180 passando. Chave criada no banco de desenvolvimento.
+
+**Limites conhecidos (por desenho, ver ADR 010):** a privada está no servidor, cifrada com a chave derivada de `DJANGO_SECRET_KEY` (ou `FIELD_ENCRYPTION_KEY`); **trocar `DJANGO_SECRET_KEY` sem definir `FIELD_ENCRYPTION_KEY` torna a chave ilegível** (`ChaveIlegivel`) — em produção, fixar `FIELD_ENCRYPTION_KEY`. Não há rotação nem eventos `key.*` (dependem do log de eventos, F2); a criação da chave ainda não gera evento nem entrada de auditoria. O `did` não é exposto por HTTP (nenhum `/.well-known` ainda). Instâncias existentes: rodar `bootstrap_instancia` ou `chave_instancia --criar` após aplicar a migration.
+
+**Falta da F0:** ID global e `Claim`/`Evidence` como conceitos de domínio.
+
 ## [04-10-2026] - F0 da federação, passo 1: hash de conteúdo do MHTML (ADR 010)
 
 **Contexto e motivação:**

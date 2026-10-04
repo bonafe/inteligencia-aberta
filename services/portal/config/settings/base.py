@@ -40,6 +40,7 @@ INSTALLED_APPS = [
     "apps.infrastructure.apps.InfrastructureConfig",
     "apps.events.apps.EventsConfig",
     "apps.cluster.apps.ClusterConfig",
+    "apps.federacao.apps.FederacaoConfig",
 ]
 
 MIDDLEWARE = [

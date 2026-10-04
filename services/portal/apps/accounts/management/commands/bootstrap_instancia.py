@@ -8,7 +8,8 @@ altera nada):
 1. aplica as migrations;
 2. cria os buckets do Garage (S3) que faltarem;
 3. cria o superusuário a partir de DJANGO_SUPERUSER_USERNAME / _EMAIL / _PASSWORD,
-   com sua organização pessoal, SOMENTE se ainda não existir nenhum usuário.
+   com sua organização pessoal, SOMENTE se ainda não existir nenhum usuário;
+4. gera a chave Ed25519 da instância (ADR 010), se ainda não existir.
 
 O passo 3 só olha para "existe algum usuário": uma vez que a instância tem dono,
 mudar as variáveis não cria nem altera ninguém. Também é ele que evita a corrida
@@ -34,14 +35,17 @@ class Command(BaseCommand):
     help = "Migrations, buckets do Garage (S3) e superusuário inicial (idempotente)."
 
     def handle(self, *args, **options):
-        self.stdout.write("1/3 migrations")
+        self.stdout.write("1/4 migrations")
         call_command("migrate", interactive=False, verbosity=0)
 
-        self.stdout.write("2/3 buckets do Garage (S3)")
+        self.stdout.write("2/4 buckets do Garage (S3)")
         self._buckets()
 
-        self.stdout.write("3/3 superusuário")
+        self.stdout.write("3/4 superusuário")
         self._superusuario()
+
+        self.stdout.write("4/4 chave da instância")
+        self._chave_da_instancia()
         self.stdout.write(self.style.SUCCESS("Instância pronta."))
 
     def _buckets(self):
@@ -57,6 +61,12 @@ class Command(BaseCommand):
             else:
                 client.make_bucket(nome)
                 self.stdout.write(f"  {nome}: criado")
+
+    def _chave_da_instancia(self):
+        from apps.federacao.chaves import garantir_chave_ativa
+
+        chave, criada = garantir_chave_ativa()
+        self.stdout.write(f"  {chave.did}{'  (criada agora)' if criada else ''}")
 
     def _superusuario(self):
         User = get_user_model()
