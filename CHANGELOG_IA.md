@@ -13,6 +13,26 @@ Este arquivo documenta as alterações, configurações e implementações feita
 
 **Falta da F0:** `Claim`/`Evidence` como conceitos de domínio (precisa de conversa de modelagem antes). Com isso a F0 fecha: hash do MHTML (feito), ID global (feito), chave Ed25519 da instância (feito).
 
+## [04-10-2026] - `Claim` e `Evidence` implementados, com o produtor `extruct` (fecha a F0)
+
+**O que foi implementado** (decisões da entrada abaixo):
+- **Modelos `Claim` e `Evidence`** (migration `artifacts.0017`). `Claim`: sujeito, predicado, objeto (referência **ou** literal, garantido por `CHECK`), autor, produtor e versão, modelo, `extractor_confidence` (`CHECK` em [0, 1]), classificação herdada do artefato, estado (ativa/retratada), `revisa` e `chave`. `Evidence`: `blob_hash` (`ni:`), tipo e valor do localizador e trecho de até 500 caracteres. Imutáveis no modelo (só `estado`/`retratada_em` mudam; `delete()` recusado; `Artifact` com alegações é `PROTECT`).
+- **`apps/artifacts/alegacoes.py`:** `registrar_alegacao` (valida tudo antes de gravar; alegação e evidências numa transação; idempotente por `(artefato, chave)`; resolve corrida por `IntegrityError`), `retratar`, `truncar_trecho`. **`referencias.py`:** referências tipadas `urn:uuid:`, `cnpj:` (DV validado), `url:`, `dominio:`, `mencao:`.
+- **`extractors/claims_extruct.py`:** primeiro produtor, só JSON-LD, lista curta e explícita de tipos/propriedades (organização, pessoa, artigo); relações `author`, `publisher` e `worksFor`; sujeito = CNPJ válido > URL > menção ancorada no blob; autor = domínio da captura. Ligado à extração como a etapa `extracao.alegacoes` (`ok`/`vazio`), **sem nunca derrubá-la**; calcula e grava `blob_hash` se o artefato não o tinha.
+- Documentado em `federacao.md` e `observabilidade.md`; `CLAUDE.md` ganhou o parágrafo. Testes: `tests/test_claims.py` (64, incluindo a task de extração ponta a ponta com S3 e detecção falsos); suíte completa com 315 passando.
+
+**Limites conhecidos:** **não há bloqueio de `UPDATE`/`DELETE` direto no banco** (só no modelo); só JSON-LD gera alegações (microdata e OpenGraph não); o perfil de empresa e as partes do processo ainda **não** geram alegações (exigem localizador nos extratores); o trecho é a representação JSON do valor declarado, não texto literal da página; entidades continuam não existindo (referências tipadas, sem resolução); capturas anteriores só ganham alegações se forem reprocessadas (`reprocessar_captura --forcar`); a tela do visualizador não mostra alegações; nenhum evento federado é emitido (não existe o log ainda).
+
+**Estado da F0:** hash do MHTML, chave Ed25519 da instância, ID `urn:uuid:` e `Claim`/`Evidence` — **todos implementados**. Próximo: F1 (`Space`, `Par` + `Maquina`, motor de regras).
+
+## [04-10-2026] - Federação: `Claim` e `Evidence` decididos (só documento)
+
+**Levantamento no código:** não existe alegação como objeto; quatro extratores gravam blocos de dados no `DocumentText` (`structured_data`, o vencedor, é sempre `None`); nada cria `Artifact` de pessoa/empresa; nenhum extrator registra a origem do valor na página (exceto o `ParserSpec` do `dom2parser`); sem autoria nem confiança por item.
+
+**Decidido (subseção "`Claim` e `Evidence`" de `federacao.md`):** `Claim` (sujeito/objeto por identificador tipado, predicado, autor da alegação, artefato de origem, produtor, `extractor_confidence` nula, classificação herdada, estado ativa/retratada, revisão opcional) e `Evidence` (hash `ni:` do blob, localizador, trecho citado de até 500 caracteres sob a classificação do objeto); alegação nunca se edita e nasce sempre com evidência, numa transação; `info_type` do artefato não muda; granularidade por atributo/relação de entidade e **não** por linha de tabela; entidades não são criadas ainda; **primeiro produtor: `extruct`**; em `apps/artifacts`.
+
+**Pendente:** implementar; o perfil de empresa e as partes do processo exigem que os extratores registrem localizador. Nenhum código alterado. Com isso a F0 só falta de código: hash, chave e ID prontos; `Claim`/`Evidence` decididos.
+
 ## [04-10-2026] - ADR 011: política de replicação (só documento)
 
 - Escrita `docs/arquitetura/decisoes/011-politica-de-replicacao.md`, consolidando as decisões P1–P8 da seção 16 de `federacao.md` (motor de regras em três camadas com "negar vence", interseção emissor × receptor, tudo é regra, `Par` fundido com `Maquina` e enrolamento por convite com impressão digital, tipo × confiança, o que replica e o que não replica, organização por espaço, auditoria em `AuditLog`/`PipelineEvent`) e a classificação por domínio. O status registra o que já está implementado (classificação por domínio, remoção do `compute`) e o que não está.

@@ -1,6 +1,6 @@
 import uuid
 from django.db import models
-from django.db.models import Index
+from django.db.models import Index, Q
 from apps.accounts.models import User, Organization
 from apps.federacao.ids import urn_de
 
@@ -380,3 +380,113 @@ class RegraClassificacaoDominio(models.Model):
         # Normaliza também fora do admin: o casamento é por igualdade de string.
         self.dominio = normalizar_dominio(self.dominio)
         super().save(*args, **kwargs)
+
+
+class Claim(models.Model):
+    """Alegação: "`autor_ref` afirma que `sujeito_ref` `predicado` `objeto`".
+
+    Separa o que uma fonte **diz** do que o sistema **sabe**: nada aqui afirma que
+    é verdade. Imutável — só `estado` (e `retratada_em`) muda, pela retratação; uma
+    correção é outra alegação com `revisa` apontando para a anterior, e a antiga
+    permanece. Nasce sempre com ao menos uma `Evidence`, criada na mesma transação
+    por `apps.artifacts.alegacoes.registrar_alegacao` (o único caminho a usar).
+
+    Sujeito, objeto e autor são referências tipadas (`apps.artifacts.referencias`):
+    as entidades ainda não existem como objetos. O objeto é uma referência **ou**
+    um valor literal, nunca os dois. `chave` torna o registro idempotente: refazer a
+    mesma extração com o mesmo produtor não duplica a alegação.
+    """
+
+    class Estado(models.TextChoices):
+        ATIVA = "ativa", "Ativa"
+        RETRATADA = "retratada", "Retratada"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    tenant = models.ForeignKey(Organization, on_delete=models.PROTECT, related_name="alegacoes")
+    artefato = models.ForeignKey(Artifact, on_delete=models.PROTECT, related_name="alegacoes")
+    sujeito_ref = models.CharField(max_length=500, db_index=True)
+    predicado = models.CharField(max_length=100, db_index=True)
+    objeto_ref = models.CharField(max_length=500, null=True, blank=True)
+    objeto_literal = models.TextField(null=True, blank=True)
+    autor_ref = models.CharField(max_length=500)
+    produtor = models.CharField(max_length=100)
+    produtor_versao = models.CharField(max_length=100)
+    modelo = models.CharField(max_length=255, blank=True)
+    extractor_confidence = models.FloatField(null=True, blank=True)
+    classification_level = models.CharField(max_length=20, choices=Artifact.ClassificationLevel.choices)
+    estado = models.CharField(max_length=20, choices=Estado.choices, default=Estado.ATIVA)
+    retratada_em = models.DateTimeField(null=True, blank=True)
+    revisa = models.ForeignKey("self", null=True, blank=True, on_delete=models.PROTECT, related_name="revisoes")
+    chave = models.CharField(max_length=64)
+    criada_em = models.DateTimeField(auto_now_add=True)
+
+    #: Únicos campos que podem mudar depois de criada.
+    CAMPOS_MUTAVEIS = frozenset({"estado", "retratada_em"})
+
+    class Meta:
+        db_table = "artifacts_claim"
+        constraints = [
+            models.UniqueConstraint(fields=["artefato", "chave"], name="uniq_claim_artefato_chave"),
+            models.CheckConstraint(
+                check=(
+                    Q(objeto_ref__isnull=False, objeto_literal__isnull=True)
+                    | Q(objeto_ref__isnull=True, objeto_literal__isnull=False)
+                ),
+                name="claim_objeto_ref_xor_literal",
+            ),
+            models.CheckConstraint(
+                check=Q(extractor_confidence__isnull=True)
+                | Q(extractor_confidence__gte=0, extractor_confidence__lte=1),
+                name="claim_confianca_entre_0_e_1",
+            ),
+        ]
+
+    def __str__(self):
+        objeto = self.objeto_ref if self.objeto_ref is not None else repr(self.objeto_literal)
+        return f"{self.sujeito_ref} {self.predicado} {objeto}"
+
+    @property
+    def urn(self) -> str:
+        return urn_de(self.id)
+
+    def save(self, *args, **kwargs):
+        if not self._state.adding:
+            campos = kwargs.get("update_fields")
+            if campos is None or not set(campos) <= self.CAMPOS_MUTAVEIS:
+                raise ValueError("Alegação é imutável; só o estado muda (use alegacoes.retratar).")
+        super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValueError("Alegação não se apaga; retrate-a (alegacoes.retratar).")
+
+
+class Evidence(models.Model):
+    """O ponteiro de uma `Claim` até a fonte: de onde, em qual blob, e o trecho.
+
+    `trecho` é conteúdo da página e fica **sob a classificação da alegação**
+    (limite de `TRECHO_MAXIMO` caracteres). Imutável, como a alegação.
+    """
+
+    TRECHO_MAXIMO = 500
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    claim = models.ForeignKey(Claim, on_delete=models.CASCADE, related_name="evidencias")
+    blob_hash = models.CharField(max_length=100, db_index=True)
+    localizador_tipo = models.CharField(max_length=50)
+    localizador = models.JSONField(default=dict)
+    trecho = models.CharField(max_length=TRECHO_MAXIMO, blank=True)
+    criada_em = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "artifacts_evidence"
+
+    def __str__(self):
+        return f"{self.localizador_tipo} em {self.blob_hash}"
+
+    def save(self, *args, **kwargs):
+        if not self._state.adding:
+            raise ValueError("Evidência é imutável.")
+        super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValueError("Evidência não se apaga.")

@@ -445,6 +445,27 @@ def extract_text_from_mhtml(self, artifact_id: str, forcar: bool = False):
         word_count=len(text.split()),
     )
 
+    # Alegações (ADR 010): o que o site declara em JSON-LD vira `Claim` com
+    # `Evidence`. Nunca derruba a extração — o DocumentText já está gravado.
+    try:
+        from config.conteudo_hash import hash_ni
+
+        from .extractors import claims_extruct
+        with etapa("extracao.alegacoes", subject_type="artifact", subject_id=artifact.id,
+                   tenant_id=tenant_id) as e:
+            blob_hash = artifact.blob_hash or hash_ni(mhtml_bytes)
+            if not artifact.blob_hash:
+                artifact.blob_hash = blob_hash
+                artifact.save(update_fields=["blob_hash"])
+            contagem_alegacoes = claims_extruct.registrar(artifact, dados_estruturados_extruct, blob_hash)
+            if contagem_alegacoes.total:
+                e.ok(f"{contagem_alegacoes.criadas} alegação(ões) nova(s), "
+                     f"{contagem_alegacoes.existentes} já existente(s)", **contagem_alegacoes.como_dict())
+            else:
+                e.vazio("nenhuma alegação a partir do JSON-LD", **contagem_alegacoes.como_dict())
+    except Exception:
+        logger.exception("[%s] registro de alegações falhou — seguindo sem elas", artifact_id)
+
     evento("extracao.concluida", "ok",
            message=f"DocumentText criado ({doc_text.word_count} palavras)",
            payload={"document_text_id": str(doc_text.id),

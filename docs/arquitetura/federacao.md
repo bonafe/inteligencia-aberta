@@ -465,6 +465,34 @@ O que se repassa continua sujeito aos pisos e às regras, e o nível do objeto v
 - O registro **nunca guarda conteúdo**, só identificadores.
 - O motor fica num **ponto único**, sucessor de `eventos_para_peer`.
 
+### `Claim` e `Evidence` (decidido em 2026-10-04, último item da F0)
+
+**Ponto de partida (levantado no código):** hoje **não existe nenhuma alegação como objeto**. Quatro extratores rodam em toda captura e gravam blocos de dados no `DocumentText` (`dados_estruturados_deterministico`, `_dom2parser`, `_extruct`, e a `EstruturacaoLLM` manual); `structured_data` (o campo vencedor) fica sempre `None`; nada cria `Artifact` de tipo pessoa ou empresa; nenhum extrator registra de onde na página veio o valor (a exceção é o `ParserSpec` do `dom2parser`, com localizador por campo); não há autoria nem confiança por item.
+
+**Modelo**
+
+- **`Claim`** (ID global `urn:uuid:` do próprio PK): sujeito e objeto (referência a uma entidade ou **identificador tipado**, como `cnpj:...`), predicado (propriedade do Schema.org ou do `ia:`), **autor da alegação** (quem afirma, ex.: o site ou o publicador), artefato de origem, **produtor** (extrator, versão e, se for LLM, o modelo), `extractor_confidence` (pode ser nula), nível de classificação herdado do artefato, estado (ativa ou retratada) e ligação opcional à alegação que ela revisa.
+- **`Evidence`**: o ponteiro até a fonte — hash do blob (`ni:`), tipo e valor do localizador (seletor, tabela/linha/coluna, deslocamento no texto ou posição em JSON-LD) e um **trecho citado curto**.
+- **Invariantes:** nenhuma alegação nasce sem evidência (criadas juntas, numa transação, por um serviço único); alegação **nunca se edita** — a correção cria outra e a antiga permanece (`prov:wasRevisionOf`); a retratação é um estado, não um apagamento.
+- **`Artifact.info_type` não muda:** "fato" ali significa só "a captura aconteceu e a página mostrava isso". A alegação é separada da entidade e do fato.
+- **Onde:** `apps/artifacts`. O envio como evento assinado e o mapeamento JSON-LD ficam para a F1/F2; nesta fase as tabelas são o registro primário e viram projeção do log depois.
+
+**As quatro decisões**
+
+1. **Granularidade:** uma alegação por **atributo ou relação de uma entidade** (o CNPJ de uma empresa, as partes de um processo), **não por linha de tabela**. Tabelas seguem como dado, com uma evidência no nível da tabela (coerente com o roteamento por `page_type`).
+2. **Evidência com trecho literal:** o trecho citado (limite sugerido de **500 caracteres**) é conteúdo da página e fica no banco **sob a classificação do objeto**. É o que torna a evidência verificável.
+3. **Sujeito e objeto sem criar entidades ainda:** referências por identificador tipado; a resolução de entidades e o `sameAs` ficam para o correlacionador.
+4. **Primeiro produtor: o `extruct`** (dados declarados pelo publicador, autoria clara, localizador simples como `json-ld[n]`), para o modelo ser exercitado de verdade. O perfil de empresa e as partes do processo exigem alterar os extratores para registrarem o localizador, e ficam para depois.
+
+**Implementado em 2026-10-04** (`apps/artifacts/alegacoes.py`, `referencias.py`, `extractors/claims_extruct.py`; modelos `Claim` e `Evidence`, migration `artifacts.0017`):
+
+- **Serviço único** `registrar_alegacao`: valida tudo antes de gravar e cria a alegação com as evidências numa transação. **Idempotente** por `(artefato, chave)`, onde a chave é o hash de sujeito, predicado, objeto, autor, produtor e versão: reprocessar com o mesmo produtor não duplica; uma versão nova do produtor gera alegações novas e as antigas permanecem.
+- **Imutabilidade no modelo:** só `estado` e `retratada_em` mudam; `delete()` é recusado; `Artifact` com alegações não pode ser apagado (`PROTECT`). O banco garante por `CHECK` que o objeto é uma referência **ou** um literal e que a confiança fica em [0, 1]. **Não há bloqueio de `UPDATE` direto no banco** (um `QuerySet.update()` ou SQL ainda altera): é proteção do modelo, não do banco.
+- **Referências tipadas:** `urn:uuid:`, `cnpj:` (14 dígitos com DV válido), `url:`, `dominio:` e `mencao:ni:…#localizador`.
+- **Produtor `extruct`:** só JSON-LD. Tipos e propriedades de uma lista curta e explícita (organização, pessoa e artigo; pessoa **sem** e-mail nem data de nascimento). O sujeito é o CNPJ válido, senão a URL, senão uma menção ancorada no blob; o autor é o domínio da captura (sem `www.`). Roda como a etapa `extracao.alegacoes` da extração, **sem nunca derrubá-la**; se o artefato ainda não tinha `blob_hash`, a etapa o calcula e grava.
+
+**Confiança:** só `extractor_confidence` por enquanto; as demais dimensões da seção 5 (confiabilidade da fonte, corroboração, revisão humana) são calculadas localmente depois.
+
 ## 15. Fora de escopo deste documento
 
 Replicação de infraestrutura (Cenário A), roteamento de LLM entre nós (já em `apps/cluster/` e ADR 009), e qualquer implementação. Nenhuma alteração de código foi feita junto com esta análise.
