@@ -13,6 +13,12 @@ Este arquivo documenta as alterações, configurações e implementações feita
 
 **Falta da F0:** `Claim`/`Evidence` como conceitos de domínio (precisa de conversa de modelagem antes). Com isso a F0 fecha: hash do MHTML (feito), ID global (feito), chave Ed25519 da instância (feito).
 
+## [04-10-2026] - ADR 011: política de replicação (só documento)
+
+- Escrita `docs/arquitetura/decisoes/011-politica-de-replicacao.md`, consolidando as decisões P1–P8 da seção 16 de `federacao.md` (motor de regras em três camadas com "negar vence", interseção emissor × receptor, tudo é regra, `Par` fundido com `Maquina` e enrolamento por convite com impressão digital, tipo × confiança, o que replica e o que não replica, organização por espaço, auditoria em `AuditLog`/`PipelineEvent`) e a classificação por domínio. O status registra o que já está implementado (classificação por domínio, remoção do `compute`) e o que não está.
+- **Consequência que a ADR torna explícita:** sem identidade de organização entre instâncias, `interno` nunca sai e um colega de equipe com instância própria é terceiro (só `público` ou concessões). Outras consequências: "próprio" é atestação humana; revogar não recolhe cópias; o espelho entrega `confidencial` a todas as máquinas próprias por padrão.
+- Ponteiros acrescentados em `federacao.md`, na emenda da ADR 010 e na contagem de ADRs do `CLAUDE.md`. Nenhum código alterado.
+
 ## [04-10-2026] - Classificação por domínio de origem na captura
 
 **Contexto:** o usuário quer que tudo capturado de `bancodobrasil.com.br` nasça `confidencial`. Até aqui o nível vinha de um seletor global no popup da extensão (padrão `restrito`), igual para todas as capturas. É útil por si só, sem federação, e depois alimenta as regras de replicação (o nível viaja com o objeto).

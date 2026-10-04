@@ -50,7 +50,7 @@ O que existe hoje e condiciona a decisão:
 
 ## Emenda de 2026-10-04: replicação entre máquinas do mesmo dono
 
-Esta ADR separava o cluster (A) da federação (B), mantendo no cluster a replicação entre máquinas do mesmo dono. **Foi revista:** as suas outras máquinas replicam **pelo mesmo mecanismo da federação** (par de nível "próprio", espaço próprio, política "tudo"). O `EventoReplicacao` fica superado e o `apps/cluster` mantém só o heartbeat e o roteamento de LLM (ADR 009). A topologia `compute` (várias máquinas sobre um banco compartilhado) foi **removida** em 2026-10-04: o dono não a usava, e toda máquina passa a ser uma instância completa. Detalhes e decisões pendentes em `docs/arquitetura/federacao.md`, seção 16.
+Esta ADR separava o cluster (A) da federação (B), mantendo no cluster a replicação entre máquinas do mesmo dono. **Foi revista:** as suas outras máquinas replicam **pelo mesmo mecanismo da federação** (par de nível "próprio", espaço próprio, política "tudo"). O `EventoReplicacao` fica superado e o `apps/cluster` mantém só o heartbeat e o roteamento de LLM (ADR 009). A topologia `compute` (várias máquinas sobre um banco compartilhado) foi **removida** em 2026-10-04: o dono não a usava, e toda máquina passa a ser uma instância completa. A política de replicação (regras, pares, confiança, auditoria) está na [ADR 011](011-politica-de-replicacao.md); o raciocínio completo, em `docs/arquitetura/federacao.md`, seção 16.
 
 ## Alternativas consideradas
 

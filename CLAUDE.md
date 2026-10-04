@@ -136,7 +136,7 @@ A pasta `docs/` contém ~2 400 linhas de especificação:
 
 - `docs/roadmap.md` — 6 fases; fase 0 (MVP local) ainda em implementação
 - `docs/arquitetura/visao-geral.md` — visão de 5 camadas e fluxos de dados
-- `docs/arquitetura/decisoes/` — 9 ADRs explicando escolhas de MCP, containers, LLM local, voz, log de eventos, cluster multi-máquina, implantação por instância, armazenamento S3 (Garage) e Ollama como capacidade do nó
+- `docs/arquitetura/decisoes/` — 11 ADRs explicando escolhas de MCP, containers, LLM local, voz, log de eventos, cluster multi-máquina, implantação por instância, armazenamento S3 (Garage), Ollama como capacidade do nó, federação por log assinado (010) e política de replicação (011)
 - `docs/componentes/agentes/` — spec detalhada de cada agente (planejador, coletor, extrator, correlacionador, validador, analista, redator)
 - `docs/seguranca/classificacao.md` — regras completas do motor de política
 - `docs/arquitetura/federacao.md` — **proposta em discussão** (não implementada): federação entre instâncias, espaços, JSON-LD/PROV-O, identidade, roadmap e decisões pendentes

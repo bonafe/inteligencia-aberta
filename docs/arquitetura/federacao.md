@@ -1,6 +1,6 @@
 # Federação entre instâncias — análise arquitetural
 
-**Status:** análise de 2026-10-03; as oito decisões da seção 14 foram fechadas em 2026-10-04 e consolidadas na [ADR 010](decisoes/010-federacao-por-log-assinado.md). **Nada aqui está implementado.** Onde o texto original divergir das decisões registradas (seção 14 e subseções ao final), valem as decisões e a ADR.
+**Status:** análise de 2026-10-03; as oito decisões da seção 14 foram fechadas em 2026-10-04 e consolidadas na [ADR 010](decisoes/010-federacao-por-log-assinado.md); a política de replicação (seção 16) está na [ADR 011](decisoes/011-politica-de-replicacao.md). **Nada aqui está implementado.** Onde o texto original divergir das decisões registradas (seção 14 e subseções ao final), valem as decisões e a ADR.
 
 **Aviso de método:** a avaliação dos padrões externos (seção 4) foi feita com conhecimento prévio, sem consulta à web. O estado de RDF 1.2/RDF-star, de ferramentas JSON-LD e de métodos DID deve ser reconferido antes de qualquer decisão que dependa deles.
 
