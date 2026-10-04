@@ -143,3 +143,82 @@ def verificar_resposta(corpo: bytes, nonce_requisicao: str, did_esperado: str, a
         raise AssinaturaInvalida("resposta") from None
     if not verificar_assinatura(did_esperado, _mensagem_resposta(nonce_requisicao, did_esperado, corpo), assinatura):
         raise AssinaturaInvalida("resposta")
+
+
+# ── cliente: chamar um par ──────────────────────────────────────────────────
+
+import json as _json
+from dataclasses import dataclass as _dataclass
+
+import requests as _requests
+
+from .endpoints import validar_endpoint
+
+LIMITE_RESPOSTA = 262144   # 256 KB: inventário de modelos cabe folgado
+
+
+class ParInacessivel(Exception):
+    """Não foi possível falar com o par (rede, tempo esgotado, endereço recusado)."""
+
+
+class RespostaInvalida(Exception):
+    """O par respondeu, mas a resposta não é confiável (assinatura, tamanho ou formato)."""
+
+
+@_dataclass(frozen=True)
+class RespostaPar:
+    status: int
+    json: dict
+    assinada: bool
+
+
+def _transporte_http(metodo, url, corpo, headers, timeout):
+    """Uma requisição HTTP sem seguir redirects e com a resposta limitada em tamanho."""
+    try:
+        resposta = _requests.request(metodo, url, data=corpo or None, headers=headers, timeout=timeout,
+                                     allow_redirects=False, stream=True)
+        conteudo = resposta.raw.read(LIMITE_RESPOSTA + 1, decode_content=True)
+    except _requests.RequestException as exc:
+        raise ParInacessivel(type(exc).__name__) from None
+    if len(conteudo) > LIMITE_RESPOSTA:
+        raise RespostaInvalida("resposta grande demais")
+    return resposta.status_code, conteudo, resposta.headers
+
+
+def chamar_par(par, metodo: str, caminho: str, corpo: dict | None = None, *, ator: dict | None = None,
+               chave=None, timeout: float = 8.0, transporte=None) -> RespostaPar:
+    """Chama o canal assinado de um par e verifica a assinatura da resposta.
+
+    - o endereço é **revalidado** a cada chamada (anti-SSRF) e redirects **não** são seguidos;
+    - `ator` (usuário e papel afirmados) vai dentro do corpo assinado; é o receptor que decide o que fazer dele;
+    - `ParInacessivel` para rede/tempo esgotado; `RespostaInvalida` se uma resposta 2xx **não** vier assinada
+      pelo DID cadastrado do par (um intermediário não consegue se passar por ele).
+    """
+    if not par.did or not par.endpoint_controle:
+        raise ParInacessivel("par sem endereço ou DID")
+    try:
+        base = validar_endpoint(par.endpoint_controle)
+    except ValueError:
+        raise ParInacessivel("endereço do par recusado") from None
+    payload = dict(corpo or {})
+    if ator is not None:
+        payload["ator"] = ator
+    bruto = _json.dumps(payload, separators=(",", ":")).encode() if (payload or metodo.upper() != "GET") else b""
+    headers = assinar_requisicao(metodo, caminho, bruto, par.did, chave=chave)
+    if bruto:
+        headers["Content-Type"] = "application/json"
+    status, conteudo, cabecalhos = (transporte or _transporte_http)(metodo.upper(), base + caminho, bruto, headers, timeout)
+    assinada = False
+    if 200 <= status < 300:
+        try:
+            verificar_resposta(conteudo, headers[H_NONCE], par.did, cabecalhos.get(H_ASSINATURA_RESPOSTA, ""))
+        except AssinaturaInvalida:
+            raise RespostaInvalida("a resposta do par não está assinada por ele") from None
+        assinada = True
+    try:
+        dados = _json.loads(conteudo) if conteudo else {}
+    except ValueError:
+        if assinada:
+            raise RespostaInvalida("resposta assinada que não é JSON") from None
+        dados = {}
+    return RespostaPar(status, dados if isinstance(dados, dict) else {}, assinada)

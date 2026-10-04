@@ -20,3 +20,20 @@ def _limpar_contexto_de_eventos():
     limpar()
     yield
     limpar()
+
+
+@pytest.fixture(autouse=True)
+def _sem_rede_para_o_ollama(request, monkeypatch):
+    """Nenhum teste fala com um Ollama de verdade: o inventário falha rápido (`OllamaIndisponivel`).
+
+    Os testes que precisam de respostas as simulam por cima disto, com `mock.patch` no próprio teste.
+    """
+    if request.module.__name__.endswith("test_ollama_admin"):      # esse módulo testa as funções reais
+        return
+    from apps.cluster import ollama_admin
+
+    def fora_do_ar(*args, **kwargs):
+        raise ollama_admin.OllamaIndisponivel("sem rede nos testes")
+
+    for nome in ("listar_detalhado", "ps", "versao"):
+        monkeypatch.setattr(ollama_admin, nome, fora_do_ar)

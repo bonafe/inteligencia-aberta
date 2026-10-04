@@ -278,6 +278,16 @@ CELERY_BEAT_SCHEDULE = {
         "task": "apps.cluster.tasks.emitir_heartbeat_maquina",
         "schedule": 30.0,
     },
+    # Cada instância puxa o estado dos pares próprios (canal assinado). Ver apps/cluster/pull.py.
+    "puxar-pares": {
+        "task": "apps.cluster.tasks.puxar_pares",
+        "schedule": 30.0,
+    },
+    # Acompanha as operações de modelo (progresso dos pares; operações travadas). Barato: sai cedo se não há nada ativo.
+    "acompanhar-operacoes": {
+        "task": "apps.cluster.tasks.acompanhar_operacoes",
+        "schedule": 5.0,
+    },
 }
 # Catch-up do pipeline: cada instância varre os seus próprios artefatos.
 CELERY_BEAT_SCHEDULE["scan-unprocessed-documents"] = {
@@ -293,3 +303,16 @@ FEDERACAO_ENDPOINT_ANUNCIADO = os.environ.get("FEDERACAO_ENDPOINT_ANUNCIADO", ""
 FEDERACAO_JANELA_RELOGIO_S = int(os.environ.get("FEDERACAO_JANELA_RELOGIO_S", "60"))
 # Permite par por HTTP puro em endereço público (desaconselhado; ver endpoints.py).
 FEDERACAO_PERMITE_HTTP_PUBLICO = os.environ.get("FEDERACAO_PERMITE_HTTP_PUBLICO", "false").lower() == "true"
+# Limite de requisições por minuto de cada par ao canal de controle.
+FEDERACAO_LIMITE_POR_MINUTO = int(os.environ.get("FEDERACAO_LIMITE_POR_MINUTO", "120"))
+
+# Administração do Ollama (apps.cluster.ollama_admin): por padrão só o registry oficial.
+OLLAMA_PERMITE_REGISTRY_EXTERNO = os.environ.get("OLLAMA_PERMITE_REGISTRY_EXTERNO", "false").lower() == "true"
+# Onde o volume do Ollama está montado DENTRO do container do portal (para medir o espaço livre dos
+# modelos). Vazio = desconhecido: a API do Ollama não informa disco. Ver docs/deploy.md.
+OLLAMA_DATA_DIR_NA_PORTAL = os.environ.get("OLLAMA_DATA_DIR_NA_PORTAL", "")
+# A instalação de modelos (horas, às vezes) roda numa fila própria, com um worker dedicado de concorrência baixa
+# (serviço `worker-ollama`), para não disputar com as extrações.
+CELERY_TASK_ROUTES = {"apps.cluster.tasks.executar_operacao_modelo": {"queue": "ollama_admin"}}
+# Espaço mínimo que deve sobrar no volume do Ollama depois de instalar (GB).
+OLLAMA_RESERVA_DISCO_GB = float(os.environ.get("OLLAMA_RESERVA_DISCO_GB", "10"))

@@ -530,6 +530,16 @@ Primeira peça do controle das instâncias do mesmo dono (plano: controlar model
 - **Removidos junto:** `EventoReplicacao`, o endpoint `/cluster/api/v1/replicacao/eventos/`, `signals_replicacao`, `replicacao.py`, `provisionamento.py`, o comando `registrar_maquina` e o `token_hash` (o endpoint de replicação era o único que o usava). Também as rotas mortas da allowlist do middleware.
 - **Fora desta etapa:** o controle em si (rotas de comando e `estado`), o pull periódico e os modelos do Ollama — marcos B a F.
 
+### Controle das instâncias do mesmo dono — marcos B a F (implementados em 2026-10-04)
+
+Decisões e limites na [ADR 012](decisoes/012-controle-de-instancias-pares.md). Resumo do que existe:
+
+- **Canal assinado** (`apps/federacao/canal.py`, `views_controle.py`): rotas `ping` (qualquer par confirmado), `estado` (só par próprio) e os comandos de operação de modelo (par próprio + ator afirmado dono/admin), todas em `/federacao/controle/v1/`. Recusas uniformes (404), 403 só para par já autenticado sem permissão, 405 para método errado, 429 por limite de taxa. `chamar_par` é o cliente: revalida o endereço, não segue redirects, limita a resposta e exige a assinatura do DID cadastrado.
+- **Pull de estado** (`apps/cluster/pull.py`): cada instância puxa o estado dos pares próprios (30 s, backoff, eventos só nas transições) e guarda o último estado conhecido; o roteador de LLM passa a enxergar os pares (pelo gateway que eles anunciam, só no mesmo host do endpoint conferido).
+- **Administração do Ollama** (`apps/cluster/ollama_admin.py`): listar com detalhes, `ps`, versão, `show`, `pull` com stream e `delete`, só por HTTP.
+- **Operações de modelo** (`apps/cluster/operacoes.py`): local (task em fila própria) ou em par (máquina offline falha na hora; online, espelho com progresso por pull). Uma operação ativa por (máquina, modelo), teto de 3 por máquina.
+- **Tela** (`/cluster/`, `views_modelos.py`): inventário, instalar, remover, cancelar; offline desabilita as ações com o motivo.
+
 ## 15. Fora de escopo deste documento
 
 Replicação de infraestrutura (Cenário A), roteamento de LLM entre nós (já em `apps/cluster/` e ADR 009), e qualquer implementação. Nenhuma alteração de código foi feita junto com esta análise.

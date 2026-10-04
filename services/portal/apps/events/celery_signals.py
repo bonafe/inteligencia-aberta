@@ -46,6 +46,9 @@ TASKS_SILENCIOSAS = {
     # próprio heartbeat já é um evento (`maquina.heartbeat`); não precisa de
     # mais três (`task.enfileirada`/`iniciada`/`concluida`) por execução.
     "apps.cluster.tasks.emitir_heartbeat_maquina",
+    # Pull de pares a cada 30s: só as transições (inacessível/voltou) viram evento (`cluster.par`).
+    "apps.cluster.tasks.puxar_pares",
+    "apps.cluster.tasks.acompanhar_operacoes",   # a cada 5 s
 }
 
 

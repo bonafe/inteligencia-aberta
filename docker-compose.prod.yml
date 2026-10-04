@@ -54,6 +54,12 @@ services:
     volumes:
       - ${DATA_DIR:-./data}/fastembed-cache:/root/.cache/fastembed
 
+  worker-ollama:
+    <<: *restart
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
+
   beat:
     <<: *restart
     depends_on:

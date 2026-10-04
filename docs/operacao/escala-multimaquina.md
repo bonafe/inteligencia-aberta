@@ -35,6 +35,18 @@ Cada instância precisa de `FEDERACAO_ENDPOINT_ANUNCIADO` no `.env` (o IP da VPN
 
 O endereço de um par é validado (anti-SSRF): só `http`/`https`, sem usuário/senha, nunca link-local (`169.254.0.0/16`, onde ficam os metadados de nuvem); HTTP só em rede privada/VPN (RFC 1918, loopback, CGNAT `100.64.0.0/10` do Tailscale, `*.ts.net`, `.local` etc.), e HTTPS fora delas. Limite conhecido: o nome é checado no cadastro, não na hora de conectar (DNS rebinding não é pego).
 
+## Ver e controlar os modelos do Ollama (`/cluster/`)
+
+Cada máquina da tela tem a seção **Modelos do Ollama**: o que está instalado (tamanho, família, quantização, o que está **carregado na memória**, tokens/s), um campo para **instalar** (com sugestões de um catálogo curado e qualquer `nome:tag`), **remover**, e as **operações** em andamento com barra de progresso, **cancelar** e **tentar de novo**. Funciona igual com o Ollama **nativo** (Macs) ou em **container**: o portal só fala HTTP com o Ollama de **dentro da própria instância**; para uma máquina remota o comando vai pelo canal assinado.
+
+- **Quem pode:** ver, qualquer membro da organização; instalar, remover e cancelar, só **dono ou administrador**. Numa máquina remota, só em **par próprio confirmado**.
+- **Máquina offline:** os botões ficam **desabilitados**, com selo **Offline** e o motivo no tooltip, e um comando mesmo assim **falha na hora** (nada fica na fila). "Ollama indisponível" e "sem Ollama" têm selos próprios.
+- **Pares:** cada instância **puxa** o estado dos pares próprios a cada 30 s e guarda o **último estado conhecido** ("dados de HH:MM" / "último estado conhecido"). É isso que também alimenta o roteador de LLM com os pares.
+- **Uma operação por modelo:** instalar duas vezes, ou remover durante a instalação, é recusado (409). No máximo 3 operações ativas por máquina. A instalação roda numa **fila própria** (`ollama_admin`, serviço `worker-ollama`), sem timeout total; se a conexão cai no meio, o Ollama reaproveita o que já baixou — é só tentar de novo.
+- **Espaço em disco:** a API do Ollama não informa. O compose monta o volume dos modelos **somente leitura** nos workers para medir; sem isso o espaço é "desconhecido" e **nada é bloqueado**. Com o dado, recusa instalar quando sobraria menos que a reserva (`OLLAMA_RESERVA_DISCO_GB`, 10 GB) e aborta se o tamanho real não couber. No Ollama **nativo**, aponte `OLLAMA_DATA_DIR_HOST` para o `~/.ollama`.
+- **`OLLAMA_MODELOS` é só a semente do primeiro `up`:** remover um modelo que está nessa lista faz o `ollama-pull` trazê-lo de volta no próximo `up` (a tela avisa).
+- **Catálogo:** é uma lista curada (`apps/cluster/catalogo_modelos.py`), com tamanhos aproximados, e **pode estar desatualizada**. Qualquer `nome:tag` digitado vale; se não existir, o Ollama responde com erro. Só o registry oficial é aceito por padrão.
+
 ## Roteamento de LLM entre máquinas com Ollama
 
 Cada máquina com `ollama_endpoint` preenchido reporta, no próprio heartbeat

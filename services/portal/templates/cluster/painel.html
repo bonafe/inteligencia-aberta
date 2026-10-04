@@ -31,6 +31,18 @@
   table.modelos th, table.modelos td { text-align: left; padding: .4rem .6rem; border-bottom: 1px solid #f1f5f9; }
   table.modelos th { color: #6b7280; font-weight: 500; }
   .sem-dado { color: #9ca3af; font-size: .85rem; margin-top: .75rem; }
+  .selo-offline { background:#fee2e2; color:#b91c1c; }
+  .selo-aviso { background:#fef9c3; color:#854d0e; }
+  .selo-ok { background:#ecfdf5; color:#047857; }
+  .ollama { margin-top: 1.1rem; border-top: 1px solid #f1f5f9; padding-top: .9rem; }
+  .ollama h3 { font-size: .95rem; display:flex; align-items:center; gap:.4rem; }
+  .ollama-instalar { display:flex; gap:.5rem; margin-top:.6rem; }
+  .ollama-instalar input { flex:1; padding:.4rem .6rem; border:1px solid #d1d5db; border-radius:6px; }
+  .ollama button[disabled], .ollama input[disabled] { opacity:.5; cursor:not-allowed; }
+  .ollama-msg { margin-top:.6rem; padding:.5rem .7rem; border-radius:6px; background:#fef2f2; border:1px solid #fca5a5; color:#991b1b; font-size:.85rem; }
+  .op { display:flex; align-items:center; gap:.6rem; margin-top:.5rem; font-size:.85rem; flex-wrap:wrap; }
+  .op progress { width:160px; height:.7rem; }
+  .op .erro { color:#b91c1c; flex-basis:100%; }
 </style>
 
 <div class="card" style="margin-top:2rem;">
@@ -51,8 +63,13 @@
 {% for maquina in maquinas %}
   <div class="maquina-card">
     <h2>
-      <span class="bolinha {% if maquina.status.online %}online{% else %}offline{% endif %}"></span>
+      <span class="bolinha {% if maquina.esta_online %}online{% else %}offline{% endif %}"></span>
       {{ maquina.apelido }}
+      {% if maquina.eh_local %}<span class="tag">esta instância</span>{% else %}
+        <span class="tag">{{ maquina.get_tipo_display }}</span>
+        {% if maquina.estado != "confirmado" %}<span class="tag" style="background:#fef9c3;color:#854d0e;">{{ maquina.get_estado_display }}</span>{% endif %}
+      {% endif %}
+      {% if not maquina.esta_online %}<span class="tag selo-offline">Offline</span>{% endif %}
       {% if not maquina.ativa %}<span class="tag" style="background:#fee2e2;color:#b91c1c;">inativa</span>{% endif %}
     </h2>
 
@@ -88,29 +105,150 @@
       </p>
     {% endif %}
 
-    {% if maquina.ollama_endpoint %}
-      {% with modelos=maquina.modelos_ollama.all %}
-        {% if modelos %}
-          <table class="modelos">
-            <thead><tr><th>Modelo</th><th>tokens/s</th><th>amostras</th><th>threads</th><th>contexto</th><th>visto</th></tr></thead>
-            <tbody>
-              {% for m in modelos %}
-                <tr>
-                  <td>{{ m.nome_modelo }}</td>
-                  <td>{{ m.tokens_por_segundo_medio|floatformat:1|default:"—" }}</td>
-                  <td>{{ m.amostras_n }}</td>
-                  <td>{{ m.num_thread_observado|default:"—" }}</td>
-                  <td>{{ m.num_ctx_observado|default:"—" }}</td>
-                  <td>{{ m.visto_pela_ultima_vez|timesince|default:"—" }} atrás</td>
-                </tr>
-              {% endfor %}
-            </tbody>
-          </table>
-        {% else %}
-          <p class="sem-dado">Ollama configurado ({{ maquina.ollama_endpoint }}), nenhum modelo visto ainda.</p>
-        {% endif %}
-      {% endwith %}
-    {% endif %}
+    <div class="ollama" data-maquina="{{ maquina.id }}"
+         data-inventario="{% url 'cluster:modelos_inventario' maquina.id %}"
+         data-instalar="{% url 'cluster:modelos_instalar' maquina.id %}"
+         data-remover="{% url 'cluster:modelos_remover' maquina.id %}">
+      <h3>Modelos do Ollama <span class="ollama-estado"></span></h3>
+      <p class="ollama-msg" role="alert" hidden></p>
+      <form class="ollama-instalar">
+        <input type="text" name="modelo" list="catalogo-modelos" placeholder="nome:tag (ex.: llama3.1:8b)" autocomplete="off" required>
+        <button type="submit">Instalar</button>
+      </form>
+      <table class="modelos">
+        <thead><tr><th>Modelo</th><th>Tamanho</th><th>Detalhes</th><th>Memória</th><th>tokens/s</th><th></th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <p class="sem-dado ollama-vazio" hidden>Nenhum modelo instalado.</p>
+      <div class="ollama-ops"></div>
+    </div>
   </div>
 {% endfor %}
+
+<datalist id="catalogo-modelos">
+  {% for m in catalogo %}<option value="{{ m.nome }}">{{ m.uso }} · ~{{ m.gb }} GB (aprox.) · {{ m.nota }}</option>{% endfor %}
+</datalist>
+<p class="sem-dado" style="margin-top:1rem;">
+  As sugestões acima são uma lista curada e podem estar desatualizadas, e os tamanhos são aproximados: você pode digitar qualquer
+  <code>nome:tag</code> — se o modelo não existir, o Ollama responde com erro.
+</p>
+
+<script>
+(function () {
+  const CSRF = "{{ csrf_token }}";
+  const ROTULO_OLLAMA = {indisponivel: "Ollama indisponível", nao_configurado: "Sem Ollama", desconhecido: "Ollama: estado desconhecido"};
+
+  function el(tag, atributos, ...filhos) {
+    const e = document.createElement(tag);
+    for (const [k, v] of Object.entries(atributos || {})) {
+      if (k === "texto") e.textContent = v; else if (k in e) e[k] = v; else e.setAttribute(k, v);
+    }
+    for (const f of filhos) if (f) e.append(f);
+    return e;
+  }
+  function bytes(n) {
+    if (n == null) return "—";
+    const un = ["B", "KB", "MB", "GB", "TB"]; let i = 0, v = n;
+    while (v >= 1024 && i < un.length - 1) { v /= 1024; i++; }
+    return v.toFixed(i > 1 ? 1 : 0) + " " + un[i];
+  }
+  async function enviar(url, corpo) {
+    const r = await fetch(url, {method: "POST", headers: {"X-CSRFToken": CSRF, "Content-Type": "application/x-www-form-urlencoded"},
+                                body: new URLSearchParams(corpo || {})});
+    let dados = {}; try { dados = await r.json(); } catch (e) {}
+    return {ok: r.ok, status: r.status, dados};
+  }
+
+  class Secao {
+    constructor(raiz) {
+      this.raiz = raiz; this.timer = null;
+      this.estado = raiz.querySelector(".ollama-estado"); this.msg = raiz.querySelector(".ollama-msg");
+      this.form = raiz.querySelector(".ollama-instalar"); this.tbody = raiz.querySelector("tbody");
+      this.vazio = raiz.querySelector(".ollama-vazio"); this.ops = raiz.querySelector(".ollama-ops");
+      this.dados = null;
+      this.form.addEventListener("submit", (ev) => { ev.preventDefault(); this.instalar(this.form.elements.modelo.value.trim()); });
+    }
+    aviso(texto) { this.msg.textContent = texto || ""; this.msg.hidden = !texto; }
+    async atualizar() {
+      try {
+        const r = await fetch(this.raiz.dataset.inventario, {headers: {"Accept": "application/json"}});
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        this.dados = await r.json(); this.desenhar();
+      } catch (e) { this.estado.replaceChildren(el("span", {className: "tag selo-aviso", texto: "sem resposta do portal"})); }
+      this.agendar();
+    }
+    agendar() {
+      clearTimeout(this.timer);
+      const ativa = this.dados && this.dados.operacoes.some((o) => o.status === "pendente" || o.status === "executando");
+      this.timer = setTimeout(() => { if (document.visibilityState === "visible") this.atualizar(); else this.agendar(); }, ativa ? 3000 : 30000);
+    }
+    desenhar() {
+      const d = this.dados, m = d.maquina, habilitado = m.acoes_habilitadas, motivo = m.motivo_desabilitado;
+      const selos = [];
+      if (!m.online) selos.push(el("span", {className: "tag selo-offline", texto: "Offline"}));
+      else if (m.ollama === "ok") selos.push(el("span", {className: "tag selo-ok", texto: "Ollama " + (m.ollama_versao || "ok")}));
+      else selos.push(el("span", {className: "tag selo-aviso", texto: ROTULO_OLLAMA[m.ollama] || m.ollama}));
+      if (!m.local && m.ultimo_estado_em) {
+        const hora = new Date(m.ultimo_estado_em).toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"});
+        selos.push(el("span", {className: "tag", texto: (m.online ? "dados de " : "último estado conhecido: ") + hora}));
+      }
+      if (m.disco_ollama_livre_gb != null) selos.push(el("span", {className: "tag", texto: m.disco_ollama_livre_gb + " GB livres p/ modelos"}));
+      this.estado.replaceChildren(...selos);
+
+      this.form.title = habilitado ? "" : motivo;
+      for (const c of this.form.elements) { c.disabled = !habilitado; c.title = habilitado ? "" : motivo; }
+
+      this.tbody.replaceChildren(...d.modelos.map((mod) => {
+        const remover = el("button", {type: "button", texto: "Remover", disabled: !habilitado, title: habilitado ? "" : motivo});
+        remover.addEventListener("click", () => this.remover(mod));
+        const detalhes = [mod.familia, mod.parametros, mod.quantizacao].filter(Boolean).join(" · ") || "—";
+        return el("tr", {}, el("td", {texto: mod.nome}), el("td", {texto: bytes(mod.tamanho_bytes)}), el("td", {texto: detalhes}),
+          el("td", {}, mod.carregado ? el("span", {className: "tag selo-ok", texto: "carregado"}) : null),
+          el("td", {texto: mod.tokens_por_segundo != null ? mod.tokens_por_segundo.toFixed(1) : "—"}), el("td", {}, remover));
+      }));
+      this.vazio.hidden = d.modelos.length > 0 || m.ollama !== "ok";
+
+      this.ops.replaceChildren(...d.operacoes.map((op) => this.linhaOperacao(op, habilitado, motivo)));
+    }
+    linhaOperacao(op, habilitado, motivo) {
+      const rotulo = (op.tipo === "pull" ? "Instalar " : "Remover ") + op.modelo + " — " + op.status;
+      const linha = el("div", {className: "op"}, el("span", {texto: rotulo}));
+      if (op.status === "executando" || op.status === "pendente") {
+        if (op.tipo === "pull") linha.append(el("progress", {max: 100, value: op.percentual == null ? 0 : op.percentual}),
+                                             el("span", {texto: (op.percentual == null ? "…" : op.percentual + "%") + (op.fase ? " · " + op.fase : "")}));
+        const cancelar = el("button", {type: "button", texto: "Cancelar", disabled: !habilitado, title: habilitado ? "" : motivo});
+        cancelar.addEventListener("click", () => this.cancelar(op));
+        linha.append(cancelar);
+      } else if (op.status === "falhou") {
+        linha.append(el("span", {className: "erro", texto: op.erro || "falhou"}));
+        if (op.tipo === "pull") {
+          const retomar = el("button", {type: "button", texto: "Tentar de novo", disabled: !habilitado, title: habilitado ? "" : motivo});
+          retomar.addEventListener("click", () => this.instalar(op.modelo));
+          linha.append(retomar);
+        }
+      }
+      return linha;
+    }
+    async acao(url, corpo) {
+      this.aviso("");
+      const r = await enviar(url, corpo);
+      if (!r.ok) this.aviso(r.dados.erro || ("Não foi possível concluir (HTTP " + r.status + ")."));
+      await this.atualizar();
+      return r.ok;
+    }
+    async instalar(modelo) {
+      if (!modelo) return;
+      if (await this.acao(this.raiz.dataset.instalar, {modelo})) this.form.reset();
+    }
+    async remover(mod) {
+      const avisos = (mod.avisos_remocao || []).map((a) => "\n• " + a).join("");
+      if (!confirm("Remover " + mod.nome + " (" + bytes(mod.tamanho_bytes) + ") de " + this.dados.maquina.apelido + "?" + avisos)) return;
+      await this.acao(this.raiz.dataset.remover, {modelo: mod.nome});
+    }
+    async cancelar(op) { await this.acao("/cluster/operacoes/" + op.id + "/cancelar/", {}); }
+    iniciar() { this.atualizar(); }
+  }
+  document.querySelectorAll(".ollama").forEach((raiz) => new Secao(raiz).iniciar());
+})();
+</script>
 {% endblock %}

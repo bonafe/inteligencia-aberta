@@ -64,6 +64,81 @@ def _autorregistrar_no_local():
     return garantir_maquina_local(orgs[0])
 
 
+def _disco_ollama_livre_gb():
+    """Espaço livre onde o Ollama guarda os modelos, se o volume estiver montado no portal."""
+    from django.conf import settings
+
+    caminho = getattr(settings, "OLLAMA_DATA_DIR_NA_PORTAL", "")
+    if not caminho:
+        return None
+    try:
+        import psutil
+
+        return round(psutil.disk_usage(caminho).free / (1024 ** 3), 1)
+    except (OSError, ImportError):
+        return None
+
+
+def _inventario_local(maquina) -> None:
+    """Grava o inventário detalhado do Ollama desta máquina (snapshot). Nunca levanta.
+
+    O heartbeat (evento) continua levando só os **nomes** — o payload de um evento tem teto de 8 KB e um
+    inventário com detalhes não cabe com folga —; os detalhes vão direto para o banco, a cada ciclo.
+    """
+    from django.conf import settings
+
+    from . import ollama_admin
+    from .projecao import aplicar_inventario
+
+    if not getattr(settings, "OLLAMA_HOST", ""):
+        aplicar_inventario(maquina, [], disponivel=None)         # sem Ollama nesta máquina
+        return
+    try:
+        modelos = ollama_admin.listar_detalhado()
+    except ollama_admin.ErroOllama:
+        aplicar_inventario(maquina, [], disponivel=False, disco_ollama_livre_gb=_disco_ollama_livre_gb())
+        return
+    try:
+        carregados = {m["nome"] for m in ollama_admin.ps()}
+    except ollama_admin.ErroOllama:
+        carregados = set()
+    try:
+        versao = ollama_admin.versao()
+    except ollama_admin.ErroOllama:
+        versao = ""
+    for m in modelos:
+        m["carregado"] = m["nome"] in carregados
+    aplicar_inventario(maquina, modelos, versao=versao, disponivel=True, disco_ollama_livre_gb=_disco_ollama_livre_gb())
+
+
+@shared_task(name="apps.cluster.tasks.executar_operacao_modelo", acks_late=True, max_retries=0)
+def executar_operacao_modelo(operacao_id):
+    """Instala ou remove um modelo do Ollama desta máquina (ver `apps.cluster.operacoes`). Sem retry: instalar
+    de novo é uma ação do usuário (o Ollama reaproveita o que já baixou)."""
+    from .operacoes import executar
+
+    return executar(operacao_id)
+
+
+@shared_task(name="apps.cluster.tasks.acompanhar_operacoes")
+def acompanhar_operacoes():
+    """Traz o progresso das operações em pares e fecha as que ninguém executa. Sai cedo se nada está ativo."""
+    from .models import OperacaoModeloOllama
+    from .operacoes import acompanhar_espelhos, varrer_travadas
+
+    if not OperacaoModeloOllama.objects.filter(status__in=OperacaoModeloOllama.ATIVOS).exists():
+        return None
+    return {"travadas": varrer_travadas(), **acompanhar_espelhos()}
+
+
+@shared_task(name="apps.cluster.tasks.puxar_pares")
+def puxar_pares():
+    """Puxa o estado dos pares próprios confirmados (ver `apps.cluster.pull`)."""
+    from .pull import puxar_pares as _puxar
+
+    return _puxar()
+
+
 @shared_task(name="apps.cluster.tasks.emitir_heartbeat_maquina")
 def emitir_heartbeat_maquina():
     """Emite `maquina.heartbeat` para a `Maquina` desta instância.
@@ -112,4 +187,8 @@ def emitir_heartbeat_maquina():
     )
     if evento is not None:
         aplicar_heartbeat(evento)
+    try:
+        _inventario_local(maquina)
+    except Exception:
+        logger.exception("falha ao gravar o inventário local do Ollama")
     return "ok" if evento else "emit falhou — ver log"

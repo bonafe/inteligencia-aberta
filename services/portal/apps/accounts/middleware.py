@@ -31,6 +31,7 @@ class LoginRequiredMiddleware:
         "/artifacts/api/v1/artefatos/",  # canal serviço-a-serviço (X-Internal-Token)
         "/eventos/api/v1/ingest/",       # idem: eventos vindos do orchestrator e do MCP
         "/federacao/convite/aceitar/",   # enrolamento entre instâncias (assinatura + token do convite)
+        "/federacao/controle/",          # canal de controle entre instâncias (assinatura de par confirmado)
         "/v1/chat/completions",          # gateway OpenAI-compatível (Bearer LLM_GATEWAY_TOKEN)
         "/api/schema/",                  # documentação da API (drf-spectacular) —
         "/api/docs/",                    # pública por decisão: só descreve os

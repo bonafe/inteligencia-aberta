@@ -60,6 +60,7 @@ A separação entre `vazio` e `falhou` é a razão de ser deste modelo. Antes de
 | Prefixo | Emitido por | Cobre |
 |---|---|---|
 | `captura.*` | orchestrator, portal | `recebida`, `armazenada` (Garage/S3; o nome do estágio `minio` é mantido por compatibilidade com o histórico), `registrada`, `classificada` (só quando uma regra de domínio elevou o nível; ver `seguranca/classificacao.md`), `orfa` |
+| `cluster.*` | portal | `par` (um par ficou inacessível/voltou: `falhou`/`ok`, só nas transições), `modelo` (operação de modelo do Ollama: `iniciado`, `ok`, `falhou`, `ignorado` = cancelada; payload só com operação, tipo, modelo e status) |
 | `federacao.*` | portal | `canal` (requisição de outra instância recusada: só `rota` e o `codigo` da recusa, nunca corpo; `ignorado`), `decisao` — cada decisão do motor de replicação (`ok` = permitido, `ignorado` = negado; payload só com identificadores, nunca conteúdo) |
 | `artefato.*` | portal | `ignorado` — as saídas silenciosas do signal `post_save` |
 | `extracao.*` | worker | `iniciada`, `reiniciada`, `ignorada`, `minio`, `mhtml`, `trafilatura`, `texto_completo`, `dom2parser`, `extruct`, `deterministico`, `alegacoes` (JSON-LD → `Claim`/`Evidence`; `vazio` quando o site não declara nada aproveitável), `concluida` |

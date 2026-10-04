@@ -4,6 +4,7 @@ from django.views import View
 
 from apps.accounts.views import orgs_do_usuario
 
+from .catalogo_modelos import CATALOGO
 from .models import Maquina
 
 
@@ -54,5 +55,6 @@ class PainelClusterView(View):
 
         return render(request, "cluster/painel.html", {
             "maquinas": maquinas,
+            "catalogo": CATALOGO,
             "janela_resumo_dias": self.JANELA_RESUMO_DIAS,
         })

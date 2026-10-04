@@ -90,8 +90,32 @@ services:
       garage:
         condition: service_healthy
     env_file: .env
+    # O volume do Ollama, só leitura, para medir o espaço livre dos modelos (a API do Ollama não informa disco).
+    # Modo nativo: aponte OLLAMA_DATA_DIR_HOST para o ~/.ollama do host.
+    volumes:
+      - ${OLLAMA_DATA_DIR_HOST:-${DATA_DIR:-./data}/ollama}:/ollama-data:ro
+    environment:
+      OLLAMA_DATA_DIR_NA_PORTAL: /ollama-data
     # Ver comentário em `portal` — o worker é quem de fato chama o Ollama nativo
     # do host ao processar as tasks de estruturação manual/comparação.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  # Worker dedicado à instalação/remoção de modelos do Ollama (fila `ollama_admin`): um pull leva horas,
+  # então não compete com o worker das extrações. Concorrência baixa de propósito.
+  worker-ollama:
+    build: ./services/portal
+    command: celery -A config worker -l info -Q ollama_admin -c 2 -n ollama@%h
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file: .env
+    volumes:
+      - ${OLLAMA_DATA_DIR_HOST:-${DATA_DIR:-./data}/ollama}:/ollama-data:ro
+    environment:
+      OLLAMA_DATA_DIR_NA_PORTAL: /ollama-data
     extra_hosts:
       - "host.docker.internal:host-gateway"
 

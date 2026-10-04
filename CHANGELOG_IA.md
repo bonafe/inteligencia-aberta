@@ -120,6 +120,34 @@ Este arquivo documenta as alterações, configurações e implementações feita
 
 **Pendente:** cadastro de pares para o roteamento de LLM é manual em cada instância (`registrar_maquina`) até haver o cadastro de pares da federação; teste real do gateway entre duas máquinas continua em aberto.
 
+## [04-10-2026] - Controle de instâncias, Marcos B a F: canal assinado, pull de pares e modelos do Ollama pela tela
+
+**Contexto:** continuação do Marco A (plano aprovado em `.claude/plans/`). O dono quer **ver as máquinas e suas capacidades** e **listar, instalar e remover os modelos do Ollama** (nativo ou container) pelo `/cluster/`, e controlar as outras instâncias do mesmo dono a partir de qualquer uma. Decisões dele: tudo depois do `Par`; só dono/administrador instala e remove; autorização remota automática para pares **próprios**; cada instância **puxa** o estado dos pares; **máquina offline falha na hora**, e a tela a mostra **Offline com as ações desabilitadas**.
+
+**Descoberta no caminho (consequência da remoção do `compute`):** o heartbeat só era emitido e aplicado para a máquina **local**, no banco **local**. Com bancos separados, as capacidades dos pares nunca chegavam ao banco: nem a tela nem o **roteador de LLM** enxergavam os pares. O pull (Marco C) resolve as duas coisas.
+
+**O que foi implementado**
+- **B — canal de controle** (`apps/federacao/views_controle.py`, `canal.py`): rotas `ping`, `estado`, e os comandos em `/federacao/controle/v1/`; decorador `par_assinado` (assinatura → par `confirmado`/ativo → limite de taxa → tipo exigido → método → corpo); recusas **uniformes** (404), 403 só a par autenticado sem permissão, 405, 429; respostas assinadas e presas ao nonce. Cliente `chamar_par`: revalida o endereço (anti-SSRF), **não segue redirects**, limita a resposta, exige a assinatura do DID cadastrado.
+- **D1 — `ollama_admin`** (`apps/cluster/ollama_admin.py`): listar com detalhes, `ps`, versão, `show`, `pull` em stream **sem timeout total** (só por pedaço lido) e `delete` (manda `model` e `name`, para versões antigas); nomes validados (só o registry oficial por padrão); erros tipados (`ModeloNaoEncontrado`, `DiscoCheio`, `OllamaIndisponivel`).
+- **C — inventário e pull dos pares** (`projecao.aplicar_inventario/aplicar_estado_remoto`, `pull.py`, tasks): `MaquinaModeloOllama` ganhou tamanho, digest, família, parâmetros, quantização e `carregado`; `MaquinaStatus`, `ollama_disponivel/versao` e `disco_ollama_livre_gb`; `Maquina`, `pull_falhas` e `ultima_tentativa_em`. O inventário é um **snapshot** (o que sumiu sai; a velocidade aprendida de quem fica é preservada; Ollama fora do ar **não apaga** o que se sabia). Tudo que um par manda é **saneado**; o gateway que ele anuncia só vale se o **host** for o do endpoint conferido. Pull a cada 30 s só de pares **próprios e confirmados**, backoff até 5 min, eventos só nas transições (`cluster.par`).
+- **D2 — operações** (`OperacaoModeloOllama`, `operacoes.py`, rotas do canal, serviço `worker-ollama`): **uma ativa por (máquina, modelo)** por índice parcial, teto de 3 por máquina; progresso agregado por camada com throttling; cancelamento cooperativo + `revoke`; varredura de operações travadas; **espelho** com progresso por pull para pares; espaço em disco medido por volume somente leitura (**desconhecido não bloqueia**).
+- **E — tela** (`views_modelos.py`, `painel.html`): inventário, instalar, remover, cancelar, tentar de novo; selos Offline / Ollama indisponível / sem Ollama; botões desabilitados com o motivo; catálogo curado + entrada livre; atualização sozinha (3 s com operação ativa, 30 s sem). DOM por `textContent`, nunca `innerHTML`.
+- **F — segurança e docs:** `tests/test_seguranca_controle.py` (revogar/rebaixar valem na hora, replay entre rotas, janela, **teste que documenta o limite**: um par próprio comprometido pode afirmar qualquer ator, com rastro no `AuditLog`); **ADR 012**; `escala-multimaquina.md`, `deploy.md`, `.env.example`, `observabilidade.md` (`cluster.par`, `cluster.modelo`), `federacao.md`, `CLAUDE.md`.
+- **Correção de defeitos meus** achados ao escrever os testes: a recusa `400` do canal respondia "muitas requisições"; as rotas não restringiam o método HTTP (agora cada rota declara os seus); a auditoria colidia um argumento com uma chave de metadado.
+- Testes: `test_canal_controle.py` (27), `test_ollama_admin.py` (47), `test_pull_pares.py` (33), `test_operacoes_modelo.py` (79), `test_cluster_modelos_views.py` (33), `test_seguranca_controle.py` (11). O `conftest` passou a bloquear a rede para o Ollama em todos os testes (menos os do próprio cliente).
+
+**Limites conhecidos**
+- **Não testado com duas instâncias reais nem com um Ollama real:** a outra ponta e o Ollama foram simulados nos testes. A tela foi exercitada só com um **DOM simulado** (Node), não num navegador real.
+- O papel afirmado pela origem **não é verificável** pelo receptor; "próprio" dá poder (ADR 012).
+- Não há aviso de "modelo padrão do projeto" ao remover (nenhuma configuração identifica um) nem como saber se há chamada em voo; só avisa "carregado" e "está em `OLLAMA_MODELOS`".
+- O catálogo é curado e **pode estar desatualizado**; tamanhos aproximados.
+- Só pares **próprios** são consultados no pull; terceiros não têm nem `ping` agendado.
+- `reconstruir_status_maquinas` apaga o estado dos pares (volta no próximo pull).
+- O catch-up de espelhos tem um intervalo de 5 s mesmo sem nada ativo (a task sai cedo).
+- Compose: o serviço `worker-ollama` é novo e **precisa estar de pé**; os dois workers montam `${DATA_DIR}/ollama` somente leitura.
+
+**Incidente anterior que reapareceu como risco:** o container do portal já enxergou uma cópia antiga do código (ver Marco A); a recriação de `portal`, `worker` e `beat` resolveu. O `worker-ollama` é um container novo que ainda **não foi levantado** nesta máquina de desenvolvimento.
+
 ## [04-10-2026] - Controle de instâncias, Marco A: `Par` e enrolamento por convite
 
 **Contexto:** o dono quer controlar os modelos do Ollama das máquinas (nativo ou container) pelos painéis, inclusive de uma instância sobre as outras do mesmo dono. Plano aprovado em `.claude/plans/` (marcos A–F): `Par` + enrolamento → canal assinado → cliente Ollama de administração → pull dos pares → operações de modelo → tela. Este é o **Marco A**.

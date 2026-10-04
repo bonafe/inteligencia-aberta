@@ -98,6 +98,15 @@ Para uma instância conhecer outras ([ADR 011](arquitetura/decisoes/011-politica
 - As requisições entre instâncias são **assinadas** e tolerância de relógio é de ±60 s (`FEDERACAO_JANELA_RELOGIO_S`): mantenha **NTP** em todas as máquinas. Os nonces anti-replay ficam no Redis (banco 2, `CACHE_URL`).
 - HTTP puro só em rede privada/VPN; fora dela o par precisa usar HTTPS (`FEDERACAO_PERMITE_HTTP_PUBLICO=true` desfaz a exigência; desaconselhado).
 
+### Controle dos modelos do Ollama (`/cluster/`)
+
+A instalação de modelos roda no serviço **`worker-ollama`** (fila `ollama_admin`, concorrência 2), separado do worker das extrações porque um pull leva horas. **Ele precisa estar de pé**: sem ele as operações ficam "pendentes" e falham sozinhas depois de 10 min. O `docker-compose.yml` já o define; no deploy de produção ele sobe junto (`-f docker-compose.prod.yml`).
+
+- Os dois workers montam o **volume do Ollama somente leitura** em `/ollama-data` para medir o espaço livre dos modelos (`OLLAMA_DATA_DIR_NA_PORTAL`). O padrão é `${DATA_DIR}/ollama`, que serve ao modo **container**; no Ollama **nativo** defina `OLLAMA_DATA_DIR_HOST` com o `~/.ollama` do host (ex.: `/Users/voce/.ollama`). Sem o volume o espaço é "desconhecido" e nenhum pull é bloqueado por falta de disco.
+- `OLLAMA_RESERVA_DISCO_GB` (10) é a folga mínima depois de instalar; `OLLAMA_PERMITE_REGISTRY_EXTERNO` (false) libera registries que não são o oficial.
+- `OLLAMA_MODELOS` é **só a semente do primeiro `up`**: um modelo removido pela tela que esteja nessa lista volta no próximo `up`. Tire-o da lista se quiser que ele fique removido.
+- O Ollama continua **sem autenticação e fechado** (`OLLAMA_BIND_ADDR=127.0.0.1`). O controle entre instâncias usa o canal assinado, nunca o Ollama direto.
+
 ## Variáveis de implantação
 
 | Variável | Padrão | Função |

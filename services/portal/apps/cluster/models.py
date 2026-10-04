@@ -74,8 +74,12 @@ class Maquina(models.Model):
     #: Base do canal assinado do par (ex.: `http://100.x.y.z:8000`).
     endpoint_controle = models.CharField(max_length=255, blank=True)
     capacidades_json = models.JSONField(default=dict, blank=True)
+    #: Último pull **bem-sucedido** (frescor do que sabemos do par).
     ultimo_pull_em = models.DateTimeField(null=True, blank=True)
     ultimo_pull_erro = models.TextField(blank=True)
+    #: Controle do backoff: falhas seguidas e quando foi a última tentativa (certa ou errada).
+    pull_falhas = models.PositiveIntegerField(default=0)
+    ultima_tentativa_em = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         db_table = "cluster_maquina"
@@ -91,6 +95,17 @@ class Maquina(models.Model):
 
     def __str__(self):
         return self.apelido
+
+    @property
+    def esta_online(self) -> bool:
+        """A própria instância está sempre de pé; um par, enquanto o último pull é recente.
+
+        Para um par, `MaquinaStatus.ultimo_heartbeat_em` é o instante do último **pull** bem-sucedido.
+        """
+        if self.eh_local:
+            return True
+        status = getattr(self, "status", None)
+        return bool(status and status.online)
 
 
 class MaquinaStatus(models.Model):
@@ -110,6 +125,12 @@ class MaquinaStatus(models.Model):
     ram_disponivel_mb = models.IntegerField(null=True, blank=True)
     disco_disponivel_gb = models.FloatField(null=True, blank=True)
     filas = models.JSONField(default=list, blank=True)
+    # Ollama: `None` = ainda não se sabe; `False` = a máquina está de pé mas o Ollama não responde.
+    ollama_disponivel = models.BooleanField(null=True, blank=True)
+    ollama_versao = models.CharField(max_length=40, blank=True)
+    #: Espaço livre onde o Ollama guarda os modelos. A API do Ollama não informa isso: só existe se o volume
+    #: for montado no portal (`OLLAMA_DATA_DIR_NA_PORTAL`); `None` = desconhecido (não bloqueia nada).
+    disco_ollama_livre_gb = models.FloatField(null=True, blank=True)
     ultimo_heartbeat_em = models.DateTimeField(null=True, blank=True)
     # Marca d'água do último evento de heartbeat aplicado — mesmo papel de
     # `PipelineRun.ultimo_evento_sequence`, mas por máquina.
@@ -159,6 +180,13 @@ class MaquinaModeloOllama(models.Model):
     # foi medida: tokens/s muda bastante conforme o contexto usado.
     num_ctx_observado = models.IntegerField(null=True, blank=True)
     visto_pela_ultima_vez = models.DateTimeField(null=True, blank=True)
+    # Inventário (do `/api/tags` e do `/api/ps` do Ollama — ver `projecao.aplicar_inventario`).
+    tamanho_bytes = models.BigIntegerField(null=True, blank=True)
+    digest = models.CharField(max_length=100, blank=True)
+    familia = models.CharField(max_length=60, blank=True)
+    parametros = models.CharField(max_length=20, blank=True)
+    quantizacao = models.CharField(max_length=30, blank=True)
+    carregado = models.BooleanField(default=False)
 
     class Meta:
         db_table = "cluster_maquina_modelo_ollama"
@@ -193,3 +221,70 @@ class ConviteEnrolamento(models.Model):
 
     def __str__(self):
         return f"convite {self.id} ({self.tipo})"
+
+
+class OperacaoModeloOllama(models.Model):
+    """Instalar (`pull`) ou remover (`delete`) um modelo do Ollama de uma máquina — Marco D2.
+
+    Para a máquina **local** é a operação de verdade: uma task Celery a executa e vai atualizando
+    `bytes_*` e `fase`. Para um **par** é um **espelho**: a operação existe no par (`operacao_remota_id`) e o
+    pull periódico traz o progresso para cá. No máximo **uma operação ativa por (máquina, modelo)** — duas
+    instalações do mesmo modelo, ou instalar durante remover, são recusadas (409) pelo próprio banco.
+    """
+
+    class Tipo(models.TextChoices):
+        PULL = "pull", "Instalar"
+        DELETE = "delete", "Remover"
+
+    class Status(models.TextChoices):
+        PENDENTE = "pendente", "Pendente"
+        EXECUTANDO = "executando", "Executando"
+        CONCLUIDA = "concluida", "Concluída"
+        FALHOU = "falhou", "Falhou"
+        CANCELADA = "cancelada", "Cancelada"
+
+    ATIVOS = (Status.PENDENTE, Status.EXECUTANDO)
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    maquina = models.ForeignKey(Maquina, on_delete=models.CASCADE, related_name="operacoes_modelo")
+    tipo = models.CharField(max_length=10, choices=Tipo.choices)
+    modelo = models.CharField(max_length=200)
+    status = models.CharField(max_length=12, choices=Status.choices, default=Status.PENDENTE)
+    bytes_total = models.BigIntegerField(null=True, blank=True)
+    bytes_concluidos = models.BigIntegerField(default=0)
+    fase = models.CharField(max_length=120, blank=True)
+    erro = models.TextField(blank=True)
+    celery_task_id = models.CharField(max_length=155, blank=True)
+    solicitado_por = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    #: Quando o comando veio de um par (e não de um usuário daqui): quem mandou e o ator que ele afirmou.
+    origem_par = models.ForeignKey(Maquina, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    ator_afirmado = models.JSONField(default=dict, blank=True)
+    operacao_remota_id = models.UUIDField(null=True, blank=True)
+    criada_em = models.DateTimeField(auto_now_add=True)
+    iniciada_em = models.DateTimeField(null=True, blank=True)
+    finalizada_em = models.DateTimeField(null=True, blank=True)
+    ultimo_progresso_em = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = "cluster_operacao_modelo_ollama"
+        ordering = ["-criada_em"]
+        indexes = [Index(fields=["maquina", "-criada_em"])]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["maquina", "modelo"], condition=Q(status__in=["pendente", "executando"]),
+                name="uma_operacao_ativa_por_maquina_modelo",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.get_tipo_display()} {self.modelo} em {self.maquina.apelido} ({self.status})"
+
+    @property
+    def ativa(self) -> bool:
+        return self.status in self.ATIVOS
+
+    @property
+    def percentual(self) -> int | None:
+        if self.tipo != self.Tipo.PULL or not self.bytes_total:
+            return None
+        return min(100, int(self.bytes_concluidos * 100 / self.bytes_total))
