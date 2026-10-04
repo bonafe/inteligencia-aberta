@@ -2,6 +2,15 @@
 
 Este arquivo documenta as alterações, configurações e implementações feitas por IAs (agentes) neste repositório. O objetivo é manter um histórico unificado e transparente sobre o estado do desenvolvimento, facilitando o onboarding de novas IAs e humanos na base de código.
 
+## [03-10-2026] - Análise arquitetural da federação entre instâncias (só documento)
+
+**Contexto e motivação:**
+- O usuário pediu uma análise (sem implementar) de como instâncias independentes do Inteligência Aberta podem se federar: por contexto/regras, com protocolo desacoplado da implementação, RDF/JSON-LD, PROV-O, identidade federada, blobs por hash, eventos, conflitos e segurança. Resultado em `docs/arquitetura/federacao.md`.
+
+**O que contém:** inventário do que existe e do que acopla (incluindo três premissas que o repositório contradiz: Neo4j só existe em documentação, o object store já é o Garage e o MHTML não tem hash), avaliação dos padrões (adotar/adiar/descartar), arquitetura em 10 camadas, conceito de espaço, menor núcleo da v1, exemplo completo MHTML→notícia→alegação em JSON-LD/PROV-O, descoberta por hash, tratamento de conceitos desconhecidos, segurança, conflitos e roadmap F0–F5.
+
+**Pendente:** oito decisões em aberto (seção 14) — granularidade do espaço, identidade do usuário, papel do Neo4j, vários escritores, apagamento legal, separação cluster×federação, nomes e formato de IDs/hash. Nenhum código foi alterado; a avaliação dos padrões usou conhecimento prévio, sem consulta à web.
+
 ## [03-10-2026] - Chave de LLM (Claude) por organização, cifrada em repouso
 
 **Contexto e motivação:**
