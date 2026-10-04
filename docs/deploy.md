@@ -32,6 +32,7 @@ Resumo operacional para quem implanta por código. O restante deste documento ex
    - `ALLOWED_HOSTS` e `CSRF_TRUSTED_ORIGINS` (os nomes pelos quais o host é acessado; origens com `https://`)
    - `TLS_MODE` (`proxy` com `tailscale serve`/Caddy na frente; `none` só se HTTP puro for decisão consciente)
    - `BIND_ADDR`, `DATA_DIR`, `INSTANCIA_NOME`, `IA_VERSION` (sugestão: `git rev-parse --short HEAD`)
+   - LLM do nó (opcional; ver "LLM por nó e entre nós"): `OLLAMA_HOST`/`COMPOSE_PROFILES`/`OLLAMA_MODELOS` conforme o modo, e, no cluster, `LLM_GATEWAY_TOKEN` + `LLM_GATEWAY_ENDPOINT_ANUNCIADO`
    - host com domínio público: também `IA_DOMINIO` e `ACME_EMAIL`, e `--profile publico` no comando
 3. `docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build` (acrescentar `--profile publico` no host público). **Nunca sem os dois `-f`**: sem `-f` o compose carrega o `docker-compose.override.yml`, que é de desenvolvimento.
 4. Esperar e verificar (abaixo). Se `bootstrap` falhar (`docker compose ... logs bootstrap`), nada mais sobe — é a causa raiz a investigar.
@@ -95,13 +96,49 @@ Gerar: `python3 -c "import secrets; print(secrets.token_urlsafe(32))"`.
 | `COMPOSE_PROFILES` | vazio | `ollama` sobe o Ollama em container (modo `container`, ADR 009) |
 | `OLLAMA_HOST` | `http://host.docker.internal:11434` | Ollama que esta instância usa: nativo (padrão), `http://ollama:11434` (container) ou vazio (sem LLM local) |
 | `OLLAMA_ENDPOINT_ANUNCIADO` | = `OLLAMA_HOST` | Endpoint informado aos peers no heartbeat; precisa ser alcançável pela VPN |
-| `LLM_GATEWAY_TOKEN` | vazio | Segredo do gateway OpenAI-compatível; igual em todos os nós do cluster. Vazio = gateway desligado |
-| `LLM_GATEWAY_ENDPOINT_ANUNCIADO` | vazio | Base (sem `/v1`) do gateway anunciada aos peers, ex.: `http://<ip-vpn>:8000`; por ele os peers chamam o LLM deste nó (ADR 009) |
+| `LLM_GATEWAY_TOKEN` / `LLM_GATEWAY_ENDPOINT_ANUNCIADO` | vazio | Gateway LLM entre nós (token por cluster, endpoint por host) — ver "LLM por nó e entre nós" |
 | `OLLAMA_MODELOS` | vazio | Modelos baixados no `up` pelo `ollama-pull` (separados por espaço) |
 | `OLLAMA_BIND_ADDR` / `OLLAMA_PORTA` | `127.0.0.1` / `11434` | Onde o container publica o Ollama; IP da VPN para o cluster alcançá-lo |
 | `GARAGE_CAPACITY` | `100GB` | Capacidade declarada do nó único; não reserva disco |
 | `CORS_ALLOWED_ORIGINS` | vazio em prod | Origens web do orchestrator; a extensão não precisa |
 | `DJANGO_SUPERUSER_USERNAME` / `_EMAIL` | vazio | Dono inicial; sem as três, nenhum é criado |
+
+## LLM por nó e entre nós (Ollama e gateway)
+
+Tudo aqui é **opcional**: sem nada definido, a instância usa o Ollama nativo do host (`OLLAMA_HOST` padrão) e não participa de roteamento entre máquinas. Decisões em `docs/arquitetura/decisoes/009-ollama-como-capacidade-do-no.md`.
+
+### 1. Modo do Ollama — por host
+
+Cada host escolhe **um** modo (uma variável de inventário por host, que renderiza o `.env`):
+
+| Modo | `.env` | Quando |
+|---|---|---|
+| `container` | `COMPOSE_PROFILES=ollama`, `OLLAMA_HOST=http://ollama:11434`, `OLLAMA_MODELOS="<modelos separados por espaço>"` | Linux (CPU; NVIDIA com `docker-compose.gpu.yml`, não testado) |
+| `nativo` (padrão) | `OLLAMA_HOST=http://host.docker.internal:11434` | macOS: o Docker não acessa a GPU Metal; o Ollama roda no host, fora do compose |
+| `nenhum` | `OLLAMA_HOST=` (vazio) | VPS pequena sem recurso para LLM; usa os peers |
+
+- `OLLAMA_MODELOS` só vale no modo `container`: o `ollama-pull` baixa os modelos no `up` e sai (idempotente). Portal e worker não esperam por ele — baixar leva minutos.
+- No modo `container`, a porta do Ollama é publicada em `OLLAMA_BIND_ADDR:OLLAMA_PORTA` (padrão `127.0.0.1:11434`). Se o Ollama nativo do host já ocupa a 11434, mude `OLLAMA_PORTA` ou pare o nativo. **Com o gateway (abaixo), mantenha `127.0.0.1`**; só use o IP da VPN se os peers ainda chamarem o Ollama direto. O Ollama não tem autenticação: nunca `0.0.0.0`.
+- Não coloque `OLLAMA_HOST` no `env_file` do serviço `ollama`: lá ele é endereço de bind, e o valor do `.env` (URL de cliente) o quebra. O compose já trata isso.
+
+### 2. Gateway entre nós — token por cluster, endpoint por host
+
+Para os peers usarem o LLM deste nó **sem** expor o Ollama na VPN, cada nó anuncia o seu gateway (`POST /v1/chat/completions`, servido pelo portal na 8000):
+
+| Variável | Escopo | Valor |
+|---|---|---|
+| `LLM_GATEWAY_TOKEN` | **por cluster** — idêntico em todos os nós | Segredo aleatório (`token_urlsafe(32)`), gerado **uma vez** pela automação e distribuído. É a exceção à regra "um segredo distinto por host". Vazio = gateway desligado (404) e este nó não usa o gateway dos peers |
+| `LLM_GATEWAY_ENDPOINT_ANUNCIADO` | **por host** | Base sem `/v1`, alcançável pelos peers na VPN: `http://<ip-vpn-do-host>:8000`. Vazio = não anuncia |
+| `BIND_ADDR` | **por host** | Tem de ser o **IP da VPN** (ou uma interface que os peers alcancem) para a porta 8000 ser acessível; com o padrão `127.0.0.1` o gateway só responde localmente |
+| `OLLAMA_ENDPOINT_ANUNCIADO` | por host | Só necessário enquanto algum peer ainda chamar o Ollama direto (sem gateway/token). Alcançável pela VPN; vazio = usa `OLLAMA_HOST` |
+
+Regras de decisão para a automação:
+
+- Um nó só **chama** o gateway de um peer se tiver `LLM_GATEWAY_TOKEN` (e o peer anunciar `gateway_endpoint`); sem isso, o roteador cai no `ollama_endpoint` direto. Para fechar o Ollama dos peers: defina o token (igual em todos) e `LLM_GATEWAY_ENDPOINT_ANUNCIADO` em **todos** os nós, depois deixe `OLLAMA_BIND_ADDR=127.0.0.1`.
+- A porta 8000 em `BIND_ADDR` serve também o portal. No host com Caddy (`--profile publico`), o `infra/caddy/Caddyfile` responde `404` para `/v1/*`: o gateway **não** é publicado na internet, só fica acessível a quem alcança `BIND_ADDR:8000` (a VPN) — e ainda exige o token. Isso não vale para outros proxies: com `tailscale serve` ou outro na frente do portal, bloqueie `/v1/*` se a URL for pública.
+- `gateway_endpoint` (e `ollama_endpoint`) da `Maquina` é gravado **só quando ela é criada**: autorregistro local, `scripts/entrar_no_cluster.py` (`--gateway-endpoint`, default `LLM_GATEWAY_ENDPOINT_ANUNCIADO`) ou `registrar_maquina --gateway-endpoint`. Mudar a variável depois **não** atualiza uma `Maquina` existente — edite no admin do portal.
+- O autorregistro local só funciona com **uma** organização; com várias, defina `CLUSTER_MACHINE_ID` (ver `docs/operacao/escala-multimaquina.md`).
+- Validação: `curl -fsS -X POST -H 'Authorization: Bearer <token>' -H 'Content-Type: application/json' -d '{"model":"<modelo>","messages":[{"role":"user","content":"oi"}]}' http://<ip-vpn>:8000/v1/chat/completions` deve devolver JSON no formato OpenAI; sem o header, `401`; sem `LLM_GATEWAY_TOKEN` no nó, `404`. Este comando **não foi testado entre máquinas reais**.
 
 ## Portas, rede e HTTPS
 
@@ -131,7 +168,7 @@ O Caddy obtém o certificado (Let's Encrypt; portas 80/443 abertas para a intern
 Este documento trata **uma instância completa por host** (stack inteira, dados próprios). O projeto também tem um cluster multi-máquina (ADR-006, `docs/operacao/escala-multimaquina.md`) com dois arranjos: *pool de processamento* (`docker-compose.worker-node.yml`, só worker/beat apontando para a infraestrutura de outro nó) e *réplica*. Os dois são camadas por cima da instância descrita aqui, não alternativas a ela.
 
 - `docker-compose.no-infraestrutura.yml` (publica Postgres/Redis/Garage/Qdrant na interface da VPN, `CLUSTER_VPN_BIND_IP`) é um overlay opcional para o nó que hospeda a infra; combina com `docker-compose.prod.yml` (`-f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.no-infraestrutura.yml`).
-- Variáveis `CLUSTER_*`, `CELERY_QUEUES`, `LLM_GATEWAY_TOKEN` e `OLLAMA_*` do `.env.example` pertencem ao cluster e são **opcionais**: vazias, o recurso fica desligado. `CLUSTER_JOIN_SECRET` e `LLM_GATEWAY_TOKEN`, quando usados, são segredos (aleatórios, por cluster); a validação de segredos de produção não os exige.
+- Variáveis `CLUSTER_*`, `CELERY_QUEUES`, `LLM_GATEWAY_*` e `OLLAMA_*` do `.env.example` pertencem ao cluster e são **opcionais**: vazias, o recurso fica desligado. `CLUSTER_JOIN_SECRET` e `LLM_GATEWAY_TOKEN`, quando usados, são segredos (aleatórios, **por cluster** — iguais nos nós que se falam, ao contrário dos segredos da instância); a validação de segredos de produção não os exige. Detalhes e escopo de cada variável em "LLM por nó e entre nós".
 - Um nó `worker-node` em produção roda `config.settings.production` e, por isso, também precisa dos segredos obrigatórios no seu `.env` (os mesmos valores do nó que hospeda a infra, não novos).
 
 ## Volumes

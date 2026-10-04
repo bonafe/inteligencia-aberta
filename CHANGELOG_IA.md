@@ -13,7 +13,8 @@ Este arquivo documenta as alterações, configurações e implementações feita
 - **Cliente (`ollama_client.py`):** `_chamar(gateway=...)` faz `POST <gateway>/v1/chat/completions` com `Bearer` e converte a resposta ao formato do Ollama; `llm_common.gerar_texto` e `gateway.py` passam o gateway escolhido. Sem fallback para o Ollama direto do peer.
 - **Sem laço:** o cliente envia `X-Cluster-Encaminhado`; o gateway que o recebe executa localmente e não reencaminha (um salto só).
 - **Velocidade aprendida:** o gateway devolve `x_ollama.eval_duration_ns` (extensão fora da API OpenAI) para o tokens/segundo do peer continuar sendo aprendido.
-- **Docs:** ADR 009 (pendência virou seção), `docs/operacao/escala-multimaquina.md`, `docs/deploy.md`.
+- **Caddy:** `infra/caddy/Caddyfile` passa a responder 404 para `/v1/*` — antes o gateway ficava alcançável pela internet no host público (só o token o protegia), porque o Caddy mandava todo o resto ao portal.
+- **Docs:** ADR 009 (pendência virou seção), `docs/operacao/escala-multimaquina.md`, `docs/deploy.md` (nova seção "LLM por nó e entre nós": modos do Ollama por host; token do gateway por cluster, endpoint e `BIND_ADDR` por host).
 
 **Como foi validado:** suíte do portal completa no container (122 testes), incluindo novos testes de roteador (peer com/sem token, máquina local, peer só com gateway), cliente (conversão, falha → `OllamaIndisponivel`, telemetria), gateway (pedido encaminhado não reencaminha; sem cabeçalho encaminha) e `gerar_texto`.
 

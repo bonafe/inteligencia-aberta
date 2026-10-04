@@ -13,6 +13,13 @@
 		respond 404
 	}
 
+	# Gateway LLM entre nós do cluster (Bearer LLM_GATEWAY_TOKEN): é para a VPN, não
+	# para a internet. O Caddy só publica o portal e a captura (ADR 007).
+	@gateway_llm path /v1/*
+	handle @gateway_llm {
+		respond 404
+	}
+
 	# Captura da extensão (JWT validado pelo orchestrator). MHTML pode ser grande.
 	handle /api/v1/capture/* {
 		request_body {
