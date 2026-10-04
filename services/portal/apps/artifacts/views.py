@@ -23,6 +23,7 @@ from minio.error import S3Error
 
 from apps.accounts.models import Membership, Organization, User
 from apps.accounts.views import orgs_do_usuario
+from config.conteudo_hash import formato_valido
 from apps.events.context import set_correlation_id, set_tenant_id
 from apps.events.emit import emit
 from .graph import artifacts_para_mapa, dominio_de, montar_grafo
@@ -93,8 +94,16 @@ class ArtefatoCreateAPIView(View):
         if correlation_id:
             content = {**content, "correlation_id": str(correlation_id)}
 
+        # Hash do blob calculado pelo orchestrator sobre os bytes recebidos. O
+        # portal não tem os bytes aqui, então só valida o formato; a conferência
+        # contra o armazenamento é do `calcular_hashes --verificar`.
+        blob_hash = data.get("blob_hash")
+        if blob_hash is not None and not formato_valido(blob_hash):
+            return JsonResponse({"error": "blob_hash inválido (esperado ni:///sha-256;...)"}, status=400)
+
         artifact = Artifact.objects.create(
             artifact_type=data.get("artifact_type", Artifact.Type.DOCUMENT),
+            blob_hash=blob_hash,
             content=content,
             classification_level=level,
             tenant=org,

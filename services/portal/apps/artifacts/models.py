@@ -43,6 +43,12 @@ class Artifact(models.Model):
     info_type = models.CharField(max_length=20, choices=InfoType.choices)
     sources = models.JSONField(default=list)
 
+    # Hash (RFC 6920, `ni:///sha-256;...`) dos bytes do blob a que o artefato
+    # aponta (o MHTML, para `documento`) — ADR 010. Não é único: duas capturas
+    # com bytes idênticos geram dois artefatos com o mesmo hash. Nulo enquanto
+    # não calculado (artefatos anteriores à F0 → `calcular_hashes`).
+    blob_hash = models.CharField(max_length=100, null=True, blank=True, db_index=True)
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

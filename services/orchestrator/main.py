@@ -18,6 +18,7 @@ from policy_engine import check, registrar_decisao
 from eventos import emitir, nova_correlacao
 
 from segredos import validar_segredos
+from conteudo_hash import hash_ni
 
 validar_segredos(["JWT_SIGNING_KEY", "INTERNAL_API_TOKEN", "S3_SECRET_KEY", "POSTGRES_PASSWORD"])
 
@@ -222,13 +223,17 @@ async def capture_mhtml(
         # Lê o conteúdo do arquivo
         content = await file.read()
         file_size = len(content)
+        # Identidade do conteúdo (ADR 010): calculada sobre os bytes exatos que
+        # serão gravados, no ato da captura, antes de qualquer transformação.
+        conteudo_hash = hash_ni(content)
 
         evento("captura.recebida", "ok",
                message=f"MHTML recebido de {url}",
                payload={"url": url, "titulo": title, "bytes": file_size,
                         "classificacao": classification_level,
                         "allow_external_llm": allow_external_llm,
-                        "capture_timestamp": timestamp})
+                        "capture_timestamp": timestamp,
+                        "hash_ni": conteudo_hash})
 
         # Gera um ID único para o artefato
         artifact_id = str(uuid.uuid4())
@@ -246,7 +251,7 @@ async def capture_mhtml(
         evento("captura.armazenada", "ok",
                message=f"MHTML gravado no MinIO ({file_size} bytes)",
                payload={"bucket": MHTML_BUCKET_NAME, "path": object_name,
-                        "bytes": file_size, "url": url},
+                        "bytes": file_size, "url": url, "hash_ni": conteudo_hash},
                duration_ms=int((time.perf_counter() - t0) * 1000))
 
         favicon_data_uri, motivo_favicon = extrair_favicon_do_mhtml(content, url, favicon_url)
@@ -278,6 +283,7 @@ async def capture_mhtml(
                     "tenant_id": tenant_id,
                     "user_id": user_id,
                     "correlation_id": correlacao,
+                    "blob_hash": conteudo_hash,
                     "info_type": "fato",
                     "sources": [],
                 },
@@ -294,7 +300,8 @@ async def capture_mhtml(
             emitir("captura.orfa", "falhou", correlation_id=correlacao,
                    tenant_id=tenant_id, user_id=user_id,
                    message="MHTML gravado no MinIO mas não registrado no portal",
-                   payload={"bucket": MHTML_BUCKET_NAME, "path": object_name, "url": url},
+                   payload={"bucket": MHTML_BUCKET_NAME, "path": object_name, "url": url,
+                            "hash_ni": conteudo_hash},
                    error=str(api_err), sincrono=True)
             raise Exception(f"Salvo no MinIO, mas erro ao registrar no Portal: {api_err}")
 
