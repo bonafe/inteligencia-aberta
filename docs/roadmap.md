@@ -66,7 +66,7 @@ Cada fase deve entregar valor real a pelo menos uma persona. Nenhuma fase é "s�
 
 **Entregáveis:**
 - [ ] Agentes Correlacionador, Validador e Analista
-- [ ] Neo4j integrado — grafo de vínculos
+- [ ] Grafo de vínculos como **projeção** do log de eventos; tecnologia (Neo4j ou tabelas de arestas no Postgres) a decidir nesta fase ([ADR-010](arquitetura/decisoes/010-federacao-por-log-assinado.md))
 - [ ] Visualização de grafo na interface web
 - [ ] Relatório com grafo, fontes e grau de confiança
 - [ ] Exportação PDF
@@ -107,12 +107,18 @@ Cada fase deve entregar valor real a pelo menos uma persona. Nenhuma fase é "s�
 - [ ] Suporte a equipes dentro de uma organização
 - [ ] Políticas de acesso configuráveis por organização
 - [ ] Notificações de compartilhamento
-- [ ] `Projeto` — unidade de colaboração cross-organização: membros são
-  usuários (não organizações inteiras), decide o que fica elegível a
-  replicação automática e a compartilhamento de computação de LLM entre
-  donos diferentes ([ADR-006](../arquitetura/decisoes/006-cluster-adaptativo-multiproprietario.md),
-  [perfil de implantação D5](../visao/perfis-de-implantacao.md)). Complementar
+- [ ] `Space` (antes `Projeto`) — unidade de colaboração cross-organização:
+  membros são usuários (não organizações inteiras) e a política do espaço
+  decide o que sai da instância ([ADR-010](arquitetura/decisoes/010-federacao-por-log-assinado.md),
+  [ADR-006](arquitetura/decisoes/006-cluster-adaptativo-multiproprietario.md),
+  [perfil de implantação D5](visao/perfis-de-implantacao.md)). Complementar
   a `Sharing` (grant pontual por artefato, já existente) — não o substitui.
+- [ ] Federação entre instâncias, em fases F0–F5 (hash do MHTML na captura,
+  espaço local, pacote offline assinado, pull assinado, robustez, identidade):
+  roteiro e critérios de saída em
+  [`federacao.md`](arquitetura/federacao.md) §13, decisões na
+  [ADR-010](arquitetura/decisoes/010-federacao-por-log-assinado.md). A F0
+  (hash no ato da captura) não depende desta fase e pode vir antes.
 
 **Caso de uso habilitado:** UC-04 (paciente → médico), UC-07 (institucional).
 
@@ -132,10 +138,12 @@ Cada fase deve entregar valor real a pelo menos uma persona. Nenhuma fase é "s�
   ([`docs/operacao/escala-multimaquina.md`](../operacao/escala-multimaquina.md))
 - [ ] Cluster adaptativo multi-proprietário: perfis de nó por capacidade
   (armazenamento/computação/borda pública/offline), motor de posicionamento
-  com critério (dono do destino, `Projeto`, espaço disponível, sensibilidade
-  do dado), roteador de LLM estendido entre donos diferentes, proveniência
-  de dado e de geração de LLM visível no grafo
-  ([ADR-006](../arquitetura/decisoes/006-cluster-adaptativo-multiproprietario.md),
+  com critério (dono do destino, espaço disponível, sensibilidade do dado),
+  proveniência de dado e de geração de LLM visível no grafo. A colaboração
+  entre donos diferentes (antes "`Projeto`" e "roteador de LLM estendido")
+  migrou para a federação ([ADR-010](arquitetura/decisoes/010-federacao-por-log-assinado.md));
+  a reciprocidade de LLM entre donos segue em aberto
+  ([ADR-006](arquitetura/decisoes/006-cluster-adaptativo-multiproprietario.md),
   [perfis de implantação](../visao/perfis-de-implantacao.md)) — substitui a
   ideia original de migrar para Kubernetes/Docker Swarm, descartada por não
   resolver nada específico do domínio (quem replica para quem, sob qual

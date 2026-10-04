@@ -1,6 +1,6 @@
 # Decisão-006: Cluster adaptativo multi-proprietário, não uma primary fixa
 
-**Status:** Aceito
+**Status:** Aceito — parcialmente revisado pela [ADR 010](010-federacao-por-log-assinado.md) em 2026-10-04 (ver "Revisão" ao final)
 **Data:** 2026-09-16
 
 ## Contexto
@@ -59,3 +59,22 @@ O que já estava decidido continua valendo, sem mudança: nunca replicação nat
 - Toda decisão de posicionamento (replicar ou não, para onde) deve ser auditável — quem, quando, por qual critério — no mesmo espírito de `AuditLog`/`PipelineEvent`.
 - `Projeto` nunca implica confiança automática de organização inteira: participação é por usuário, explícita, e não estende a superfície de isolamento por padrão que `Organization` já garante.
 - O roteador de LLM cross-`Projeto` só encaminha requisição para máquina de outro dono quando esse dono autorizou reciprocidade explicitamente — nunca por padrão.
+
+## Revisão de 2026-10-04 (ADR 010)
+
+Esta ADR misturava dois cenários: o **cluster** (A — máquinas do mesmo dono ou de colaboradores próximos, com token compartilhado) e a **colaboração entre donos independentes** (B). A [ADR 010](010-federacao-por-log-assinado.md) separa os dois: o cenário B passa a ser a **federação**, em app próprio. O texto acima fica como registro histórico; vale o seguinte:
+
+**Muda:**
+
+- **`Projeto` vira `Space`** (ADR 010). Como `Projeto` nunca foi implementado, não há migração. As regras que esta ADR já fixava continuam valendo para o `Space`: participação por usuário e explícita, negação por padrão, nenhuma confiança automática de organização inteira.
+- **Compartilhar dado entre donos diferentes** deixa de ser papel do motor de posicionamento e de `EventoReplicacao`/`eventos_para_peer`: é a federação (log de eventos assinados, pull assinado, política por espaço). Sai do critério do motor o "`Projeto` em comum que autoriza a categoria de dado".
+- **Proveniência no grafo** continua, mas o grafo é **projeção** do log (ADR 010), não fonte de verdade.
+
+**Fica (Cenário A, `apps/cluster`):**
+
+- Perfis de nó por capacidade, offline-first e heterogeneidade de papel entre máquinas.
+- Motor de posicionamento **entre máquinas do mesmo dono**: espaço em disco, marcação explícita de réplica, sensibilidade do dado. Mesma disciplina do `policy_engine` (determinístico, auditável).
+- Roteador de LLM e gateway autenticado entre peers (ADR 009).
+- "Nunca replicação nativa do Postgres/Garage/Qdrant" e "nunca failover automático".
+
+**Em aberto (fora da ADR 010):** a reciprocidade de **computação de LLM entre donos diferentes** (a ADR 009 usa um token igual em todos os nós, o que só serve a um cluster de confiança única). Quando for tratada, a autorização entre donos deve se apoiar na identidade e nos espaços da federação, e não num token compartilhado.
