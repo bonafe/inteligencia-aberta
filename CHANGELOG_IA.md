@@ -13,6 +13,21 @@ Este arquivo documenta as alterações, configurações e implementações feita
 
 **Falta da F0:** `Claim`/`Evidence` como conceitos de domínio (precisa de conversa de modelagem antes). Com isso a F0 fecha: hash do MHTML (feito), ID global (feito), chave Ed25519 da instância (feito).
 
+## [04-10-2026] - F1, etapa 1: `Space` (só estrutura)
+
+**Decidido com o usuário:** (1) o `Space` é só estrutura — **não concede acesso** (continua por organização, em 12+ pontos das views) e **não tem membros** ainda; (2) o **espaço padrão de cada organização é implícito, sem linhas**.
+
+**O que foi implementado:**
+- **`Space`** e **`EspacoArtefato`** em `apps/federacao` (migration `federacao.0002`): nome normalizado e único por organização, organização local (P7), `arquivado`, `criado_por`; um artefato em vários espaços; apagar o artefato desfaz o vínculo, não o espaço.
+- **Espaço padrão** (`EspacoPadrao`): sem linha no banco, ID **derivado** da organização por `uuid5` (espaço de nomes fixo, coberto por teste), "todos os artefatos da organização".
+- **`apps/federacao/espacos.py`:** `criar_espaco`, `arquivar`/`desarquivar`, `incluir_artefato` (mesma organização; `importado=True` mantém o `tenant` de origem, **sem uso ainda**) e `remover_artefato` (idempotentes), `artefatos_do_espaco`, `espacos_do_artefato`, `resolver_urn`.
+- **Admin** (`SpaceAdmin` com inline de artefatos; o `clean` recusa artefato de outra organização).
+- Testes: `tests/test_federacao_espacos.py` (27, incluindo "estar num espaço não dá acesso": o dono de B recebe 404 num artefato de A mesmo que ele esteja num espaço de B); suíte completa com 342 passando. Documentado em `federacao.md` e `CLAUDE.md`.
+
+**Limites conhecidos:** `resolver_urn` percorre as organizações para achar um espaço padrão (barato com poucas organizações); sem membros, sem acesso por espaço, sem eventos; o espaço padrão não aparece no admin nem pode receber inclusões; a tela do portal não lista espaços.
+
+**Próximo na F1:** `Par` fundido com `Maquina` e o motor de regras.
+
 ## [04-10-2026] - `Claim` e `Evidence` implementados, com o produtor `extruct` (fecha a F0)
 
 **O que foi implementado** (decisões da entrada abaixo):

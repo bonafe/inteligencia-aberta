@@ -493,6 +493,16 @@ O que se repassa continua sujeito aos pisos e às regras, e o nível do objeto v
 
 **Confiança:** só `extractor_confidence` por enquanto; as demais dimensões da seção 5 (confiabilidade da fonte, corroboração, revisão humana) são calculadas localmente depois.
 
+### `Space` — etapa 1 da F1 (implementada em 2026-10-04)
+
+Só **estrutura**: o espaço agrupa objetos e **não concede acesso a ninguém** (o acesso segue por organização, `orgs_do_usuario`, em mais de uma dúzia de pontos das views) e **ainda não tem membros** (dependem da identidade e dos pares).
+
+- **`Space`** (`apps/federacao`, tabela `federacao_space`): ID `urn:uuid:`, nome (normalizado, único por organização), descrição, **organização local** (decisão P7), `arquivado` e `criado_por`. **`EspacoArtefato`** liga um artefato a um espaço explícito; **um artefato pode estar em vários**. Apagar o artefato desfaz o vínculo e não o espaço.
+- **Espaço padrão implícito, sem linha no banco:** "todos os artefatos da organização". Tem **ID estável derivado** da organização (`uuid5` com um espaço de nomes fixo — mudá-lo mudaria o ID de todos), para poder ser citado em regras e eventos como qualquer espaço. Um artefato novo já está nele, sem nenhum signal.
+- **Serviço** (`apps/federacao/espacos.py`): `criar_espaco`, `arquivar`/`desarquivar` (arquivado não recebe novos artefatos e nada é apagado), `incluir_artefato` e `remover_artefato` (idempotentes), `artefatos_do_espaco` e `espacos_do_artefato` (tratam o explícito e o padrão do mesmo jeito) e `resolver_urn`.
+- **Regra de inclusão:** só artefato da **mesma organização** do espaço entra; a exceção é o objeto `importado`, que mantém o `tenant` de origem e só ganha a associação (decisão P7) — um parâmetro explícito, **ainda sem uso** (não há importação). O admin aplica a regra estrita.
+- **Fora desta etapa:** membros e papéis, acesso por espaço, o motor de regras (que usará o espaço como condição) e eventos assinados.
+
 ## 15. Fora de escopo deste documento
 
 Replicação de infraestrutura (Cenário A), roteamento de LLM entre nós (já em `apps/cluster/` e ADR 009), e qualquer implementação. Nenhuma alteração de código foi feita junto com esta análise.
