@@ -282,6 +282,123 @@
     <div class="container">
         <div class="entries-list">
 
+            <!-- Entrada 35 -->
+            <!-- RASCUNHO: escrito a partir do CHANGELOG, das ADRs e do histórico de commits; revisar o texto e remover este aviso antes de publicar. -->
+            <article class="entry-card">
+                <div class="entry-header">
+                    <div class="entry-meta">
+                        <span class="entry-date">4 de outubro de 2026</span>
+                        <span class="entry-sep"></span>
+                        <span class="entry-author">Bonafé &amp; Claude Code</span>
+                    </div>
+                    <h2 class="entry-title">Conferindo o site contra o código — e conferindo a própria conferência</h2>
+                </div>
+                <div class="entry-body">
+                    <p>Pedimos uma verificação de toda a documentação e, ao ler o site, achei que a página inicial marcava os oito itens do “Onde estamos” como concluídos, enquanto o README os listava como pendentes. Montei uma tabela com o que o código mostrava: os agentes Planejador, Coletor e Redator com seis linhas cada, as ferramentas <code>buscar_processos</code> e <code>buscar_noticias</code> com três, nenhum código de chat nem de voz. Estava errado na premissa: a classe CSS se chamava <code>ri-check</code>, mas desenhava um círculo vazio. Os itens apareciam como metas em aberto, não como concluídos. Eu tinha concluído pelo nome da classe, sem olhar como ela renderizava.</p>
+                    <p>O que era falso estava em outro lugar: a jornada dizia, num marco marcado “Concluído”, que buscar processos e notícias estavam operacionais e que o ciclo de inteligência funcionava de ponta a ponta; e a fase 0 falava em MinIO e em agentes operacionais. Ao mesmo tempo, o site não mostrava nada do que existe de verdade — a captura, o pipeline, o painel ao vivo, e agora a federação. Reescrevemos a página inicial em três grupos: <em>Funciona hoje</em>, <em>Em construção</em> e <em>Planejado</em>, cada item com os seus limites ditos na própria linha.</p>
+                    <p>A regra que adotamos para o site é simples: um item só entra em “Funciona hoje” quando existe e roda. O resto é meta, e diz que é.</p>
+                    <p><em>Verificar é também verificar a própria verificação: o primeiro erro desta semana sobre o site foi meu, não do site.</em></p>
+                </div>
+            </article>
+
+            <!-- Entrada 34 -->
+            <!-- RASCUNHO: escrito a partir do CHANGELOG, das ADRs e do histórico de commits; revisar o texto e remover este aviso antes de publicar. -->
+            <article class="entry-card">
+                <div class="entry-header">
+                    <div class="entry-meta">
+                        <span class="entry-date">4 de outubro de 2026</span>
+                        <span class="entry-sep"></span>
+                        <span class="entry-author">Bonafé &amp; Claude Code</span>
+                    </div>
+                    <h2 class="entry-title">Controlar o Ollama de outra máquina pela tela — e o que “próprio” passa a significar</h2>
+                </div>
+                <div class="entry-body">
+                    <p>O pedido era direto: ver as máquinas e suas capacidades, e instalar e remover modelos do Ollama — nativo ou em container — a partir de qualquer instância do mesmo dono. A API HTTP do Ollama basta para isso, e o portal só a usa dentro da própria instância. Entre instâncias, o caminho é um canal assinado com Ed25519: a assinatura cobre método, rota, corpo, janela de tempo, nonce e o destinatário, e a resposta também vai assinada. O Ollama continua sem autenticação e fechado; nenhuma rota do canal repassa tráfego a ele.</p>
+                    <p>As instâncias se conhecem como pares, por convite, sem confiar no primeiro contato: o administrador de cada lado confere a impressão digital da outra instância por fora do canal. O tipo “próprio” é um rótulo que cada lado atribui ao outro, sem prova de que a outra instância é do mesmo dono — e passa a dar poder sobre os modelos. Por isso marcar um par como próprio exige confirmação explícita, fica registrado e vem com um aviso na tela. Um limite que escrevemos até em teste: o receptor não consegue verificar o papel que a origem afirma, então quem controla a chave de um par próprio manda comandos. O estrago possível é limitado — instalar e remover modelos de nome válido, do registry oficial, dentro de um teto de operações —, mas existe.</p>
+                    <p>Na tela: instalar, remover, cancelar e acompanhar o progresso. Só dono e administrador agem — foi o primeiro uso real de papéis no portal. Quando uma máquina está offline, os botões ficam desabilitados com o motivo, e um comando mesmo assim falha na hora, em vez de ficar numa fila esperando. Instalar um modelo leva horas, então roda numa fila própria, com um worker dedicado.</p>
+                    <p>Tudo isso foi testado com a outra instância e o Ollama simulados, e a tela só com um DOM simulado. Ainda não rodou entre duas máquinas reais, e dizemos isso porque é o teste que mais falta.</p>
+                    <p><em>Dar poder a um rótulo exige dizer, na tela e no código, o que o rótulo não prova.</em></p>
+                </div>
+            </article>
+
+            <!-- Entrada 33 -->
+            <!-- RASCUNHO: escrito a partir do CHANGELOG, das ADRs e do histórico de commits; revisar o texto e remover este aviso antes de publicar. -->
+            <article class="entry-card">
+                <div class="entry-header">
+                    <div class="entry-meta">
+                        <span class="entry-date">4 de outubro de 2026</span>
+                        <span class="entry-sep"></span>
+                        <span class="entry-author">Bonafé &amp; Claude Code</span>
+                    </div>
+                    <h2 class="entry-title">Tirar o que ninguém usava — e descobrir o que ele escondia</h2>
+                </div>
+                <div class="entry-body">
+                    <p>O modo <code>compute</code> deixava várias máquinas trabalharem sobre um banco compartilhado. Tinha um script de junção, endpoints de descoberta e dois overlays de compose. Perguntamos o óbvio: alguma máquina usa isso? Nenhuma. E se cada máquina é uma instância completa, e os dados só se movem por federação, o modo sobrava. Removemos os overlays, o script, os endpoints e os campos que só ele usava.</p>
+                    <p>O que ele escondia: o heartbeat só era emitido e aplicado para a máquina local, no banco local. Enquanto todas compartilhavam um banco, isso bastava. Com bancos separados, as capacidades dos pares nunca chegavam ao banco de quem olhava — nem a tela nem o roteador de LLM enxergavam os outros nós. Só percebemos porque fomos desenhar a tela de controle. A correção, um pull periódico do estado dos pares, veio no passo seguinte.</p>
+                    <p>Aproveitamos para remover a replicação antiga por <code>EventoReplicacao</code>: só tinha o lado que envia, sem nenhum filtro, e ninguém consumia.</p>
+                    <p><em>Remover código morto é também uma forma de auditar o que o código vivo assumia.</em></p>
+                </div>
+            </article>
+
+            <!-- Entrada 32 -->
+            <!-- RASCUNHO: escrito a partir do CHANGELOG, das ADRs e do histórico de commits; revisar o texto e remover este aviso antes de publicar. -->
+            <article class="entry-card">
+                <div class="entry-header">
+                    <div class="entry-meta">
+                        <span class="entry-date">4 de outubro de 2026</span>
+                        <span class="entry-sep"></span>
+                        <span class="entry-author">Bonafé &amp; Claude Code</span>
+                    </div>
+                    <h2 class="entry-title">Mandar “interno” a um terceiro contradizia a definição do próprio nível</h2>
+                </div>
+                <div class="entry-body">
+                    <p>Ao desenhar quem recebe o quê, a primeira proposta era uma tabela de tetos por tipo de par: a máquina própria recebe tudo; um terceiro, até o nível <code>interno</code>. Ao reler a definição de classificação, o nível <code>interno</code> é “compartilhamento restrito à organização” — a proposta quebrava uma regra que o sistema já tinha. Corrigimos: um terceiro nunca recebe <code>interno</code>; <code>restrito</code> e <code>confidencial</code> só saem por concessão explícita, para aquele objeto e aquele par, com validade.</p>
+                    <p>O dono não queria uma tabela, queria poder dizer “este notebook recebe confidencial, aquele não”. Virou um motor de regras em três camadas: pisos que nenhuma regra contorna, padrões que se editam e as regras de quem usa. Negar vence, sem prioridade nem ordem; sem regra que permita, nega; e vale nos dois lados — o notebook pode recusar mesmo que o emissor envie. É uma função pura, separada do motor de políticas, e cada decisão devolve a regra que a tomou e o motivo. Hoje não está ligado a nenhum envio, porque ainda não existe envio entre instâncias.</p>
+                    <p>Uma consequência que registramos em vez de esconder: sem identidade de organização entre instâncias, um colega de equipe com instância própria conta como terceiro e só recebe o público ou o que lhe for concedido, objeto a objeto.</p>
+                    <p>Do mesmo raciocínio saiu a classificação por domínio: tudo o que for capturado de um site de banco, por exemplo, nasce no mínimo <code>confidencial</code>. A regra só sobe o nível, nunca rebaixa o que a pessoa escolheu; casa por sufixo de rótulo (cobre <code>www.</code> e <code>login.</code>, mas não um domínio que apenas termine igual); fecha o LLM externo quando eleva; e não reclassifica o que já foi capturado.</p>
+                    <p><em>Uma proposta que contradiz a definição de um nível não é só uma proposta ruim: é um sinal de que a definição estava fazendo o seu trabalho.</em></p>
+                </div>
+            </article>
+
+            <!-- Entrada 31 -->
+            <!-- RASCUNHO: escrito a partir do CHANGELOG, das ADRs e do histórico de commits; revisar o texto e remover este aviso antes de publicar. -->
+            <article class="entry-card">
+                <div class="entry-header">
+                    <div class="entry-meta">
+                        <span class="entry-date">4 de outubro de 2026</span>
+                        <span class="entry-sep"></span>
+                        <span class="entry-author">Bonafé &amp; Claude Code</span>
+                    </div>
+                    <h2 class="entry-title">Federar sem replicar banco: um log assinado, e não um Kafka</h2>
+                </div>
+                <div class="entry-body">
+                    <p>O ponto de partida: instâncias de donos e versões diferentes precisam trocar informação sem copiar bancos e sem tratar alegações como fatos. A análise levantou o que o repositório tinha de verdade. O <code>EventoReplicacao</code> era sincronização de estado disfarçada de evento — acoplado ao schema do Django, sem assinatura nem proveniência. O Neo4j só existia em documentação. E o MHTML capturado não tinha hash: o sistema sabia onde o arquivo estava, não o que ele era.</p>
+                    <p>A decisão: a fonte de verdade é um log de eventos assinados, com uma cadeia de hash por autor, e todo o resto — grafo, painéis — é projeção reconstruível por replay. Perguntamos se um serviço de mensageria, um Kafka por exemplo, não seria mais elegante. A resposta foi que o log <em>é</em> o modelo; o que se decide é onde ele mora. Um broker não assina, a retenção dele conflita com “nunca apagar um evento” e ele não é um protocolo entre partes que não confiam uma na outra. O log fica numa tabela do Postgres, escrita na mesma transação do dado, e um broker pode entrar depois como transporte. Essa tabela ainda não existe: é decisão, não código.</p>
+                    <p>O que já virou código: o hash de conteúdo do MHTML na captura, uma chave Ed25519 por instância (com a privada cifrada no servidor — a instância é a raiz de confiança, e dizemos isso), identificadores globais e as alegações com evidência, imutáveis, uma por atributo e nunca uma por linha de tabela. Para o apagamento, ficamos só com a retratação por enquanto: o projeto não está em produção e pode ser zerado, mas essa liberdade acaba no primeiro intercâmbio com outra instância real.</p>
+                    <p><em>Antes de escolher a tecnologia, vale perguntar que garantia ela deveria dar — e se outra camada já a dá melhor.</em></p>
+                </div>
+            </article>
+
+            <!-- Entrada 30 -->
+            <!-- RASCUNHO: escrito a partir do CHANGELOG, das ADRs e do histórico de commits; revisar o texto e remover este aviso antes de publicar. -->
+            <article class="entry-card">
+                <div class="entry-header">
+                    <div class="entry-meta">
+                        <span class="entry-date">3 de outubro de 2026</span>
+                        <span class="entry-sep"></span>
+                        <span class="entry-author">Bonafé &amp; Claude Code</span>
+                    </div>
+                    <h2 class="entry-title">Uma instância por host, e o que fica trancado de propósito</h2>
+                </div>
+                <div class="entry-body">
+                    <p>Até aqui o projeto rodava como um ambiente de desenvolvimento. Preparar o servidor de verdade obrigou a perguntar o que fica exposto. A decisão: cada host roda uma instância completa; em produção só o portal e o orchestrator publicam porta, presas a um endereço configurável (loopback por padrão), e o MCP, o Postgres, o Redis, o Qdrant e o Garage ficam na rede interna. Quem tem domínio público ganha um Caddy opcional que publica apenas o portal e a rota de captura.</p>
+                    <p>Dois travões vieram junto. Em produção, segredo com valor de exemplo ou vazio é recusado na subida — e a mensagem lista todos os problemas de uma vez. E o registro público fecha depois do primeiro usuário: o dono nasce no primeiro boot, idempotente, antes de qualquer porta abrir, para não existir a corrida em que o primeiro que se cadastra vira superusuário.</p>
+                    <p>No mesmo dia, o armazenamento de objetos trocou o MinIO pelo Garage (compatível com S3), e o Ollama deixou de ser um serviço obrigatório para virar uma <em>capacidade do nó</em>: em container, nativo ou nenhum. Os Macs usam o nativo porque o Docker no macOS não alcança a GPU. Entre máquinas, a chamada ao LLM de um par passa por um gateway autenticado, em vez de abrir na VPN um Ollama que não tem autenticação. Esse gateway ainda não foi testado entre duas máquinas reais.</p>
+                    <p><em>Exposição mínima não é uma configuração: é uma lista do que fica trancado e do porquê.</em></p>
+                </div>
+            </article>
+
+
             <!-- Entrada 29 -->
             <article class="entry-card">
                 <div class="entry-header">

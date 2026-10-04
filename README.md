@@ -188,7 +188,7 @@ Isso não é acessibilidade como concessão. É o design correto para uma ferram
 | Infraestrutura | Docker |
 | Banco Relacional | PostgreSQL |
 | Banco Vetorial (RAG) | Qdrant / pgvector |
-| Banco de Grafos | Neo4j |
+| Banco de Grafos | Neo4j *(previsto; ainda não implementado — o grafo será uma projeção dos dados)* |
 | Armazenamento de Objetos | Garage (S3 Compatible) |
 
 ---
@@ -206,7 +206,18 @@ Isso não é acessibilidade como concessão. É o design correto para uma ferram
 - [ ] Interface de linguagem natural (chat)
 - [ ] Interface de voz (container STT/TTS)
 - [ ] Suporte a modelos locais (on-premise) para dados sensíveis
-- [ ] Escalabilidade horizontal (Kubernetes / Docker Swarm)
+- [ ] Escalabilidade horizontal (Kubernetes / Docker Swarm) — *descartada na ADR 006*: o caminho é uma instância completa por máquina, ligadas por pares (abaixo)
+- [ ] Federação entre instâncias — **em andamento** ([`docs/arquitetura/federacao.md`](docs/arquitetura/federacao.md)): identidade (hash, chave, IDs), alegações com evidência, espaços, motor de regras e controle de pares **já existem**; falta a replicação de dados entre instâncias (pacote offline e pull assinado)
+
+### Várias máquinas, cada uma com a sua instância
+
+Cada máquina roda uma instância **completa** (banco, arquivos e fila próprios). Instâncias se conhecem como **pares**, por **convite**, e só viram confiáveis depois que os administradores dos dois lados conferem a **impressão digital** uma da outra por fora do canal. O que já funciona:
+
+- **`/cluster/pares/`** — convidar, aceitar, confirmar, mudar o tipo (`próprio` ou `terceiro`) e revogar pares. **Marcar um par como próprio dá poder** sobre os modelos do Ollama dele: só marque instâncias que você mesmo administra.
+- **`/cluster/`** — ver as máquinas (recursos, selo **Offline**) e **instalar, remover e cancelar** modelos do Ollama, nativo ou em container, da própria máquina e dos pares próprios. Só dono e administrador agem; máquina offline tem as ações desabilitadas.
+- **Classificação por domínio** — no admin do Django (app Artefatos), o modelo `RegraClassificacaoDominio` faz tudo o que vem de um site (ex.: `bancodobrasil.com.br`) nascer, no mínimo, `confidencial`.
+
+Variáveis que importam, no `.env`: `FIELD_ENCRYPTION_KEY` (**defina antes do primeiro `up`**: cifra a chave Ed25519 da instância), `FEDERACAO_ENDPOINT_ANUNCIADO` (o endereço da VPN pelo qual os pares a alcançam) e, para o Ollama nativo, `OLLAMA_DATA_DIR_HOST`. Detalhes em [`docs/deploy.md`](docs/deploy.md) e [`docs/operacao/escala-multimaquina.md`](docs/operacao/escala-multimaquina.md). **Ainda não foi exercitado entre duas instâncias reais**, só em testes.
 
 ---
 
@@ -265,6 +276,8 @@ docker compose exec portal python manage.py migrate
 # 4. (Opcional) Crie um usuário administrador novamente
 docker compose exec portal python manage.py createsuperuser
 ```
+
+> Zerar também apaga a **chave Ed25519 da instância**: ao recriá-la (`docker compose exec portal python manage.py chave_instancia --criar`, ou no primeiro heartbeat) a instância ganha **outro `did:key`**, e os pares que a conheciam precisam ser **enrolados de novo**.
 
 ---
 
@@ -331,7 +344,7 @@ Para inspecionar detalhes completos no admin Django:
 
 ## Documentação
 
-A especificação arquitetural completa do projeto está disponível em [`docs/especificacao.md`](docs/especificacao.md).
+A especificação arquitetural completa do projeto está disponível em [`docs/especificacao.md`](docs/especificacao.md), com o índice das decisões arquiteturais (ADR 001 a 012). Para o que foi construído em torno de federação e pares: [`docs/arquitetura/federacao.md`](docs/arquitetura/federacao.md) e as ADR [010](docs/arquitetura/decisoes/010-federacao-por-log-assinado.md), [011](docs/arquitetura/decisoes/011-politica-de-replicacao.md) e [012](docs/arquitetura/decisoes/012-controle-de-instancias-pares.md).
 
 ---
 

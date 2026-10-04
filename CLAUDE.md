@@ -131,6 +131,10 @@ O projeto ainda não está em produção e **o dono pode zerar tudo** (bancos, G
 - **Isto não afrouxa "O que nunca tocar"** (abaixo): `policy_engine`, `AuditLog`, UUIDs como PKs, níveis de classificação, `PipelineEvent` e a semântica de `status` seguem valendo — são contratos do próprio sistema, não de compatibilidade com terceiros.
 - **Quando o dono disser que agora é preciso compatibilidade** com outras instâncias (por exemplo, antes do primeiro intercâmbio real da federação, ADR 010), esta seção deve ser removida ou revista, e as decisões "difíceis de reverter" do `docs/arquitetura/federacao.md` (seção 7) passam a valer como restrição de verdade.
 
+## Site público (`index.html`, `jornada.html`, `diario.html`, `sobre.html`)
+
+O site é a vitrine e **não pode afirmar mais do que o código faz**. Ao mudar o status de algo (na página inicial, na jornada ou no diário): um item só entra em *Funciona hoje* quando existe e roda; o que tem só especificação ou esqueleto (hoje: agentes Planejador/Coletor/Redator, `buscar_processos`, `buscar_noticias`, chat, voz, grafo) fica em *Planejado* ou *Em construção*, com o limite dito na própria linha. Confira contra o código, não contra o nome de uma classe ou de um arquivo. As entradas do `diario.html` levam a assinatura do dono: escreva-as como **rascunho** (comentário `RASCUNHO`) e deixe a revisão para ele.
+
 ## O que nunca tocar
 
 - **`policy_engine.py`** — é intencionalmente determinístico. Não adicionar lógica de LLM nem condições que dependam de heurísticas. Qualquer mudança nas regras de classificação impacta auditoria, compliance e multi-tenancy.

@@ -15,6 +15,8 @@ Requisitos que guiam o desenho: federação por **contexto e regras** (não "rep
 
 ## 2. O que existe hoje
 
+> **Instantâneo de 2026-10-03, antes de qualquer código da federação.** É a base da análise e **não é atualizado**; o que mudou desde então está nas ADR 010 a 012 e nas subseções de decisão e de implementação mais abaixo. Em particular: o MHTML **já tem hash** (`Artifact.blob_hash`, `ni:`); a instância **já tem chave** Ed25519 (`ChaveInstancia`); **`Claim`/`Evidence`, `Space`, o motor de regras e o `Par`/enrolamento já existem**; o `EventoReplicacao`, o `eventos_para_peer`, o `ReplicacaoEventosAPIView`, o `token_hash` da `Maquina` e o `registrar_maquina` **foram removidos**; o modo `compute` saiu; e o `Neo4j` continua só em documentação.
+
 ### 2.1 Divergências em relação às premissas iniciais
 
 | Premissa | Realidade no repositório |

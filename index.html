@@ -421,6 +421,28 @@
             border: 2px solid rgba(255,255,255,0.15);
             display: inline-block;
         }
+        /* estados: feito (cheio e com ✓), em construção (meio cheio), planejado (círculo vazio, .ri-check) */
+        .ri-done, .ri-wip { position: relative; }
+        .ri-done { background: var(--green); border-color: var(--green); }
+        .ri-done::after {
+            content: "✓"; position: absolute; inset: 0;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 11px; font-weight: 800; color: var(--navy);
+        }
+        .ri-wip { border-color: #f59e0b; background: linear-gradient(90deg, #f59e0b 50%, transparent 50%); }
+        .roadmap-grupo {
+            margin: 2.25rem 0 0.9rem;
+            font-size: 0.78rem; font-weight: 700;
+            text-transform: uppercase; letter-spacing: 0.1em;
+            color: rgba(255,255,255,0.45);
+        }
+        .roadmap-grupo:first-of-type { margin-top: 1.5rem; }
+        .roadmap-grid + .roadmap-grupo { margin-top: 0; }
+        .roadmap-item small { display: block; margin-top: 0.3rem; font-size: 0.78rem; color: rgba(255,255,255,0.4); }
+        .roadmap-nota {
+            max-width: 760px; margin: -1.5rem 0 2.5rem;
+            font-size: 0.85rem; line-height: 1.6; color: rgba(255,255,255,0.45);
+        }
 
         /* ── FOOTER ──────────────────────────────── */
         footer {
@@ -656,6 +678,7 @@
                 <div class="agent-desc">Sintetiza os resultados em linguagem natural clara para o usuário</div>
             </div>
         </div>
+        <p class="section-sub" style="margin:2rem auto 0;max-width:760px;font-size:0.85rem;">Este é o <strong>desenho</strong> do sistema, especificado em detalhe no repositório. Hoje o que roda é o pipeline de captura e extração; os agentes de investigação ainda estão sendo construídos — veja <a href="#" onclick="document.querySelector('.s-status').scrollIntoView({behavior:'smooth'});return false;" style="color:inherit;text-decoration:underline;">Onde estamos</a>.</p>
     </div>
 </section>
 
@@ -715,21 +738,38 @@
     <div class="container">
         <p class="section-tag">Projeto</p>
         <h2 class="section-title">Onde estamos</h2>
-        <p class="section-sub">MVP em desenvolvimento — execução local via docker-compose. Repositório público, licença MIT.</p>
+        <p class="section-sub">MVP em desenvolvimento — cada máquina roda a sua instância via docker-compose. Repositório público, licença MIT.</p>
         <div class="status-badge">
             <span class="pulse"></span>
             Em desenvolvimento ativo
         </div>
+        <p class="roadmap-grupo">Funciona hoje</p>
         <div class="roadmap-grid">
-            <div class="roadmap-item"><span class="ri-check"></span>Interface web operacional (Django)</div>
-            <div class="roadmap-item"><span class="ri-check"></span>Orquestração básica com LangGraph</div>
-            <div class="roadmap-item"><span class="ri-check"></span>Tools via MCP: consultar_cnpj, buscar_processos, buscar_noticias</div>
-            <div class="roadmap-item"><span class="ri-check"></span>Pipeline RAG para análise de documentos</div>
-            <div class="roadmap-item"><span class="ri-check"></span>Multi-tenancy com isolamento por organização</div>
-            <div class="roadmap-item"><span class="ri-check"></span>Interface de linguagem natural (chat)</div>
-            <div class="roadmap-item"><span class="ri-check"></span>Interface de voz em português brasileiro (STT/TTS)</div>
-            <div class="roadmap-item"><span class="ri-check"></span>Modelos locais para dados sensíveis (on-premise)</div>
+            <div class="roadmap-item"><span class="ri-check ri-done"></span><span>Captura de páginas pela extensão do Chrome, guardadas com hash de conteúdo</span></div>
+            <div class="roadmap-item"><span class="ri-check ri-done"></span><span>Extração de texto e de dados estruturados, com detecção do tipo de página (artigo, tabela financeira, perfil de empresa, processo)</span></div>
+            <div class="roadmap-item"><span class="ri-check ri-done"></span><span>Painel ao vivo com o rastro de cada captura, de ponta a ponta</span></div>
+            <div class="roadmap-item"><span class="ri-check ri-done"></span><span>Galeria e visualizador de capturas, com isolamento por organização</span></div>
+            <div class="roadmap-item"><span class="ri-check ri-done"></span><span>Classificação em quatro níveis, com LLM externo bloqueado para dados restritos e confidenciais — e regra por domínio (um site de banco já nasce confidencial)</span></div>
+            <div class="roadmap-item"><span class="ri-check ri-done"></span><span>Ferramenta MCP consultar_cnpj</span></div>
         </div>
+
+        <p class="roadmap-grupo">Em construção</p>
+        <div class="roadmap-grid">
+            <div class="roadmap-item"><span class="ri-check ri-wip"></span><span>Várias máquinas, cada uma com a sua instância: pares, enrolamento por convite com conferência da impressão digital e controle dos modelos do Ollama pela tela<small>Código pronto e testado com simulações; ainda não validado entre máquinas reais.</small></span></div>
+            <div class="roadmap-item"><span class="ri-check ri-wip"></span><span>Federação entre instâncias: identidade, alegações com evidência, espaços e regras de quem recebe o quê<small>O desenho está decidido e as peças de base existem; a troca de dados entre instâncias ainda não.</small></span></div>
+            <div class="roadmap-item"><span class="ri-check ri-wip"></span><span>Pipeline RAG para análise de documentos<small>Fragmentação e embeddings funcionam; falta fechar o ciclo de pergunta e resposta com fontes.</small></span></div>
+            <div class="roadmap-item"><span class="ri-check ri-wip"></span><span>Modelos locais para dados sensíveis (on-premise)<small>O Ollama já é usado pela extração; o roteamento entre máquinas existe em código, ainda sem validação real.</small></span></div>
+        </div>
+
+        <p class="roadmap-grupo">Planejado</p>
+        <div class="roadmap-grid">
+            <div class="roadmap-item"><span class="ri-check"></span><span>Orquestração de agentes com LangGraph<small>O grafo existe; Planejador, Coletor e Redator ainda são esqueletos.</small></span></div>
+            <div class="roadmap-item"><span class="ri-check"></span><span>Ferramentas MCP buscar_processos e buscar_noticias<small>Hoje só consultar_cnpj funciona.</small></span></div>
+            <div class="roadmap-item"><span class="ri-check"></span><span>Interface de linguagem natural (chat)</span></div>
+            <div class="roadmap-item"><span class="ri-check"></span><span>Interface de voz em português brasileiro (STT/TTS)</span></div>
+            <div class="roadmap-item"><span class="ri-check"></span><span>Grafo de vínculos entre entidades</span></div>
+        </div>
+        <p class="roadmap-nota">Esta lista é atualizada junto com o código: um item só aparece em “Funciona hoje” quando existe e roda. O que está em “Em construção” e “Planejado” é meta, não promessa de prazo. O detalhe, com as decisões e os limites de cada parte, está na <a href="jornada.html" style="color:inherit;text-decoration:underline;">jornada</a>, no <a href="diario.html" style="color:inherit;text-decoration:underline;">diário</a> e no <a href="https://github.com/bonafe/inteligencia-aberta" style="color:inherit;text-decoration:underline;" target="_blank" rel="noopener">repositório</a>.</p>
         <a href="https://github.com/bonafe/inteligencia-aberta" class="btn btn-primary" target="_blank" rel="noopener">
             Acompanhar no GitHub →
         </a>

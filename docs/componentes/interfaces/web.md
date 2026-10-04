@@ -50,7 +50,7 @@ O Portal também se comunica diretamente com o PostgreSQL para persistir usuári
 
 ## 3. Apps Django
 
-O projeto Django é estruturado em três apps dentro de `services/portal/apps/`:
+O projeto Django é estruturado em apps dentro de `services/portal/apps/`. Esta especificação detalha `accounts`, `artifacts` e `infrastructure`; `events` (observabilidade), `cluster` e `federacao` têm as seções 3.4 e 3.5 abaixo e os documentos citados nelas.
 
 ### 3.1 `accounts` — Contas e Organizações
 
@@ -65,6 +65,20 @@ Gerencia os dados produzidos e consumidos pelo sistema. Toda questão de **o que
 Gerencia os componentes runtime que o Orquestrador utiliza para executar investigações: provedores de LLM, servidores MCP e repositórios de imagens de contêiner. É o **plano de controle** da infraestrutura de IA — o portal registra e configura, o Orquestrador executa.
 
 Todas as credenciais neste app são armazenadas cifradas (campo `*_encrypted`). A chave de cifração vem de variável de ambiente; nunca do banco de dados.
+
+### 3.4 `cluster` — Máquinas, pares e modelos do Ollama
+
+Gerencia **as instâncias que esta conhece**: a própria (`Maquina.eh_local`) e os **pares** remotos (a mesma tabela, com `did`, `tipo` e `estado`), o roteamento de LLM entre elas e o controle dos modelos do Ollama. Detalhes: [`../../operacao/escala-multimaquina.md`](../../operacao/escala-multimaquina.md) e [ADR 012](../../arquitetura/decisoes/012-controle-de-instancias-pares.md).
+
+- **`/cluster/`** — para cada máquina: recursos (CPU, RAM, disco), selo **Offline** quando o último estado conhecido está velho, e a seção **Modelos do Ollama**: modelos instalados (tamanho, família, quantização, carregado na memória, tokens/s), campo **Instalar** (sugestões de um catálogo curado e qualquer `nome:tag`), **Remover**, e as operações em andamento com barra de progresso, **Cancelar** e **Tentar de novo**. Atualiza sozinha (3 s com operação ativa, 30 s sem).
+- **`/cluster/pares/`** — a identidade desta instância (com a **impressão digital**), a lista de pares (tipo, estado, impressão digital), criar convite, colar um convite recebido, **confirmar** (depois de conferir a impressão digital com o outro administrador), mudar o tipo e revogar.
+- **Papéis:** qualquer membro da organização **vê**; instalar, remover, cancelar e tudo em `/cluster/pares/` que muda algo exige dono ou administrador (`apps/accounts/permissoes.py`). O servidor confere sempre; um botão desabilitado na tela é só cortesia.
+- **Máquina offline:** as ações ficam **desabilitadas, com o motivo no tooltip**, e um comando mesmo assim **falha na hora** (nada fica na fila). Selos próprios para "Ollama indisponível" e "sem Ollama".
+- **"Próprio" dá poder:** a tela de enrolamento avisa, e marcar um par como próprio exige confirmação explícita.
+
+### 3.5 `federacao` — Chave da instância, espaços e política de replicação
+
+Identidade e troca entre instâncias: a chave Ed25519 da instância (`ChaveInstancia`), o canal assinado `/federacao/…` (convite e controle; **não** é para a internet: o Caddy o bloqueia), `Space` e o motor de regras de replicação. Detalhes: [`../../arquitetura/federacao.md`](../../arquitetura/federacao.md) e as ADR [010](../../arquitetura/decisoes/010-federacao-por-log-assinado.md), [011](../../arquitetura/decisoes/011-politica-de-replicacao.md) e [012](../../arquitetura/decisoes/012-controle-de-instancias-pares.md). As regras de replicação e os espaços **ainda não têm tela**: só o admin do Django.
 
 ---
 
@@ -409,6 +423,16 @@ Imagem registrada como agente ou worker disponível para a organização. O Orqu
 /infra/registries/<id>/imagens/      Listar imagens do repositório
 /infra/registries/<id>/imagens/nova/ Registrar imagem
 
+# Cluster e pares (implementado; as demais rotas desta seção são o desenho planejado)
+/cluster/                       Máquinas, recursos e modelos do Ollama (ver, instalar, remover)
+/cluster/pares/                 Pares: convite, confirmação da impressão digital, tipo, revogação
+/cluster/maquinas/<id>/modelos/ Inventário de modelos de uma máquina (JSON)
+/cluster/operacoes/<id>/        Estado de uma operação de modelo (JSON)
+
+# Canal entre instâncias (assinatura, sem sessão; bloqueado no Caddy)
+/federacao/convite/aceitar/     Aceite de um convite de enrolamento
+/federacao/controle/v1/…        ping, estado e comandos de modelo do Ollama
+
 # Admin Django
 /admin/                         Painel administrativo (staff only)
 
@@ -426,7 +450,7 @@ Imagem registrada como agente ou worker disponível para a organização. O Orqu
 
 A autenticação usa quatro mecanismos, um por fronteira. Detalhes completos em [`../../seguranca/autenticacao.md`](../../seguranca/autenticacao.md).
 
-**Páginas web — sessão Django (secure-by-default):** `apps/accounts/middleware.py::LoginRequiredMiddleware` exige sessão autenticada em toda URL fora de uma allowlist explícita (`/entrar/`, `/registro/`, `/admin/`, `/static/`, `/api/v1/token/`, `/artifacts/api/v1/artefatos/`). URL protegida sem sessão redireciona para `/entrar/?next=<path>`. O padrão é "protegido" — abrir uma rota é decisão explícita, não o inverso.
+**Páginas web — sessão Django (secure-by-default):** `apps/accounts/middleware.py::LoginRequiredMiddleware` exige sessão autenticada em toda URL fora de uma allowlist explícita (`/entrar/`, `/registro/`, `/admin/`, `/static/`, `/api/v1/token/`, `/artifacts/api/v1/artefatos/`, e as duas rotas do canal entre instâncias, `/federacao/convite/aceitar/` e `/federacao/controle/`, que se autenticam pela assinatura). URL protegida sem sessão redireciona para `/entrar/?next=<path>`. O padrão é "protegido" — abrir uma rota é decisão explícita, não o inverso.
 
 **API da extensão — JWT:** o portal emite tokens em `/api/v1/token/` (djangorestframework-simplejwt) com as claims `tenant_id`/`username`; o orchestrator valida a assinatura e extrai a identidade das claims. Substitui a identidade auto-declarada.
 
@@ -438,7 +462,7 @@ A autenticação usa quatro mecanismos, um por fronteira. Detalhes completos em 
 
 **Isolamento de tenant:** as views que servem dados (`gallery`, `mhtml`, `content`, `busca`) filtram por `tenant__in=orgs_do_usuario(request.user)` — organizações do usuário derivadas via `Membership`. Acesso a artefato de outra organização por manipulação de URL retorna **404** (não vaza existência).
 
-**Autorização por papel** (`Membership.role`: owner/admin/member/guest) para operações administrativas (convidar membros, ver auditoria, deletar org) permanece como evolução planejada — ainda não implementada como decorator.
+**Autorização por papel** (`Membership.role`: owner/admin/member/guest): **já existe** para as telas de pares e de modelos do Ollama (`apps/accounts/permissoes.py`: `eh_admin`, `exige_admin`, `orgs_onde_e_admin`; só dono e administrador vigentes — `is_staff` não administra organização alheia). Para as demais operações administrativas (convidar membros, ver auditoria, deletar org) permanece como evolução planejada — ainda não implementada como decorator.
 
 ---
 
@@ -540,6 +564,16 @@ A autenticação usa quatro mecanismos, um por fronteira. Detalhes completos em 
 - [ ] Formulário de nova investigação envia para o Orquestrador e exibe `investigation_id`.
 - [ ] Relatório exibe classificação de cada dado (público, restrito, etc.).
 - [ ] Erro do Orquestrador é exibido ao usuário com mensagem legível (não stack trace).
+
+### Cluster e pares
+- [ ] Um par só entra no roteamento de LLM e no canal depois de **confirmado** por um administrador (conferência da impressão digital); pendente ou revogado nunca recebe trabalho.
+- [ ] Marcar um par como **próprio** exige confirmação explícita e fica no `AuditLog`.
+- [ ] Só dono e administrador instalam, removem e cancelam; um membro recebe 403 no servidor mesmo que contorne a tela.
+- [ ] Máquina de outra organização é 404 em todas as rotas de modelos.
+- [ ] Máquina **offline**: ações desabilitadas na tela com o motivo e **falha imediata** no servidor, sem criar operação.
+- [ ] No máximo uma operação ativa por (máquina, modelo); instalar duas vezes, ou remover durante a instalação, é recusado (409).
+- [ ] O endereço interno do Ollama nunca aparece em tela, em resposta do canal nem em log; nenhuma rota do canal repassa tráfego ao Ollama.
+- [ ] Os nomes de modelo são validados (só o registry oficial por padrão) e entram na tela como texto, nunca como HTML.
 
 ### Infraestrutura
 - [ ] API key e tokens nunca são retornados em texto claro após salvos — apenas substituíveis.

@@ -1,8 +1,8 @@
 # Segurança: Autenticação e Controle de Acesso
 
-A autenticação usa **quatro mecanismos**, cada um na fronteira em que é adequado. Não há um único esquema para tudo — um cliente de browser, um cliente externo com identidade de usuário, e uma chamada serviço-a-serviço têm necessidades diferentes.
+A autenticação usa **cinco mecanismos**, cada um na fronteira em que é adequado. Não há um único esquema para tudo — um cliente de browser, um cliente externo com identidade de usuário, e uma chamada serviço-a-serviço têm necessidades diferentes.
 
-## As quatro camadas
+## As cinco camadas
 
 | Fronteira | Cliente | Mecanismo | Onde é validado |
 |---|---|---|---|
@@ -10,10 +10,11 @@ A autenticação usa **quatro mecanismos**, cada um na fronteira em que é adequ
 | API de captura/investigação | Extensão Chrome (usuário) | **JWT** (HS256) | Portal emite; orchestrator valida |
 | API interna de criação de artefato | Orchestrator → Portal | **Token de serviço** (`X-Internal-Token`) | `ArtefatoCreateAPIView` |
 | Ferramentas do MCP | Orchestrator (futuro) / testes manuais via Swagger | **Token de ferramenta** (`X-Mcp-Token`) | `require_mcp_token` em `services/mcp/main.py` |
+| Canal entre instâncias (convite e controle) | Outra instância do Inteligência Aberta (um **par**) | **Assinatura Ed25519** (`X-IA-*`) da chave da instância | `apps/federacao/canal.py` e `views_controle.py` |
 
 ### 1. Sessão Django — páginas web
 
-`apps/accounts/middleware.py::LoginRequiredMiddleware` exige `request.user.is_authenticated` para **toda** URL fora de uma allowlist explícita (`/entrar/`, `/registro/`, `/admin/`, `/static/`, `/api/v1/token/`, `/artifacts/api/v1/artefatos/`). URL fora da allowlist sem sessão → redireciona para `/entrar/?next=<path>`.
+`apps/accounts/middleware.py::LoginRequiredMiddleware` exige `request.user.is_authenticated` para **toda** URL fora de uma allowlist explícita (`/entrar/`, `/registro/`, `/admin/`, `/static/`, `/federacao/convite/aceitar/` e `/federacao/controle/` — que se autenticam pela assinatura —, `/api/v1/token/`, `/artifacts/api/v1/artefatos/`). URL fora da allowlist sem sessão → redireciona para `/entrar/?next=<path>`.
 
 É *secure-by-default*: o padrão é "protegido", e abrir uma rota ao público é uma decisão explícita (editar `EXEMPT_PREFIXES`). Isso substitui o padrão anterior de decorar cada view — cujo esquecimento em três views (`gallery`, `mhtml`, `content`) abriu um IDOR.
 
@@ -47,6 +48,18 @@ O `user_id`/`tenant_id` no corpo dessa chamada agora são **confiáveis**, porqu
 ### 4. Token de ferramenta — Swagger do MCP publicado
 
 O MCP (`services/mcp/`) é FastAPI, então ganha Swagger UI automático em `/docs`. Em **desenvolvimento** a porta 8002 é publicada no host **especificamente para deixar essa documentação visível** para fins didáticos (ver seção seguinte) — mas isso não reabre as ferramentas em si. Em **produção** (`docker-compose.prod.yml`) a porta não é publicada: só o orchestrator alcança o MCP, pela rede interna do compose. `/tools/cnpj`, `/tools/processos` e `/tools/noticias` exigem o header `X-Mcp-Token: <MCP_API_TOKEN>`, validado com `hmac.compare_digest` (`main.py::require_mcp_token`); sem o token correto → **401**. `/docs`, `/openapi.json` e `/health` continuam abertos, sem token. O header aparece automaticamente na spec OpenAPI (FastAPI o documenta por vir de um parâmetro `Header()`), então quem abre o Swagger já vê que precisa dele para testar.
+
+### 5. Assinatura Ed25519 — entre instâncias
+
+Entre instâncias **não há segredo compartilhado**: cada instância tem um par de chaves (`ChaveInstancia`, `did:key`) e cada requisição leva a assinatura sobre uma mensagem `ia-ctrl-v1` que cobre **método, rota+query, timestamp, nonce, DID de origem, DID de destino e o hash do corpo** (cabeçalhos `X-IA-DID`, `X-IA-Timestamp`, `X-IA-Nonce`, `X-IA-Destino`, `X-IA-Assinatura`). Janela de ±60 s (exige NTP); o nonce fica no cache Redis e só é queimado por requisição autêntica; a resposta de sucesso também é assinada e presa ao nonce.
+
+Depois da assinatura, o servidor confere que o DID é de um **par `confirmado` e ativo** (o enrolamento exige conferir a impressão digital por fora do canal), aplica um limite de taxa por par e exige o **tipo** certo: o inventário e os comandos só valem para par **próprio**, e um comando também exige um **ator afirmado dono ou administrador**. Toda recusa de quem não é par confirmado devolve o **mesmo 404**; o motivo vai só ao log local (`federacao.canal`).
+
+**Limite assumido:** o receptor **não consegue verificar** o papel que a origem afirma — quem controla a chave de um par próprio manda comandos. É o preço do rótulo "próprio" (atribuído por cada lado, sem prova de mesmo dono); o ator afirmado e o par de origem ficam no `AuditLog`. As rotas `/federacao/*` são de VPN/LAN e o Caddy as bloqueia. Detalhes e alternativas: [ADR 012](../arquitetura/decisoes/012-controle-de-instancias-pares.md).
+
+### Autorização por papel (organização)
+
+Pela primeira vez o portal usa `Membership.role`: `apps/accounts/permissoes.py` (`eh_admin`, `exige_admin`, `orgs_onde_e_admin`) — só dono e administrador **vigentes** (`expires_at`); `is_staff`/superusuário **não** administra organização alheia. Hoje vale para `/cluster/pares/` e para instalar/remover modelos do Ollama; `orgs_do_usuario` (isolamento por organização) não mudou.
 
 ## Documentação da API (Swagger) — pública por decisão
 

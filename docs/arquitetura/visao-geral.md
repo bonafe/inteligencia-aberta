@@ -80,9 +80,9 @@ Cada componente de infraestrutura é um contêiner isolado. Falha de um não der
 |---|---|
 | PostgreSQL | Dados estruturados, metadados, configurações |
 | Qdrant / pgvector | Embeddings para busca semântica (RAG) |
-| Neo4j | Grafo de vínculos entre entidades |
+| Neo4j *(previsto, ainda não existe no código)* | Grafo de vínculos entre entidades — como projeção, não fonte de verdade (ADR 010); a tecnologia será decidida na Fase 2 |
 | Garage (S3) | Arquivos brutos (PDFs, imagens, áudios) |
-| Celery Workers | Processamento assíncrono (indexação, alertas) |
+| Celery Workers | Processamento assíncrono (indexação, alertas); o `worker-ollama` cuida só de instalar e remover modelos do Ollama, em fila própria |
 | Redis | Fila de tarefas (banco 0) e canal do painel ao vivo (banco 1) |
 
 ---
@@ -126,6 +126,24 @@ Nenhum dado muda de classificação durante a execução. A classificação é i
 
 ---
 
+## Camada Transversal — Federação e Pares
+
+Cada instância é **completa** (banco, arquivos e fila próprios). O que liga instâncias não é um banco compartilhado, e sim um **canal assinado** entre **pares** que o administrador enrolou por convite e confirmou conferindo a impressão digital (ADR 011 e 012).
+
+```
+Instância A                                         Instância B
+ ChaveInstancia (Ed25519, did:key)  ──requisição assinada──>  verifica a assinatura e o par
+ Par = Maquina (did, tipo, estado)  <──resposta assinada────   confirmado? tipo próprio? papel?
+ pull do estado a cada 30 s  ·  comandos (instalar/remover modelo do Ollama)  ·  convite
+```
+
+- **Identidade:** cada instância tem um par de chaves Ed25519 (`did:key`); todo objeto tem um ID global `urn:uuid:` e todo blob um hash `ni:` (RFC 6920).
+- **Pares:** `próprio` (rótulo local, dá poder sobre os modelos) ou `terceiro`; só pares **confirmados** entram no roteamento de LLM e no canal. O canal não repassa tráfego ao Ollama, que segue sem autenticação e fechado.
+- **O que está implementado:** o enrolamento, o canal de controle, o pull de estado, o controle dos modelos do Ollama e o motor de regras de replicação (função pura, ainda **não ligada a nenhum envio de dados**). A replicação de dados entre instâncias, o log de eventos assinados e a exportação JSON-LD **ainda não existem** (ver `federacao.md`, fases F1b a F5).
+- **Conhecimento:** o que uma fonte *diz* vira `Claim` com `Evidence`, separado do que o sistema *sabe*; a classificação do dado viaja com o objeto e pode ser elevada por regra de domínio na captura.
+
+---
+
 ## Princípios Arquiteturais
 
 1. **Negação por padrão:** Sem permissão explícita, o dado não vai a lugar nenhum.
@@ -141,4 +159,5 @@ Nenhum dado muda de classificação durante a execução. A classificação é i
 - Componentes detalhados: [`../componentes/`](../componentes/)
 - Decisões arquiteturais: [`./decisoes/`](./decisoes/)
 - Modelo de dados: [`./modelo-de-dados.md`](./modelo-de-dados.md)
+- Federação e controle de pares: [`./federacao.md`](./federacao.md), ADR [010](./decisoes/010-federacao-por-log-assinado.md), [011](./decisoes/011-politica-de-replicacao.md) e [012](./decisoes/012-controle-de-instancias-pares.md)
 - Segurança e classificação: [`../seguranca/classificacao.md`](../seguranca/classificacao.md)

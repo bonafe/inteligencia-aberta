@@ -80,7 +80,7 @@ Este arquivo documenta as alterações, configurações e implementações feita
 - Documentado em `docs/seguranca/classificacao.md` (nova seção) e `docs/componentes/observabilidade.md` (estágio novo). O `policy_engine` não foi tocado.
 - Testes: `tests/test_classificacao_dominio.py` (54); suíte completa com 251 passando.
 
-**Limites conhecidos:** **não reclassifica o que já foi capturado** (a reclassificação é ato explícito; não há relatório do que ficou abaixo da regra — no banco de desenvolvimento só há uma captura, de `localhost`). A regra **não foi cadastrada** no banco: o domínio do Banco do Brasil precisa ser criado no admin (*Regras de classificação por domínio*). Não escreve `AuditLog` (nenhum código escreve nele hoje; o rastro é o evento). A extensão não mostra o nível efetivo; só recebe o dado. Domínios públicos de sufixo (ex.: `com.br`) não são tratados à parte: uma regra em `com.br` elevaria todo o `.com.br`, o que é seguro (só sobe) mas amplo. Sem regra por IP.
+**Limites conhecidos:** **não reclassifica o que já foi capturado** (a reclassificação é ato explícito; não há relatório do que ficou abaixo da regra — no banco de desenvolvimento só há uma captura, de `localhost`). A regra **não foi cadastrada** no banco: o domínio do Banco do Brasil precisa ser criado no admin (modelo `RegraClassificacaoDominio`, no app Artefatos). Não escreve `AuditLog` (nenhum código escreve nele hoje; o rastro é o evento). A extensão não mostra o nível efetivo; só recebe o dado. Domínios públicos de sufixo (ex.: `com.br`) não são tratados à parte: uma regra em `com.br` elevaria todo o `.com.br`, o que é seguro (só sobe) mas amplo. Sem regra por IP.
 
 **Pendente:** ADR da política de replicação; `Claim`/`Evidence` (fecha a F0).
 
@@ -119,6 +119,36 @@ Este arquivo documenta as alterações, configurações e implementações feita
 **Fica:** o `EventoReplicacao`, o endpoint `/cluster/api/v1/replicacao/eventos/` e `signals_replicacao` (superados, a remover quando a federação os substituir); `CELERY_QUEUES` ainda é lida pelo heartbeat (`filas`), mas nada mais a define; `CLUSTER_MACHINE_TOKEN` só serve ao endpoint de replicação. **Invalida dados existentes:** nenhum além das colunas removidas de `Maquina` (migration aplicada no banco de desenvolvimento).
 
 **Pendente:** cadastro de pares para o roteamento de LLM é manual em cada instância (`registrar_maquina`) até haver o cadastro de pares da federação; teste real do gateway entre duas máquinas continua em aberto.
+
+## [04-10-2026] - Site atualizado contra o código (só HTML estático; nada publicado)
+
+**Contexto:** o dono pediu para atualizar o site com base nas decisões tomadas. A verificação mostrou que o site não refletia o que existe e, na jornada, afirmava coisas que o código não sustenta. Escopo escolhido por ele: alinhar à realidade; página inicial, jornada, diário (rascunhos, uma entrada por tema), sobre e contribua.
+
+**Achados**
+- **`jornada.html`** tinha dois trechos falsos: um marco "✓ Concluído" dizia que buscar processos e buscar notícias estavam operacionais e que o ciclo de inteligência funcionava de ponta a ponta (os agentes têm 6 linhas cada, essas duas ferramentas 3, e `/investigar` ainda responde "em desenvolvimento"); e a Fase 0 falava em MinIO (hoje é Garage, ADR 008) e em "agentes operacionais".
+- **`index.html`:** *não* afirmava nada falso — os 8 itens usavam a classe `ri-check`, que desenha um **círculo vazio**. Eu cheguei a dizer ao dono que a página os marcava como concluídos; era erro meu (concluí pelo nome da classe, sem ver como renderizava) e foi corrigido na hora. O problema era outro: a lista não distinguia o que existe do que é meta e não mostrava nada do que existe de fato.
+- **Não há código de chat nem de voz** (conferido por busca; só existem as especificações). O `diario.html` tinha 29 entradas e a última era de 17/09, com 36 commits sem registro desde então.
+
+**O que mudou**
+- **`index.html`:** "Onde estamos" em três grupos — *Funciona hoje* (marcador cheio com ✓), *Em construção* (meio cheio) e *Planejado* (círculo vazio) —, cada item com seus limites na própria linha; nota explicando a regra; nota no "Como funciona" de que os sete agentes são o **desenho**. Estilos novos `.ri-done`, `.ri-wip`.
+- **`jornada.html`:** o marco "Primeiros componentes" virou "Esqueleto do sistema e primeira ferramenta" (sem as afirmações falsas); a Fase 0 foi reescrita (Garage; agentes e ferramentas ditos como esqueletos); dois marcos novos — *Maio a setembro de 2026: captura, extração e observabilidade* (primeira versão concluída) e *Outubro de 2026: várias máquinas e federação* (em andamento, com o que **não** existe dito às claras); a Fase 2 deixou de prometer Neo4j.
+- **`sobre.html`:** o "Onde estamos" deixou de falar em "primeiros agentes... operacionais".
+- **`contribua.html`:** revisada; nada falso encontrado, **não alterada**.
+- **`diario.html`:** 6 entradas novas (30 a 35), de 3 e 4 de outubro: implantação por instância (ADR 007 a 009); federação por log assinado (ADR 010); motor de regras e classificação por domínio (ADR 011); remoção do modo `compute` e o que ele escondia; controle do Ollama pela tela e o que "próprio" significa (ADR 012); e a verificação do site, incluindo o erro acima. **Cada uma tem um comentário `RASCUNHO` e leva a assinatura "Bonafé & Claude Code": o texto é para o dono revisar, ajustar e remover o aviso antes de publicar.**
+
+**Regra adotada para o site:** um item só entra em "Funciona hoje" quando existe e roda; o resto é meta e diz que é (registrada no `CLAUDE.md`).
+
+**Limites:** não abri as páginas num navegador — o HTML foi conferido só por balanceamento de tags e o CSS novo por leitura, então o **visual não foi verificado**. As datas do marco "Maio a setembro" vêm das entradas do próprio diário. O que o texto afirma sobre o controle de pares repete os limites já conhecidos (nunca testado entre máquinas reais). `manifesto.html` não foi lido por completo; a busca por afirmações de status nele não achou nada. O site **não foi publicado** (não há deploy aqui; os arquivos só mudaram no repositório).
+
+## [04-10-2026] - Documentação do repositório atualizada (só documento)
+
+**Contexto:** o usuário perguntou se toda a documentação estava em dia. Verificado com buscas, **não estava**: o índice, o modelo de dados, a visão geral, a spec do portal, a autenticação e o README não refletiam nada do que foi construído (ADR 010 a 012, `Claim`/`Evidence`, `Space`, motor de regras, pares, controle dos modelos do Ollama).
+
+**Atualizado:** `docs/especificacao.md` (índice: ADR 006 a 012, `federacao.md`, nova seção "Operação e implantação"); `docs/arquitetura/modelo-de-dados.md` (nova seção com os modelos do conhecimento, da federação e do cluster; campos novos do `DocumentText`; o grafo como **projeção** e o Neo4j como **previsto**; invariantes 6 a 10); `docs/arquitetura/visao-geral.md` (camada transversal "Federação e Pares"; tabela de infraestrutura com o `worker-ollama` e o Neo4j como previsto); `docs/componentes/interfaces/web.md` (apps `cluster` e `federacao`, telas `/cluster/` e `/cluster/pares/`, rotas do canal, papéis já em uso, critérios de aceitação de pares); `docs/seguranca/autenticacao.md` (quinta camada: assinatura Ed25519 entre instâncias, e a autorização por papel com o limite do papel afirmado); `docs/arquitetura/federacao.md` (aviso de que a seção 2 é um instantâneo de 03/10 e o que mudou desde então); `README.md` (Neo4j previsto, roadmap com a federação, seção "Várias máquinas", aviso de que zerar muda o `did:key`).
+
+**Não alterado:** o site (`index.html`, `sobre.html`, `jornada.html`, `contribua.html`, `manifesto.html`), que não é atualizado desde 16/05/2026, e o `diario.html` (histórico do dono, que ainda descreve o modelo `compute` removido). Fica para decisão do dono.
+
+**Limites:** `docs/roadmap.md`, `deploy.md`, `escala-multimaquina.md`, as ADR e o `CLAUDE.md` já tinham sido atualizados junto com o código. Os links relativos dos arquivos tocados foram conferidos por script (nenhum quebrado); o **conteúdo** foi conferido contra o código só por leitura, não por teste.
 
 ## [04-10-2026] - Controle de instâncias, Marcos B a F: canal assinado, pull de pares e modelos do Ollama pela tela
 

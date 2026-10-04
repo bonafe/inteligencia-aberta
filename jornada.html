@@ -382,8 +382,8 @@
                         <span class="tl-date">Início de 2026</span>
                         <span class="tl-badge badge-done">Concluído</span>
                     </div>
-                    <div class="tl-title">Primeiros componentes em funcionamento</div>
-                    <p class="tl-desc">Orquestrador com LangGraph, interface web com Django, primeiras ferramentas MCP operacionais: consultar CNPJ, buscar processos, buscar notícias. O ciclo básico de inteligência — dado bruto → informação estruturada → análise — funcionando de ponta a ponta, localmente.</p>
+                    <div class="tl-title">Esqueleto do sistema e primeira ferramenta</div>
+                    <p class="tl-desc">Orquestrador com LangGraph (o grafo existe; os agentes ainda são esqueletos), interface web com Django e a primeira ferramenta MCP operacional: consultar CNPJ. Buscar processos e buscar notícias existem como esqueletos. O ciclo completo — dado bruto → informação estruturada → análise — ainda não roda de ponta a ponta; o que já roda é o pipeline de captura e extração, no marco seguinte.</p>
                     <div class="tl-tags">
                         <span class="tl-tag">Django</span>
                         <span class="tl-tag">MCP Tools</span>
@@ -409,6 +409,24 @@
                 </div>
             </div>
 
+            <div class="tl-item">
+                <div class="tl-dot done">✓</div>
+                <div class="tl-content">
+                    <div class="tl-meta">
+                        <span class="tl-date">Maio a setembro de 2026</span>
+                        <span class="tl-badge badge-done">Primeira versão concluída</span>
+                    </div>
+                    <div class="tl-title">Captura, extração e observabilidade</div>
+                    <p class="tl-desc">Uma extensão do Chrome captura a página inteira (MHTML) e a envia para o sistema, que a guarda com um hash de conteúdo. O pipeline detecta o tipo da página — artigo, tabela financeira, perfil de empresa, processo judicial — e extrai texto e dados estruturados por mais de uma estratégia, comparáveis entre si. Um log de eventos append-only registra cada etapa de cada captura, com o motivo de cada resultado, e alimenta um painel ao vivo. A classificação em quatro níveis já decide quando um LLM externo pode ser usado.</p>
+                    <div class="tl-tags">
+                        <span class="tl-tag">Extensão Chrome</span>
+                        <span class="tl-tag">Extração adaptativa</span>
+                        <span class="tl-tag">Log de eventos</span>
+                        <span class="tl-tag">Classificação</span>
+                    </div>
+                </div>
+            </div>
+
             <div class="tl-divider"></div>
 
             <div class="tl-item">
@@ -419,12 +437,30 @@
                         <span class="tl-badge badge-current">Em andamento</span>
                     </div>
                     <div class="tl-title">Fase 0 — MVP local</div>
-                    <p class="tl-desc">Sistema funcionando localmente via docker-compose com PostgreSQL, MinIO e Qdrant. Agentes Planejador, Coletor e Redator operacionais. Motor de políticas bloqueando LLM externo para dados sensíveis. Caso de uso: investigação de empresa com dados públicos.</p>
+                    <p class="tl-desc">Sistema funcionando localmente via docker-compose com PostgreSQL, Garage (armazenamento S3) e Qdrant. Motor de políticas bloqueando LLM externo para dados restritos e confidenciais. Falta fechar o ciclo de investigação: os agentes Planejador, Coletor e Redator ainda são esqueletos, e das ferramentas MCP só consultar_cnpj funciona. O caso de uso-alvo continua sendo a investigação de uma empresa com dados públicos.</p>
                     <div class="tl-tags">
                         <span class="tl-tag">docker-compose</span>
                         <span class="tl-tag">PostgreSQL</span>
                         <span class="tl-tag">Qdrant</span>
-                        <span class="tl-tag">MinIO</span>
+                        <span class="tl-tag">Garage</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="tl-item">
+                <div class="tl-dot current">●</div>
+                <div class="tl-content">
+                    <div class="tl-meta">
+                        <span class="tl-date">Outubro de 2026</span>
+                        <span class="tl-badge badge-current">Em andamento</span>
+                    </div>
+                    <div class="tl-title">Várias máquinas, uma instância em cada — e a federação entre elas</div>
+                    <p class="tl-desc">Cada máquina roda uma instância completa, e instâncias se conhecem como <em>pares</em>: por convite, e só depois que os administradores dos dois lados conferem a impressão digital um do outro. Já existem a identidade de cada instância (chave, hash de conteúdo, IDs globais), as alegações com evidência — o que uma fonte <em>diz</em>, separado do que o sistema <em>sabe</em> —, os espaços, o motor de regras de quem recebe o quê, o canal assinado entre pares e o controle dos modelos do Ollama pela tela. Ainda <strong>não</strong> existe a troca de dados entre instâncias (pacote offline e sincronização), e o controle de pares só foi testado com simulações, não entre máquinas reais.</p>
+                    <div class="tl-tags">
+                        <span class="tl-tag">Federação</span>
+                        <span class="tl-tag">Pares</span>
+                        <span class="tl-tag">Ed25519</span>
+                        <span class="tl-tag">Ollama</span>
                     </div>
                 </div>
             </div>
@@ -457,9 +493,8 @@
                         <span class="tl-badge badge-next">Planejado</span>
                     </div>
                     <div class="tl-title">Fase 2 — Agentes completos e grafo de vínculos</div>
-                    <p class="tl-desc">Correlacionador, Validador e Analista incorporados. Grafo de vínculos com Neo4j. Relatórios com fontes rastreáveis, grau de confiança por afirmação e distinção explícita entre fato, inferência e opinião. Exportação em PDF.</p>
+                    <p class="tl-desc">Correlacionador, Validador e Analista incorporados. Grafo de vínculos (a tecnologia — Neo4j ou tabelas no Postgres — será decidida na fase). Relatórios com fontes rastreáveis, grau de confiança por afirmação e distinção explícita entre fato, inferência e opinião. Exportação em PDF.</p>
                     <div class="tl-tags">
-                        <span class="tl-tag">Neo4j</span>
                         <span class="tl-tag">Grafo</span>
                         <span class="tl-tag">Correlação</span>
                     </div>

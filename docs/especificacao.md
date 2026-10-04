@@ -26,6 +26,14 @@ O manifesto e a visão do projeto estão no [`README.md`](../README.md) na raiz 
 | [`arquitetura/decisoes/003-llm-local-para-dados-sensiveis.md`](arquitetura/decisoes/003-llm-local-para-dados-sensiveis.md) | Decisão: por que dados sensíveis só usam LLM local |
 | [`arquitetura/decisoes/004-voz-como-interface-de-primeira-classe.md`](arquitetura/decisoes/004-voz-como-interface-de-primeira-classe.md) | Decisão: por que voz é interface de primeira classe |
 | [`arquitetura/decisoes/005-log-de-eventos-como-trilha-operacional.md`](arquitetura/decisoes/005-log-de-eventos-como-trilha-operacional.md) | Decisão: por que o rastro de execução é um log append-only, e não logs de contêiner |
+| [`arquitetura/decisoes/006-cluster-adaptativo-multiproprietario.md`](arquitetura/decisoes/006-cluster-adaptativo-multiproprietario.md) | Decisão: cluster adaptativo em vez de uma primária fixa (parcialmente revista pelas ADR 010 e 012) |
+| [`arquitetura/decisoes/007-implantacao-por-instancia.md`](arquitetura/decisoes/007-implantacao-por-instancia.md) | Decisão: uma instância completa por host, HTTPS e exposição mínima |
+| [`arquitetura/decisoes/008-garage-como-armazenamento-s3.md`](arquitetura/decisoes/008-garage-como-armazenamento-s3.md) | Decisão: Garage como armazenamento de objetos S3 |
+| [`arquitetura/decisoes/009-ollama-como-capacidade-do-no.md`](arquitetura/decisoes/009-ollama-como-capacidade-do-no.md) | Decisão: Ollama como capacidade do nó e chamada entre nós pelo gateway autenticado |
+| [`arquitetura/decisoes/010-federacao-por-log-assinado.md`](arquitetura/decisoes/010-federacao-por-log-assinado.md) | Decisão: federação entre instâncias por log de eventos assinados, chaveiro, `Space`, IDs e hash |
+| [`arquitetura/decisoes/011-politica-de-replicacao.md`](arquitetura/decisoes/011-politica-de-replicacao.md) | Decisão: motor de regras de replicação, pares, confiança, auditoria e classificação por domínio |
+| [`arquitetura/decisoes/012-controle-de-instancias-pares.md`](arquitetura/decisoes/012-controle-de-instancias-pares.md) | Decisão: canal assinado entre pares e controle dos modelos do Ollama pela tela |
+| [`arquitetura/federacao.md`](arquitetura/federacao.md) | Análise da federação entre instâncias, decisões e o que já foi implementado (F0, F1 parcial, controle de pares) |
 
 ---
 
@@ -69,6 +77,16 @@ O manifesto e a visão do projeto estão no [`README.md`](../README.md) na raiz 
 |---|---|
 | [`seguranca/classificacao.md`](seguranca/classificacao.md) | Níveis de classificação, enforcement, motor de políticas, auditoria |
 | [`seguranca/compartilhamento.md`](seguranca/compartilhamento.md) | Multi-organização, compartilhamento, revogação, casos de uso |
+
+---
+
+## Operação e implantação
+
+| Documento | O que contém |
+|---|---|
+| [`deploy.md`](deploy.md) | Implantação em produção: segredos, variáveis, HTTPS, Caddy, bootstrap, chave da instância, pares, Ollama |
+| [`operacao/escala-multimaquina.md`](operacao/escala-multimaquina.md) | Cluster: registro de máquinas e pares, enrolamento por convite, roteamento de LLM, controle dos modelos do Ollama |
+| [`visao/perfis-de-implantacao.md`](visao/perfis-de-implantacao.md) | Perfis de implantação (notebook offline, borda pública, colaboração entre donos) |
 
 ---
 
