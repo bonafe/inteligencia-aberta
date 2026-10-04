@@ -90,6 +90,14 @@ Por isso, **defina `FIELD_ENCRYPTION_KEY` antes do primeiro `up`** (e preserve-a
 - **Backup:** `FIELD_ENCRYPTION_KEY` **e** o banco (ao menos `federacao_chave_instancia`). Um sem o outro não recupera a chave.
 - Em instância que já existia antes desta mudança, o `up` (via `bootstrap`) cria a chave na primeira vez; confira com o comando acima.
 
+### Pares (outras instâncias) — enrolamento e rede
+
+Para uma instância conhecer outras ([ADR 011](arquitetura/decisoes/011-politica-de-replicacao.md)), cada uma define no `.env` `FEDERACAO_ENDPOINT_ANUNCIADO` (a base por onde os pares a alcançam, em geral o IP da VPN e a porta do portal, como `http://100.64.0.5:8000`) e o enrolamento é feito em `/cluster/pares/`, por convite, com **conferência da impressão digital** pelos dois administradores (ver `docs/operacao/escala-multimaquina.md`).
+
+- O **Caddy bloqueia `/federacao/*`** (resposta 404): o canal entre instâncias é de VPN/LAN e viaja direto na porta do portal (`BIND_ADDR:8000`), nunca pela internet. Outros proxies na frente do portal devem bloquear esse prefixo se a URL for pública.
+- As requisições entre instâncias são **assinadas** e tolerância de relógio é de ±60 s (`FEDERACAO_JANELA_RELOGIO_S`): mantenha **NTP** em todas as máquinas. Os nonces anti-replay ficam no Redis (banco 2, `CACHE_URL`).
+- HTTP puro só em rede privada/VPN; fora dela o par precisa usar HTTPS (`FEDERACAO_PERMITE_HTTP_PUBLICO=true` desfaz a exigência; desaconselhado).
+
 ## Variáveis de implantação
 
 | Variável | Padrão | Função |
@@ -147,7 +155,7 @@ Regras de decisão para a automação:
 
 - Um nó só **chama** o gateway de um peer se tiver `LLM_GATEWAY_TOKEN` (e o peer anunciar `gateway_endpoint`); sem isso, o roteador cai no `ollama_endpoint` direto. Para fechar o Ollama dos peers: defina o token (igual em todos) e `LLM_GATEWAY_ENDPOINT_ANUNCIADO` em **todos** os nós, depois deixe `OLLAMA_BIND_ADDR=127.0.0.1`.
 - A porta 8000 em `BIND_ADDR` serve também o portal. No host com Caddy (`--profile publico`), o `infra/caddy/Caddyfile` responde `404` para `/v1/*`: o gateway **não** é publicado na internet, só fica acessível a quem alcança `BIND_ADDR:8000` (a VPN) — e ainda exige o token. Isso não vale para outros proxies: com `tailscale serve` ou outro na frente do portal, bloqueie `/v1/*` se a URL for pública.
-- `gateway_endpoint` (e `ollama_endpoint`) da `Maquina` é gravado **só quando ela é criada**: autorregistro local (usa `LLM_GATEWAY_ENDPOINT_ANUNCIADO`) ou `registrar_maquina --gateway-endpoint`. Mudar a variável depois **não** atualiza uma `Maquina` existente — edite no admin do portal.
+- `gateway_endpoint` (e `ollama_endpoint`) da `Maquina` é gravado **só quando ela é criada**: autorregistro local (usa `LLM_GATEWAY_ENDPOINT_ANUNCIADO`). Mudar a variável depois **não** atualiza uma `Maquina` existente — edite no admin do portal.
 - O autorregistro local só funciona com **uma** organização; com várias, defina `CLUSTER_MACHINE_ID` (ver `docs/operacao/escala-multimaquina.md`).
 - Validação: `curl -fsS -X POST -H 'Authorization: Bearer <token>' -H 'Content-Type: application/json' -d '{"model":"<modelo>","messages":[{"role":"user","content":"oi"}]}' http://<ip-vpn>:8000/v1/chat/completions` deve devolver JSON no formato OpenAI; sem o header, `401`; sem `LLM_GATEWAY_TOKEN` no nó, `404`. Este comando **não foi testado entre máquinas reais**.
 

@@ -88,6 +88,8 @@ Extensão Chrome → POST orchestrator:8001/api/v1/capture/mhtml
 - `projecao.py`: `aplicar_evento()`, a única escrita em `PipelineRun`; usada tanto no caminho incremental quanto na reconstrução.
 - `consumers.py`: WebSocket do painel; assina apenas os grupos das organizações do usuário.
 
+**Pares** (`apps/cluster/pares.py`, `views_pares.py`; `Maquina` é o `Par`) — outras instâncias, por **convite com conferência da impressão digital** (sem confiar no primeiro contato); só pares `confirmado` entram no roteador de LLM. O tipo `proprio` é um **rótulo local que dá poder** sobre os modelos do Ollama: marcar exige confirmação e é auditado. Papéis só em `apps/accounts/permissoes.py` (`exige_admin`: OWNER/ADMIN). Canal assinado em `apps/federacao/canal.py` (`/federacao/*` é bloqueado no Caddy: VPN/LAN). Plano em `.claude/plans`/ADR de controle de instâncias.
+
 **Motor de regras de replicação** (`apps/federacao/regras.py` puro, `politica.py` com o banco, model `RegraReplicacao`) — decide enviar/receber um objeto a/de um par: pisos não editáveis, regras com "negar vence" e negação por padrão. **Ainda não ligado a nenhum envio.** Não toca o `policy_engine`. Regras padrão se desativam, não se apagam.
 
 **Espaços** (`apps/federacao/espacos.py`, models `Space` e `EspacoArtefato`) — agrupam artefatos; um artefato pode estar em vários. Cada organização tem um **espaço padrão implícito, sem linha no banco** (ID derivado por `uuid5`). Por ora só estrutura: **não concedem acesso** (segue por organização) e não têm membros. Ver ADR 010/011.

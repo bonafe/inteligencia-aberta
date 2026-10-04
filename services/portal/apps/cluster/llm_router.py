@@ -46,7 +46,7 @@ def _eh_local(maquina) -> bool:
     machine_id = getattr(settings, "CLUSTER_MACHINE_ID", "") or os.environ.get("CLUSTER_MACHINE_ID", "")
     if machine_id:
         return str(maquina.id) == machine_id
-    return maquina.apelido == (os.environ.get("CLUSTER_LOCAL_APELIDO") or _hostname())
+    return maquina.eh_local or maquina.apelido == (os.environ.get("CLUSTER_LOCAL_APELIDO") or _hostname())
 
 
 def _hostname() -> str:
@@ -75,6 +75,7 @@ def escolher_execucao(nome_modelo: str, *, permitir_gateway: bool = True) -> Exe
         candidatas = list(
             Maquina.objects.filter(
                 ativa=True,
+                estado=Maquina.Estado.CONFIRMADO,   # par pendente ou revogado nunca recebe trabalho
                 modelos_ollama__nome_modelo=nome_modelo,
                 modelos_ollama__visto_pela_ultima_vez__gte=limite_visto,
             )

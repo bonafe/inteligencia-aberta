@@ -49,3 +49,16 @@ def publica_de_did_key(did: str) -> bytes:
     if not bruto.startswith(_MULTICODEC_ED25519) or len(bruto) != 34:
         raise ValueError("did:key não é uma chave Ed25519")
     return bruto[2:]
+
+
+def impressao_digital(did: str) -> str:
+    """Resumo curto do `did:key`, para o administrador **conferir por fora do canal**.
+
+    80 bits do SHA-256 do DID, em cinco grupos de quatro hex (`a1b2-c3d4-e5f6-0718-9abc`).
+    Duas pessoas comparam isso por voz ou mensagem; quem faria o enrolamento passar por
+    outra chave teria de forjar uma chave cuja impressão coincida.
+    """
+    import hashlib
+
+    resumo = hashlib.sha256(did.encode()).hexdigest()[:20]
+    return "-".join(resumo[i:i + 4] for i in range(0, 20, 4))

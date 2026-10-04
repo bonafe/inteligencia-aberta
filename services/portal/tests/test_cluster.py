@@ -1,8 +1,6 @@
-"""Registro de máquina, heartbeat (evento → projeção), canal de saída da
-replicação (`EventoReplicacao` + endpoint autenticado por X-Machine-Token),
+"""Heartbeat (evento → projeção), autorregistro da máquina local,
 roteador de LLM (`llm_router`) e o gateway compatível com OpenAI.
 """
-import hashlib
 import json
 from unittest import mock
 
@@ -12,9 +10,8 @@ from django.core.management import call_command
 from apps.accounts.models import Organization, User
 from apps.artifacts.models import Artifact
 from apps.cluster.llm_router import escolher_execucao
-from apps.cluster.models import EventoReplicacao, Maquina, MaquinaModeloOllama, MaquinaStatus
+from apps.cluster.models import Maquina, MaquinaModeloOllama, MaquinaStatus
 from apps.cluster.projecao import aplicar_heartbeat, aplicar_metrica_llm
-from apps.cluster.replicacao import eventos_para_peer
 from apps.cluster.tasks import emitir_heartbeat_maquina
 from apps.events.emit import emit
 
@@ -39,25 +36,6 @@ def _artifact(tenant, **kw):
     )
 
 
-def test_registrar_maquina_grava_hash_nunca_o_token_em_claro(tenant, capsys):
-    call_command("registrar_maquina", apelido="notebook", organizacao=tenant.slug)
-    saida = capsys.readouterr().out
-
-    maquina = Maquina.objects.get(apelido="notebook")
-    assert maquina.dono_id == tenant.owner_id
-    assert str(maquina.id) in saida
-
-    token = [l for l in saida.splitlines() if l.startswith("CLUSTER_MACHINE_TOKEN=")][0].split("=", 1)[1]
-    assert maquina.token_hash == hashlib.sha256(token.encode()).hexdigest()
-
-
-def test_registrar_maquina_organizacao_inexistente_falha(db):
-    from django.core.management.base import CommandError
-
-    with pytest.raises(CommandError):
-        call_command("registrar_maquina", apelido="x", organizacao="nao-existe")
-
-
 def _heartbeat(maquina, tenant, **payload):
     """emit() sozinho não projeta heartbeat — apenas grava o evento (mesma
     separação de `aplicar_evento`/`PipelineRun`, ver apps/cluster/projecao.py).
@@ -74,7 +52,7 @@ def _heartbeat(maquina, tenant, **payload):
 
 def test_heartbeat_atualiza_status_da_maquina(tenant):
     maquina = Maquina.objects.create(
-        apelido="notebook", organizacao=tenant, dono=tenant.owner, token_hash="x",
+        apelido="notebook", organizacao=tenant, dono=tenant.owner,
     )
     _heartbeat(maquina, tenant, cpu_percent=12.5, cpu_count=8, ram_disponivel_mb=2048,
                disco_disponivel_gb=50.0, filas=["leve"])
@@ -89,7 +67,7 @@ def test_heartbeat_reconstruivel_do_log(tenant):
     """manage.py reconstruir_status_maquinas deve chegar no mesmo estado que o
     caminho incremental — a prova de que a projeção é derivada do log."""
     maquina = Maquina.objects.create(
-        apelido="notebook", organizacao=tenant, dono=tenant.owner, token_hash="x",
+        apelido="notebook", organizacao=tenant, dono=tenant.owner,
     )
     for cpu in (10.0, 20.0, 30.0):
         _heartbeat(maquina, tenant, cpu_percent=cpu)
@@ -105,7 +83,7 @@ def test_heartbeat_reconstruivel_do_log(tenant):
 def test_heartbeat_ignora_sequence_mais_antiga(tenant):
     """Um heartbeat atrasado (sequence menor) não pode sobrescrever um mais novo."""
     maquina = Maquina.objects.create(
-        apelido="notebook", organizacao=tenant, dono=tenant.owner, token_hash="x",
+        apelido="notebook", organizacao=tenant, dono=tenant.owner,
     )
     novo = _heartbeat(maquina, tenant, cpu_percent=99.0)
     atrasado = emit("maquina.heartbeat", "ok", subject_type="maquina", subject_id=maquina.id,
@@ -195,63 +173,13 @@ def test_autorregistro_nao_acontece_com_mais_de_uma_organizacao(tenant, monkeypa
     assert "não aplicável" in resultado
 
 
-def test_post_save_de_artifact_gera_evento_de_replicacao(tenant):
-    artefato = _artifact(tenant)
-    artefato.save()  # o create() acima já dispara — save() explícito prova idempotência do teste
-
-    eventos = EventoReplicacao.objects.filter(objeto_id=artefato.id, tipo="artifact.upsert")
-    assert eventos.exists()
-    assert eventos.first().organizacao_id == tenant.id
-
-
-def test_eventos_para_peer_respeita_desde(tenant):
-    peer = Maquina.objects.create(
-        apelido="replica", organizacao=tenant, dono=tenant.owner, token_hash="x",
-    )
-    a1 = _artifact(tenant)
-    a2 = _artifact(tenant)
-
-    todos = eventos_para_peer(peer, desde=0)
-    sequences = [e.sequence for e in todos]
-    assert sequences == sorted(sequences)
-
-    ultimo = todos[-1].sequence
-    assert eventos_para_peer(peer, desde=ultimo) == []
-
-
-def test_endpoint_replicacao_recusa_sem_token(client):
-    resp = client.get("/cluster/api/v1/replicacao/eventos/?desde=0")
-    assert resp.status_code == 401
-
-
-def test_endpoint_replicacao_recusa_token_invalido(tenant, client):
-    Maquina.objects.create(
-        apelido="replica", organizacao=tenant, dono=tenant.owner,
-        token_hash=hashlib.sha256(b"token-certo").hexdigest(),
-    )
-    resp = client.get("/cluster/api/v1/replicacao/eventos/?desde=0", HTTP_X_MACHINE_TOKEN="token-errado")
-    assert resp.status_code == 401
-
-
-def test_endpoint_replicacao_devolve_eventos_com_token_valido(tenant, client):
-    Maquina.objects.create(
-        apelido="replica", organizacao=tenant, dono=tenant.owner,
-        token_hash=hashlib.sha256(b"token-certo").hexdigest(),
-    )
-    artefato = _artifact(tenant)
-
-    resp = client.get("/cluster/api/v1/replicacao/eventos/?desde=0", HTTP_X_MACHINE_TOKEN="token-certo")
-    assert resp.status_code == 200
-    corpo = resp.json()
-    assert any(e["objeto_id"] == str(artefato.id) for e in corpo["eventos"])
-
-
 # ─── Modelos Ollama por máquina (heartbeat) e aprendizado de velocidade ─────
 
 def _maquina_ollama(tenant, apelido="notebook", endpoint="http://10.0.0.1:11434"):
+    # Confirmada: o roteador só enxerga pares que o administrador já conferiu.
     m = Maquina.objects.create(
-        apelido=apelido, organizacao=tenant, dono=tenant.owner,
-        token_hash="x", ollama_endpoint=endpoint,
+        apelido=apelido, organizacao=tenant, dono=tenant.owner, ollama_endpoint=endpoint,
+        estado=Maquina.Estado.CONFIRMADO,
     )
     _heartbeat(m, tenant, cpu_percent=5.0, cpu_count=8)  # deixa a máquina "online"
     return m
@@ -488,3 +416,12 @@ def test_gateway_sem_cabecalho_encaminha_ao_gateway_do_peer(settings, client):
             content_type="application/json", HTTP_AUTHORIZATION="Bearer segredo",
         )
     assert gerar_chat.call_args.kwargs["gateway"] == "http://10.0.0.2:8000"
+
+
+@pytest.mark.parametrize("estado", [Maquina.Estado.PENDENTE, Maquina.Estado.REVOGADO])
+def test_escolher_execucao_ignora_par_nao_confirmado(tenant, estado):
+    """Um par pendente (ainda não conferido) ou revogado nunca recebe trabalho."""
+    m = _maquina_ollama(tenant)
+    _heartbeat(m, tenant, modelos_ollama=["qwen3.5:9b"])
+    Maquina.objects.filter(pk=m.pk).update(estado=estado)
+    assert escolher_execucao("qwen3.5:9b") is None

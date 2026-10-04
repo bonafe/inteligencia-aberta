@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import EventoReplicacao, Maquina, MaquinaModeloOllama, MaquinaStatus
+from .models import Maquina, MaquinaModeloOllama, MaquinaStatus
 
 
 @admin.register(Maquina)
@@ -11,7 +11,7 @@ class MaquinaAdmin(admin.ModelAdmin):
     )
     list_filter = ("ativa", "organizacao")
     search_fields = ("apelido", "hostname_declarado")
-    readonly_fields = ("id", "token_hash", "criada_em")
+    readonly_fields = ("id", "criada_em")
 
 
 @admin.register(MaquinaStatus)
@@ -36,18 +36,4 @@ class MaquinaModeloOllamaAdmin(admin.ModelAdmin):
     readonly_fields = ("maquina", "nome_modelo", "amostras_n")
 
     def has_add_permission(self, request):
-        return False
-
-
-@admin.register(EventoReplicacao)
-class EventoReplicacaoAdmin(admin.ModelAdmin):
-    list_display = ("sequence", "tipo", "organizacao", "objeto_id", "origem_maquina", "ocorrido_em")
-    list_filter = ("tipo", "organizacao")
-    search_fields = ("objeto_id",)
-    readonly_fields = ("id", "sequence", "tipo", "organizacao", "objeto_id", "payload", "origem_maquina", "ocorrido_em")
-
-    def has_add_permission(self, request):
-        return False
-
-    def has_change_permission(self, request, obj=None):
         return False

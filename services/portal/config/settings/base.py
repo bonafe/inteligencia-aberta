@@ -127,6 +127,11 @@ LOGOUT_REDIRECT_URL = "/entrar/"
 
 REDIS_URL = os.environ.get("REDIS_URL", "redis://redis:6379/0")
 CELERY_BROKER_URL = REDIS_URL
+# Cache no Redis (banco 2). Guarda os nonces do canal assinado entre instâncias
+# (anti-replay): precisa ser compartilhado entre processos — um cache por processo
+# deixaria um replay passar por outro worker.
+CACHE_URL = os.environ.get("CACHE_URL", REDIS_URL.rsplit("/", 1)[0] + "/2")
+CACHES = {"default": {"BACKEND": "django.core.cache.backends.redis.RedisCache", "LOCATION": CACHE_URL}}
 CELERY_RESULT_BACKEND = REDIS_URL
 CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
@@ -279,3 +284,12 @@ CELERY_BEAT_SCHEDULE["scan-unprocessed-documents"] = {
     "task": "apps.artifacts.tasks.scan_unprocessed_documents",
     "schedule": 120.0,  # a cada 2 minutos
 }
+
+# ── Canal assinado entre instâncias (apps.federacao.canal) ───────────────────
+# FEDERACAO_ENDPOINT_ANUNCIADO: a base por onde os pares alcançam ESTA instância
+# (ex.: http://100.x.y.z:8000, o IP da VPN). Vai nos convites de enrolamento.
+FEDERACAO_ENDPOINT_ANUNCIADO = os.environ.get("FEDERACAO_ENDPOINT_ANUNCIADO", "").rstrip("/")
+# Tolerância de relógio entre instâncias (segundos); exige NTP nas duas pontas.
+FEDERACAO_JANELA_RELOGIO_S = int(os.environ.get("FEDERACAO_JANELA_RELOGIO_S", "60"))
+# Permite par por HTTP puro em endereço público (desaconselhado; ver endpoints.py).
+FEDERACAO_PERMITE_HTTP_PUBLICO = os.environ.get("FEDERACAO_PERMITE_HTTP_PUBLICO", "false").lower() == "true"

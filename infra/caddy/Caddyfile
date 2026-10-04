@@ -20,6 +20,13 @@
 		respond 404
 	}
 
+	# Canal assinado entre instâncias (convite e controle, ADR 011): é para a VPN/LAN, não
+	# para a internet. Autentica por assinatura, mas não precisa ficar exposto.
+	@federacao path /federacao/*
+	handle @federacao {
+		respond 404
+	}
+
 	# Captura da extensão (JWT validado pelo orchestrator). MHTML pode ser grande.
 	handle /api/v1/capture/* {
 		request_body {

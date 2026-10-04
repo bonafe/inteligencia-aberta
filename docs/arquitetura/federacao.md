@@ -516,6 +516,20 @@ O motor da ADR 011, **ainda sem nenhum fluxo de envio ligado a ele** (não há e
 - **`manage.py regras_replicacao`:** `--semear`, `--listar` e `--decidir` (simula e explica "por que isto não vai para o par X?"; **não registra nada**).
 - **Provisório:** o par é um `par_ref` em texto e um `par_tipo`; o cadastro de pares (`Par`) ainda não existe.
 
+### `Par` e enrolamento — Marco A do controle entre instâncias (implementado em 2026-10-04)
+
+Primeira peça do controle das instâncias do mesmo dono (plano: controlar modelos do Ollama pelos painéis). Decisão 4 da ADR 011, agora em código:
+
+- **`Maquina` é o `Par`** (fusão, sem renomear): ganhou `eh_local`, `did`, `tipo` (próprio/terceiro), `estado` (pendente/confirmado/revogado), `impressao_digital_conferida_em/por`, `endpoint_controle`, `capacidades_json`, `ultimo_pull_em/erro`. Uma única `Maquina` local por organização (`CHECK`), e `did` único por organização. O **roteador de LLM só considera pares `confirmado`**.
+- **Convite** (`ConviteEnrolamento`, hash do token, 24 h, uso único) e **enrolamento sem TOFU**: A cria o convite; B cola o código, vê a **impressão digital** de A (80 bits do SHA-256 do DID, `a1b2-c3d4-e5f6-0718-9abc`) e aceita com um `POST /federacao/convite/aceitar/` **assinado pela chave de B**; A confere a assinatura, consome o token e responde **assinando a resposta**; cada lado fica com o outro `pendente`. **Só "Confirmar" (dono/admin, depois de conferir a impressão digital por fora do canal) leva a `confirmado`.** Revogar corta o canal sem recolher cópias.
+- **Primitivas do canal** (`apps/federacao/canal.py`): mensagem canônica `ia-ctrl-v1` que cobre método, rota+query, timestamp, nonce, DID de origem, DID de **destino** e o hash do corpo; janela de ±60 s; nonce no cache Redis (`cache.add`, atômico) **queimado só por requisição autêntica**; resposta assinada e vinculada ao nonce. Erros devolvem sempre a mesma recusa; o motivo (`codigo`) só vai ao log local (`PipelineEvent` `federacao.canal`).
+- **Endereço do par validado** (`apps/federacao/endpoints.py`, anti-SSRF): link-local/multicast/reservado sempre recusados, HTTP só em rede privada/VPN (inclui CGNAT do Tailscale e `*.ts.net`), sem usuário/senha/caminho. **Limite:** o nome é checado no cadastro, não na conexão (DNS rebinding).
+- **Papéis, pela primeira vez** (`apps/accounts/permissoes.py`): `eh_admin`, `exige_admin`, `orgs_onde_e_admin`. Só `OWNER`/`ADMIN` vigentes convidam, aceitam, confirmam, mudam o tipo e revogam; qualquer membro **vê**. `is_staff` não administra organização alheia. `orgs_do_usuario` não mudou.
+- **Telas** `/cluster/pares/`: lista com impressão digital, convite (código mostrado **uma vez**, não guardado), pré-visualização com a impressão digital do convite, aceitar, confirmar (exige marcar "conferi"), mudar tipo, revogar. O texto de "**Próprio dá poder**" aparece nos pontos de decisão e marcar próprio exige confirmação explícita.
+- **Auditoria:** `AuditLog` `par.convite_criado|convite_aceito|convite_recebido|confirmado|revogado|tipo_alterado`, sem token.
+- **Removidos junto:** `EventoReplicacao`, o endpoint `/cluster/api/v1/replicacao/eventos/`, `signals_replicacao`, `replicacao.py`, `provisionamento.py`, o comando `registrar_maquina` e o `token_hash` (o endpoint de replicação era o único que o usava). Também as rotas mortas da allowlist do middleware.
+- **Fora desta etapa:** o controle em si (rotas de comando e `estado`), o pull periódico e os modelos do Ollama — marcos B a F.
+
 ## 15. Fora de escopo deste documento
 
 Replicação de infraestrutura (Cenário A), roteamento de LLM entre nós (já em `apps/cluster/` e ADR 009), e qualquer implementação. Nenhuma alteração de código foi feita junto com esta análise.

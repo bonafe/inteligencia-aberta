@@ -42,47 +42,26 @@ def _coletar_recursos() -> dict:
 
 
 def _autorregistrar_no_local():
-    """Cria (ou encontra) a `Maquina` que representa esta própria instância,
-    para ela nunca precisar rodar `registrar_maquina` contra si mesma.
+    """Garante a `Maquina` que representa esta própria instância (ver
+    `apps.cluster.pares.garantir_maquina_local`), para ela nunca precisar de cadastro
+    manual contra si mesma.
 
-    Só age quando existe exatamente uma `Organization` — com mais de uma, não
-    há como adivinhar a dona sem ambiguidade, e o autorregistro simplesmente
-    não acontece (segue exigindo `CLUSTER_MACHINE_ID`/`registrar_maquina`
-    explícito nesse caso).
+    Só age quando existe exatamente uma `Organization` — com mais de uma, não há como
+    adivinhar a dona sem ambiguidade, e o autorregistro simplesmente não acontece (segue
+    exigindo `CLUSTER_MACHINE_ID` explícito nesse caso).
 
-    O apelido vem de `CLUSTER_LOCAL_APELIDO` (uma linha no `.env`, estável
-    entre reinícios de container) — nunca de `socket.gethostname()` sozinho:
-    dentro do Docker, o hostname do container muda a cada recriação, e usar
-    isso como chave geraria uma `Maquina` nova a cada `docker compose up`.
+    O apelido vem de `CLUSTER_LOCAL_APELIDO` (uma linha no `.env`, estável entre
+    reinícios de container) — nunca de `socket.gethostname()` sozinho: dentro do Docker,
+    o hostname do container muda a cada recriação.
     """
-    from django.conf import settings
-
     from apps.accounts.models import Organization
 
-    from .models import Maquina
+    from .pares import garantir_maquina_local
 
     orgs = list(Organization.objects.all()[:2])
     if len(orgs) != 1:
         return None
-    organizacao = orgs[0]
-
-    apelido = os.environ.get("CLUSTER_LOCAL_APELIDO") or socket.gethostname()
-    maquina, criada = Maquina.objects.get_or_create(
-        organizacao=organizacao, apelido=apelido,
-        defaults={
-            "dono": organizacao.owner,
-            "hostname_declarado": apelido,
-            # Sem token: esta Maquina nunca autentica contra si mesma por
-            # HTTP (X-Machine-Token é para peers remotos puxando replicação)
-            # — é o próprio processo chamando funções Python diretamente.
-            "token_hash": "",
-            "ollama_endpoint": getattr(settings, "OLLAMA_ENDPOINT_ANUNCIADO", ""),
-            "gateway_endpoint": getattr(settings, "LLM_GATEWAY_ENDPOINT_ANUNCIADO", ""),
-        },
-    )
-    if criada:
-        logger.info("máquina local autorregistrada — apelido=%s", apelido)
-    return maquina
+    return garantir_maquina_local(orgs[0])
 
 
 @shared_task(name="apps.cluster.tasks.emitir_heartbeat_maquina")

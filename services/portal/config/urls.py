@@ -31,4 +31,5 @@ urlpatterns = [
     path("artifacts/", include("apps.artifacts.urls")),
     path("eventos/", include("apps.events.urls")),
     path("cluster/", include("apps.cluster.urls")),
+    path("federacao/", include("apps.federacao.urls")),
 ]

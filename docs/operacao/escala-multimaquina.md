@@ -16,18 +16,24 @@ O gateway de LLM e a API entre máquinas só devem ser alcançáveis pela VPN do
 1. Instale Tailscale (ou junte-se ao Headscale) em todas as máquinas e confirme que elas se enxergam (`tailscale status`).
 2. Em cada máquina, defina no `.env` o endpoint do gateway que ela anuncia (`LLM_GATEWAY_ENDPOINT_ANUNCIADO`, IP da VPN) e o `LLM_GATEWAY_TOKEN` do cluster (ver "Chamada entre nós pelo gateway").
 
-## Registrando as máquinas
+## Registrando as máquinas e pares
 
-- **A própria instância** se autorregistra como `Maquina` no primeiro heartbeat (até 30 s depois de subir), desde que exista exatamente uma `Organization`. Defina `CLUSTER_LOCAL_APELIDO` no `.env` (ex.: `antares`), estável entre reinícios. Com mais de uma organização é ambíguo demais adivinhar a dona: use `CLUSTER_MACHINE_ID`, obtido com `registrar_maquina`.
-- **Os peers** (as outras instâncias, para entrarem no roteamento de LLM desta) são cadastrados à mão em cada instância:
+- **A própria instância** se autorregistra como `Maquina` no primeiro heartbeat (até 30 s depois de subir), desde que exista exatamente uma `Organization`, com o `did:key` da chave da instância, `confirmado` e `próprio`. Defina `CLUSTER_LOCAL_APELIDO` no `.env` (ex.: `antares`), estável entre reinícios. Com mais de uma organização é ambíguo demais adivinhar a dona: use `CLUSTER_MACHINE_ID`.
+- **As outras instâncias** entram como **pares**, por **convite**, em `/cluster/pares/` (ADR 011). Não há mais cadastro manual (`registrar_maquina` foi removido) nem token por máquina.
 
-```bash
-docker compose exec portal python manage.py registrar_maquina \
-  --apelido notebook --organizacao <slug> \
-  --ollama-endpoint http://<ip-vpn>:11434 --gateway-endpoint http://<ip-vpn>:8000
-```
+### Enrolamento por convite
 
-Cada instância tem o seu banco, então **não há registro automático entre elas** hoje; o cadastro de pares da federação (ADR 010) vai substituir isto.
+Cada instância precisa de `FEDERACAO_ENDPOINT_ANUNCIADO` no `.env` (o IP da VPN e a porta do portal, ex.: `http://100.64.0.5:8000`).
+
+1. O administrador de **A** abre `/cluster/pares/`, escolhe o tipo que A dará ao par (padrão `terceiro`) e cria o **convite**. O código `ia1.…` **só aparece nessa tela**; vale 24 h e serve uma única vez.
+2. O administrador de **B** cola o código e vê o nome, o endereço e a **impressão digital** de A.
+3. Os dois administradores comparam a impressão digital **por fora do canal** (voz, mensagem, pessoalmente). Se for diferente, **não aceite**.
+4. B aceita: chama A com uma requisição **assinada pela chave de B**; A confere a assinatura e consome o token. Cada lado fica com o outro como par **`pendente`**.
+5. Em cada lado, o administrador clica **Confirmar** depois de conferir a impressão digital do outro. **Só então** o par vira `confirmado` — e só pares confirmados entram no roteamento de LLM e (nos próximos marcos) no canal de controle.
+
+**"Próprio" dá poder.** O tipo é um rótulo que **cada lado** atribui ao outro; o sistema não prova que a outra instância é sua. Um par `próprio` poderá instalar e remover modelos do Ollama desta instância. Por isso marcar como próprio exige uma confirmação explícita e toda mudança de tipo fica no `AuditLog`. **Revogar** corta o canal; não recolhe o que já foi copiado. Só dono e administrador da organização convidam, aceitam, confirmam, mudam o tipo ou revogam; qualquer membro vê a lista.
+
+O endereço de um par é validado (anti-SSRF): só `http`/`https`, sem usuário/senha, nunca link-local (`169.254.0.0/16`, onde ficam os metadados de nuvem); HTTP só em rede privada/VPN (RFC 1918, loopback, CGNAT `100.64.0.0/10` do Tailscale, `*.ts.net`, `.local` etc.), e HTTPS fora delas. Limite conhecido: o nome é checado no cadastro, não na hora de conectar (DNS rebinding não é pego).
 
 ## Roteamento de LLM entre máquinas com Ollama
 
@@ -97,7 +103,7 @@ registrada, edite no admin.
 
 ## Replicação de dados
 
-O `EventoReplicacao` e o endpoint `GET /cluster/api/v1/replicacao/eventos/` (autenticado por `X-Machine-Token`) ainda existem, mas estão **superados**: as máquinas do mesmo dono vão replicar pelo mecanismo da federação (emenda da ADR-010). Só havia o lado que envia, sem filtro, e ninguém o consome. Devem ser removidos quando a federação os substituir.
+Não existe mais replicação pelo cluster. O `EventoReplicacao`, o endpoint `/cluster/api/v1/replicacao/eventos/` e o token por máquina foram **removidos** (ADR 011): as máquinas do mesmo dono vão replicar pelo mecanismo da federação.
 
 ## O que ainda não existe
 

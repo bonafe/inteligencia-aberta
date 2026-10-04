@@ -166,14 +166,11 @@ def test_blob_ausente_e_relatado_e_nao_interrompe_o_resto(org, blobs):
     assert "1 sem blob legível" in saida and "SEM BLOB" in saida
 
 
-def test_gravar_hash_preserva_updated_at_e_replica_o_hash(org, blobs):
-    from apps.cluster.models import EventoReplicacao
-
+def test_gravar_hash_preserva_updated_at(org, blobs):
     blobs["a.mhtml"] = b"Hello World!"
     a = _artefato(org, "a.mhtml")
     antes = Artifact.objects.get(pk=a.pk).updated_at
     _rodar()
     a.refresh_from_db()
-    assert a.updated_at == antes
-    ultimo = EventoReplicacao.objects.filter(objeto_id=a.id, tipo="artifact.upsert").latest("sequence")
-    assert ultimo.payload["blob_hash"] == HELLO
+    assert a.updated_at == antes and a.blob_hash == HELLO
+

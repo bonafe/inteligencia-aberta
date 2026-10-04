@@ -120,6 +120,26 @@ Este arquivo documenta as alterações, configurações e implementações feita
 
 **Pendente:** cadastro de pares para o roteamento de LLM é manual em cada instância (`registrar_maquina`) até haver o cadastro de pares da federação; teste real do gateway entre duas máquinas continua em aberto.
 
+## [04-10-2026] - Controle de instâncias, Marco A: `Par` e enrolamento por convite
+
+**Contexto:** o dono quer controlar os modelos do Ollama das máquinas (nativo ou container) pelos painéis, inclusive de uma instância sobre as outras do mesmo dono. Plano aprovado em `.claude/plans/` (marcos A–F): `Par` + enrolamento → canal assinado → cliente Ollama de administração → pull dos pares → operações de modelo → tela. Este é o **Marco A**.
+
+**O que foi implementado:**
+- **`Maquina` vira `Par`** (migrations `cluster.0008–0010`): `eh_local`, `did`, `tipo`, `estado`, `impressao_digital_conferida_*`, `endpoint_controle`, `capacidades_json`, `ultimo_pull_*`; `CHECK`s de uma `Maquina` local por organização e `did` único por organização. `garantir_maquina_local` substitui o autorregistro antigo. O **roteador de LLM só usa pares `confirmado`**.
+- **Convite e enrolamento sem TOFU** (`apps/cluster/pares.py`): token de uso único (hash), 24 h, código `ia1.…` mostrado uma vez; B aceita com `POST /federacao/convite/aceitar/` assinado, A responde assinando; cada lado cria o outro `pendente`; **só "Confirmar" depois de conferir a impressão digital leva a `confirmado`**. Mudar tipo/revogar com `AuditLog`. Marcar **próprio** exige confirmação explícita (dá poder sobre os modelos).
+- **Primitivas do canal assinado** (`apps/federacao/canal.py`): mensagem `ia-ctrl-v1` com método, rota, timestamp, nonce, origem, **destino** e hash do corpo; janela ±60 s; nonce anti-replay no cache Redis (`CACHES` novo, banco 2), queimado só por requisição autêntica; resposta assinada e presa ao nonce.
+- **Anti-SSRF** (`apps/federacao/endpoints.py`): link-local sempre recusado, HTTP só em rede privada/VPN (CGNAT do Tailscale incluso), sem usuário/senha/caminho.
+- **Papéis** (`apps/accounts/permissoes.py`): primeiro uso real de `Membership.role` — só OWNER/ADMIN vigentes administram; qualquer membro vê. **Telas** `/cluster/pares/`.
+- **Removidos:** `EventoReplicacao` (tabela inclusa), o endpoint de replicação, `signals_replicacao`, `replicacao.py`, `provisionamento.py`, o comando `registrar_maquina`, o `token_hash` e as rotas mortas de `EXEMPT_PREFIXES`.
+- **Infra/config:** `infra/caddy/Caddyfile` bloqueia `/federacao/*`; `.env.example` e `docs/deploy.md` (`FEDERACAO_ENDPOINT_ANUNCIADO`, janela de relógio, `CACHE_URL`).
+- Testes: `tests/test_pares_enrolamento.py` (93, incluindo "todas as recusas dizem a mesma coisa", replay, token de uso único, destino trocado, SSRF, matriz de papéis, CSRF, isolamento por organização) e `tests/test_permissoes_e_canal.py` (34); suíte completa com **526 passando**.
+
+**Incidente no caminho:** o container do portal passou a enxergar uma cópia **antiga** do código (arquivo de 17:37, ainda com `registrar_maquina.py`), o que fez `makemigrations` dizer "sem mudanças" e um teste de WebSocket falhar. Resolvido recriando `portal`, `worker` e `beat` (`docker compose up -d --force-recreate`). Se acontecer de novo, é o primeiro suspeito.
+
+**Limites conhecidos:** o enrolamento só foi exercitado com a "outra instância" simulada no mesmo processo (chaves distintas, resposta assinada à mão); **não foi testado com duas instâncias reais**. Não existe ainda rota de controle, pull periódico nem cliente de administração do Ollama (Marcos B a F). O nome do par é checado no cadastro, não na conexão. O roteador ainda não tem dados de pares (isso é o Marco C).
+
+**Próximo:** Marco B (rotas de controle assinadas + autorização por tipo e papel) e D1 (cliente Ollama de administração).
+
 ## [04-10-2026] - Federação: as máquinas do mesmo dono replicam pelo mecanismo da federação (só documento)
 
 **Contexto:** o usuário perguntou o que já existe para várias máquinas e concluiu que o próximo passo são as regras de replicação. Verificado no código: o cluster (A) tem topologia `compute`, heartbeat e roteamento de LLM pelo gateway (sem teste real entre duas máquinas); a replicação por `EventoReplicacao` só tem o lado que envia, sem filtro, e ninguém consome; instâncias de bancos separados não se conhecem.

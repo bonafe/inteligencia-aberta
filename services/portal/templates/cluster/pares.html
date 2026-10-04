@@ -1,0 +1,146 @@
+{% extends "base.html" %}
+{% block title %}Pares — Inteligência Aberta{% endblock %}
+
+{% block content %}
+<style>
+  .bloco { background:#fff; border:1px solid #e5e7eb; border-radius:8px; padding:1.25rem 1.5rem; margin-top:1.25rem; box-shadow:0 1px 3px rgba(0,0,0,.05); }
+  .bloco h2 { font-size:1.05rem; margin-bottom:.5rem; }
+  .tag { display:inline-block; font-size:.72rem; padding:.1rem .5rem; border-radius:999px; background:#eef2ff; color:#4338ca; margin-left:.35rem; font-weight:500; }
+  .tag.proprio { background:#fef3c7; color:#92400e; }
+  .tag.confirmado { background:#ecfdf5; color:#047857; }
+  .tag.pendente { background:#fef9c3; color:#854d0e; }
+  .tag.revogado { background:#fee2e2; color:#b91c1c; }
+  .mono { font-family: ui-monospace, monospace; word-break: break-all; }
+  .impressao { font-family: ui-monospace, monospace; font-size:1.25rem; letter-spacing:.05em; background:#f1f5f9; padding:.35rem .7rem; border-radius:6px; display:inline-block; }
+  .aviso { background:#fffbeb; border:1px solid #fcd34d; border-radius:6px; padding:.7rem .9rem; font-size:.88rem; margin:.75rem 0; }
+  .erro { background:#fef2f2; border:1px solid #fca5a5; color:#991b1b; border-radius:6px; padding:.7rem .9rem; margin-top:1rem; }
+  .ok { background:#f0fdf4; border:1px solid #86efac; color:#166534; border-radius:6px; padding:.7rem .9rem; margin-top:1rem; }
+  .par { border-top:1px solid #f1f5f9; padding:.9rem 0; }
+  .par:first-of-type { border-top:0; }
+  .acoes form { display:inline-block; margin:.35rem .5rem 0 0; }
+  textarea.codigo { width:100%; min-height:5rem; font-family:ui-monospace,monospace; font-size:.8rem; }
+  label.linha { display:block; margin:.5rem 0; font-size:.9rem; }
+  .sem-dado { color:#9ca3af; font-size:.9rem; }
+</style>
+
+<div class="card" style="margin-top:2rem;">
+  <h1>Pares</h1>
+  <p style="color:#6b7280;margin-top:.5rem;">
+    Outras instâncias do Inteligência Aberta que esta conhece. O enrolamento não confia no primeiro contato:
+    um par só vira <strong>confirmado</strong> depois que um administrador, <strong>dos dois lados</strong>,
+    confere a impressão digital por fora (voz, mensagem, pessoalmente).
+    <a href="{% url 'cluster:painel' %}">Voltar ao cluster</a>.
+  </p>
+</div>
+
+{% for m in messages %}<div class="ok">{{ m }}</div>{% endfor %}
+{% if erro %}<div class="erro">{{ erro }}</div>{% endif %}
+
+<div class="bloco">
+  <h2>Esta instância</h2>
+  {% if meu_did %}
+    <p>Impressão digital: <span class="impressao">{{ minha_impressao }}</span></p>
+    <p class="mono" style="font-size:.8rem;color:#6b7280;margin-top:.4rem;">{{ meu_did }}</p>
+  {% else %}
+    <p class="sem-dado">Esta instância ainda não tem chave. Rode <code>manage.py chave_instancia --criar</code>.</p>
+  {% endif %}
+</div>
+
+{% if convite_codigo %}
+<div class="bloco">
+  <h2>Convite criado</h2>
+  <p>Copie o código abaixo e cole na outra instância. <strong>Ele só aparece agora</strong>, vale por {{ convite_expira_h }} h e serve uma única vez.</p>
+  <textarea class="codigo" readonly onclick="this.select()">{{ convite_codigo }}</textarea>
+  <p style="margin-top:.6rem;">Impressão digital desta instância (a outra deve ver a mesma): <span class="impressao">{{ minha_impressao }}</span></p>
+</div>
+{% endif %}
+
+{% if previa %}
+<div class="bloco">
+  <h2>Confirmar a outra instância</h2>
+  <p><strong>{{ previa.nome }}</strong> em <span class="mono">{{ previa.endpoint }}</span></p>
+  <p style="margin-top:.5rem;">Impressão digital que o convite diz ser dela: <span class="impressao">{{ previa.impressao }}</span></p>
+  <p class="aviso">Antes de aceitar, <strong>peça ao administrador da outra instância que leia a impressão digital dela</strong> e confira que é exatamente esta. Se for diferente, não aceite.</p>
+  <form method="post" action="{% url 'cluster:pares_aceitar' %}">{% csrf_token %}
+    <input type="hidden" name="codigo" value="{{ previa.codigo }}">
+    <input type="hidden" name="organizacao" value="{{ previa.org.id }}">
+    <label class="linha">O que ela é para esta instância:
+      <select name="tipo">{% for valor, rotulo in tipos %}<option value="{{ valor }}">{{ rotulo }}</option>{% endfor %}</select>
+    </label>
+    <div class="aviso">
+      <strong>“Próprio” dá poder.</strong> Esta instância aceitará comandos de instalar e remover modelos do Ollama enviados por um par próprio.
+      “Próprio” é só um rótulo que você atribui — o sistema não prova que a outra instância é sua. Marque apenas instâncias que você mesmo administra.
+      <label class="linha"><input type="checkbox" name="confirmo_proprio"> Entendo e confirmo (necessário para “próprio”)</label>
+    </div>
+    <button type="submit">Aceitar convite</button>
+  </form>
+</div>
+{% endif %}
+
+<div class="bloco">
+  <h2>Pares cadastrados</h2>
+  {% for par in pares %}
+  <div class="par">
+    <strong>{{ par.apelido }}</strong>
+    <span class="tag {{ par.tipo }}">{{ par.get_tipo_display }}</span>
+    <span class="tag {{ par.estado }}">{{ par.get_estado_display }}</span>
+    {% if par.organizacao and pares|length > 0 %}<span class="tag">{{ par.organizacao.name }}</span>{% endif %}
+    <div style="font-size:.85rem;color:#6b7280;margin-top:.3rem;">
+      {{ par.endpoint_controle|default:"sem endereço" }}
+      {% if par.impressao %}· impressão digital <span class="impressao" style="font-size:.9rem;">{{ par.impressao }}</span>{% endif %}
+    </div>
+    {% if par.impressao_digital_conferida_em %}<div style="font-size:.8rem;color:#6b7280;">conferida em {{ par.impressao_digital_conferida_em|date:"d/m/Y H:i" }}</div>{% endif %}
+
+    {% if par.pode_administrar and par.estado != "revogado" %}
+    <div class="acoes">
+      {% if par.estado == "pendente" %}
+      <form method="post" action="{% url 'cluster:par_confirmar' par.id %}">{% csrf_token %}
+        <label><input type="checkbox" name="conferi"> Conferi a impressão digital com o outro administrador</label>
+        <button type="submit">Confirmar</button>
+      </form>
+      {% endif %}
+      <form method="post" action="{% url 'cluster:par_tipo' par.id %}">{% csrf_token %}
+        <select name="tipo">{% for valor, rotulo in tipos %}<option value="{{ valor }}" {% if valor == par.tipo %}selected{% endif %}>{{ rotulo }}</option>{% endfor %}</select>
+        <label><input type="checkbox" name="confirmo_proprio"> confirmo “próprio”</label>
+        <button type="submit">Mudar tipo</button>
+      </form>
+      <form method="post" action="{% url 'cluster:par_revogar' par.id %}" onsubmit="return confirm('Revogar corta o canal com este par. O que já foi copiado não é recolhido. Continuar?');">{% csrf_token %}
+        <button type="submit">Revogar</button>
+      </form>
+    </div>
+    {% endif %}
+  </div>
+  {% empty %}
+    <p class="sem-dado">Nenhum par ainda.</p>
+  {% endfor %}
+</div>
+
+{% if sou_admin %}
+<div class="bloco">
+  <h2>Convidar outra instância</h2>
+  <form method="post" action="{% url 'cluster:pares_convite' %}">{% csrf_token %}
+    <label class="linha">Organização:
+      <select name="organizacao">{% for o in organizacoes_admin %}<option value="{{ o.id }}">{{ o.name }}</option>{% endfor %}</select>
+    </label>
+    <label class="linha">O que a outra instância será para esta:
+      <select name="tipo">{% for valor, rotulo in tipos %}<option value="{{ valor }}">{{ rotulo }}</option>{% endfor %}</select>
+    </label>
+    <label class="linha"><input type="checkbox" name="confirmo_proprio"> Se “próprio”: entendo que ela poderá comandar os modelos do Ollama desta instância</label>
+    <button type="submit">Criar convite</button>
+  </form>
+</div>
+
+<div class="bloco">
+  <h2>Colar um convite recebido</h2>
+  <form method="post" action="{% url 'cluster:pares_previsualizar' %}">{% csrf_token %}
+    <label class="linha">Organização:
+      <select name="organizacao">{% for o in organizacoes_admin %}<option value="{{ o.id }}">{{ o.name }}</option>{% endfor %}</select>
+    </label>
+    <textarea class="codigo" name="codigo" placeholder="ia1.…" required></textarea>
+    <button type="submit" style="margin-top:.5rem;">Ver a outra instância</button>
+  </form>
+</div>
+{% else %}
+<p class="sem-dado" style="margin-top:1.25rem;">Só dono e administrador da organização podem convidar, aceitar, confirmar ou revogar pares.</p>
+{% endif %}
+{% endblock %}

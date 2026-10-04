@@ -1,5 +1,4 @@
-"""Registro de máquinas do cluster, seu status de recursos e o log de saída
-usado para replicar dados entre máquinas.
+"""Registro de máquinas (e pares) do cluster e seu status de recursos.
 
 Ver docs/operacao/escala-multimaquina.md para o desenho completo. Resumo:
 
@@ -9,23 +8,35 @@ Ver docs/operacao/escala-multimaquina.md para o desenho completo. Resumo:
 - `MaquinaStatus` é uma projeção (como `PipelineRun` em `apps.events`),
   atualizada a partir de eventos `maquina.heartbeat` — nunca escrita
   diretamente fora de `apps.cluster.projecao.aplicar_heartbeat`.
-- `EventoReplicacao` é o log de saída para outras máquinas puxarem mudanças
-  de `Artifact`/`DocumentText`/`DocumentFragment`. Não reaproveita
-  `PipelineEvent`: aquele é trilha operacional por nó (não dado a replicar) e
-  tem teto de 8 KB por payload — incompatível com o conteúdo que precisa
-  viajar aqui. O padrão (log ordenado, append-only, projetável) é o mesmo;
-  a tabela é outra.
 """
 
 import uuid
 
 from django.db import models
-from django.db.models import Index
+from django.db.models import Index, Q
 
 from apps.accounts.models import Organization, User
 
 
 class Maquina(models.Model):
+    """Uma instância do Inteligência Aberta (esta, `eh_local`, ou um **par** remoto).
+
+    Fusão de `Maquina` e `Par` (ADR 011, decisão 4): o par remoto é uma linha daqui,
+    com o `did:key` da instância dele, o `tipo` que **este lado** lhe atribui e o
+    `estado` do enrolamento. O roteador de LLM e o canal de controle só enxergam
+    pares **confirmados**; um par só vira `confirmado` depois que o administrador
+    confere a impressão digital (`apps.cluster.pares.confirmar`).
+    """
+
+    class Tipo(models.TextChoices):
+        PROPRIO = "proprio", "Próprio (mesmo dono)"
+        TERCEIRO = "terceiro", "Terceiro"
+
+    class Estado(models.TextChoices):
+        PENDENTE = "pendente", "Pendente de conferência"
+        CONFIRMADO = "confirmado", "Confirmado"
+        REVOGADO = "revogado", "Revogado"
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     # Presente desde já mesmo a fase 1 não usando isto pra travar nada: é o
     # que vai permitir, numa fase futura, decidir o que pode ser replicado
@@ -45,17 +56,37 @@ class Maquina(models.Model):
     # (ADR 009). Vazio = sem gateway; o token (`LLM_GATEWAY_TOKEN`) é do
     # cluster, não da máquina, e não é guardado aqui.
     gateway_endpoint = models.CharField(max_length=255, blank=True)
-    # sha256 do token de autenticação — o token em claro só existe no momento
-    # em que `registrar_maquina` o imprime; depois disso é irrecuperável.
-    token_hash = models.CharField(max_length=128)
     ativa = models.BooleanField(default=True)
     criada_em = models.DateTimeField(auto_now_add=True)
     ultima_rotacao_token_em = models.DateTimeField(null=True, blank=True)
+
+    # ── Par (ADR 011) ──
+    #: Esta linha é a própria instância (no máximo uma por organização).
+    eh_local = models.BooleanField(default=False)
+    #: `did:key` da instância; nulo em máquinas cadastradas antes do enrolamento.
+    did = models.CharField(max_length=100, null=True, blank=True)
+    #: O que **este lado** diz que o par é. "Próprio" é um rótulo do administrador,
+    #: sem prova criptográfica de mesmo dono — e dá poder sobre os modelos do Ollama.
+    tipo = models.CharField(max_length=10, choices=Tipo.choices, default=Tipo.TERCEIRO)
+    estado = models.CharField(max_length=12, choices=Estado.choices, default=Estado.PENDENTE)
+    impressao_digital_conferida_em = models.DateTimeField(null=True, blank=True)
+    conferida_por = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    #: Base do canal assinado do par (ex.: `http://100.x.y.z:8000`).
+    endpoint_controle = models.CharField(max_length=255, blank=True)
+    capacidades_json = models.JSONField(default=dict, blank=True)
+    ultimo_pull_em = models.DateTimeField(null=True, blank=True)
+    ultimo_pull_erro = models.TextField(blank=True)
 
     class Meta:
         db_table = "cluster_maquina"
         constraints = [
             models.UniqueConstraint(fields=["organizacao", "apelido"], name="uniq_maquina_organizacao_apelido"),
+            models.UniqueConstraint(
+                fields=["organizacao", "did"], condition=Q(did__isnull=False), name="uniq_maquina_organizacao_did",
+            ),
+            models.UniqueConstraint(
+                fields=["organizacao"], condition=Q(eh_local=True), name="uniq_maquina_local_por_organizacao",
+            ),
         ]
 
     def __str__(self):
@@ -139,31 +170,26 @@ class MaquinaModeloOllama(models.Model):
         return f"{self.nome_modelo} em {self.maquina.apelido}"
 
 
-class EventoReplicacao(models.Model):
-    """Uma mudança em `Artifact`/`DocumentText`/`DocumentFragment` disponível
-    para outras máquinas puxarem. Escrita sempre incondicional (via signal em
-    `apps.artifacts.signals_replicacao`) — o filtro de "o que pode sair daqui"
-    fica isolado em `apps.cluster.replicacao.eventos_para_peer`, o único lugar
-    que uma fase futura precisa tocar para restringir por organização/
-    classificação."""
+class ConviteEnrolamento(models.Model):
+    """Convite para outra instância virar par desta — ADR 011.
+
+    O token só existe em claro no código de convite mostrado **uma vez** ao
+    administrador; aqui fica o hash. Uso único (`usado_em`) e curto (`expira_em`).
+    O `tipo` é o que **este lado** vai atribuir ao par que aceitar.
+    """
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    sequence = models.BigIntegerField(unique=True, editable=False)
-    tipo = models.CharField(max_length=60)  # "artifact.upsert", "document_text.upsert", ...
-    organizacao = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="eventos_replicacao")
-    objeto_id = models.UUIDField()
-    payload = models.JSONField()
-    origem_maquina = models.ForeignKey(
-        Maquina, null=True, blank=True, on_delete=models.SET_NULL, related_name="eventos_emitidos",
-    )
-    ocorrido_em = models.DateTimeField()
+    organizacao = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="convites_enrolamento")
+    criado_por = models.ForeignKey(User, null=True, on_delete=models.SET_NULL, related_name="+")
+    token_hash = models.CharField(max_length=64, unique=True)
+    tipo = models.CharField(max_length=10, choices=Maquina.Tipo.choices, default=Maquina.Tipo.TERCEIRO)
+    expira_em = models.DateTimeField()
+    usado_em = models.DateTimeField(null=True, blank=True)
+    usado_por_did = models.CharField(max_length=100, blank=True)
+    criado_em = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        db_table = "cluster_evento_replicacao"
-        indexes = [
-            Index(fields=["-sequence"]),
-            Index(fields=["organizacao", "-sequence"]),
-        ]
+        db_table = "cluster_convite_enrolamento"
 
     def __str__(self):
-        return f"{self.tipo} {self.objeto_id} (seq {self.sequence})"
+        return f"convite {self.id} ({self.tipo})"
