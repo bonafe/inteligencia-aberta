@@ -13,7 +13,7 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml ps   # tudo "hea
 
 **Sempre com `-f ... -f docker-compose.prod.yml`.** Sem `-f`, o compose carrega o `docker-compose.override.yml` sozinho — que é o de desenvolvimento (runserver, `--reload`, volumes de código, portas abertas).
 
-O passo `bootstrap` roda a cada `up`: aplica migrations, garante os buckets do Garage (S3) e cria o superusuário inicial. É idempotente e o portal, o worker e o beat só sobem depois dele terminar com sucesso. Não há passo manual.
+O passo `bootstrap` roda a cada `up`: aplica migrations, garante os buckets do Garage (S3), cria o superusuário inicial e gera a chave Ed25519 da instância (ver "Chave da instância", abaixo). É idempotente e o portal, o worker e o beat só sobem depois dele terminar com sucesso. Não há passo manual.
 
 Critério de sucesso para a automação: nenhum serviço `unhealthy` e `bootstrap` como `Exited (0)` (é o esperado: roda e sai). `worker` e `beat` não têm healthcheck — basta estarem `Up`. Verificar a aplicação com `/health` (ver o contrato abaixo).
 
@@ -75,9 +75,20 @@ Cada um deve ser aleatório e **único por instância**. Em produção o process
 
 Gerar: `python3 -c "import secrets; print(secrets.token_urlsafe(32))"`.
 
-`ANTHROPIC_API_KEY` é **opcional**: a stack sobe sem ela. É a chave **global** da instância; cada organização pode cadastrar a sua em Admin → *LLM providers* (tipo *Externo*, fornecedor *Anthropic*), e a da organização vence a global. As chaves cadastradas ficam cifradas no banco (Fernet) com `FIELD_ENCRYPTION_KEY`; sem ela, a cifra deriva de `DJANGO_SECRET_KEY`, e **trocar o `DJANGO_SECRET_KEY` depois torna as chaves salvas ilegíveis** (o sistema cai na chave global e registra aviso; é preciso cadastrá-las de novo). Para a automação: gere `FIELD_ENCRYPTION_KEY` uma vez por instância (`python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`), preserve-a e **inclua-a no backup** — sem ela os dados cifrados não se recuperam. Não é exigida pela validação de segredos.
+`ANTHROPIC_API_KEY` é **opcional**: a stack sobe sem ela. É a chave **global** da instância; cada organização pode cadastrar a sua em Admin → *LLM providers* (tipo *Externo*, fornecedor *Anthropic*), e a da organização vence a global. As chaves cadastradas ficam cifradas no banco (Fernet) com `FIELD_ENCRYPTION_KEY`; sem ela, a cifra deriva de `DJANGO_SECRET_KEY`, e **trocar o `DJANGO_SECRET_KEY` depois torna as chaves salvas ilegíveis** (o sistema cai na chave global e registra aviso; é preciso cadastrá-las de novo). Para a automação: gere `FIELD_ENCRYPTION_KEY` uma vez por instância (`python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`), preserve-a e **inclua-a no backup** — sem ela os dados cifrados não se recuperam. Não é exigida pela validação de segredos — mas veja "Chave da instância" abaixo: a chave da federação também depende dela.
 
 **Atenção:** `POSTGRES_PASSWORD` só vale na criação dos dados. Trocá-lo depois num `DATA_DIR` existente não altera a senha já gravada. Os formatos de `S3_ACCESS_KEY`, `S3_SECRET_KEY` e `GARAGE_RPC_SECRET` não são livres (hex de tamanho fixo): o `garage` recusa subir com outro formato, e o `token_urlsafe` indicado acima **não serve** para eles.
+
+### Chave da instância (federação) — `FIELD_ENCRYPTION_KEY` deixa de ser opcional na prática
+
+A primeira execução do `bootstrap` gera o par Ed25519 da instância ([ADR 010](arquitetura/decisoes/010-federacao-por-log-assinado.md)) e guarda a chave privada **cifrada no banco** (tabela `federacao_chave_instancia`) com o mesmo Fernet das chaves de LLM. O `did:key` resultante é a identidade da instância na federação; consulte-o com `docker compose exec portal python manage.py chave_instancia` (só o DID público é exibido).
+
+Por isso, **defina `FIELD_ENCRYPTION_KEY` antes do primeiro `up`** (e preserve-a):
+
+- Sem ela, a cifra deriva de `DJANGO_SECRET_KEY`. Se a chave da instância for criada assim e depois você definir `FIELD_ENCRYPTION_KEY` (ou trocar o `DJANGO_SECRET_KEY`), a privada fica **ilegível** — e hoje não existe comando para recifrá-la ou recriá-la sem perder o DID.
+- Diferente das chaves de LLM (que se recadastram), perder a privada da instância significa **perder a identidade**: uma chave nova tem outro `did:key`, e quem já confiava no antigo precisa enrolar de novo. Nenhum par existe hoje, mas isso vale a partir do primeiro intercâmbio.
+- **Backup:** `FIELD_ENCRYPTION_KEY` **e** o banco (ao menos `federacao_chave_instancia`). Um sem o outro não recupera a chave.
+- Em instância que já existia antes desta mudança, o `up` (via `bootstrap`) cria a chave na primeira vez; confira com o comando acima.
 
 ## Variáveis de implantação
 

@@ -2,6 +2,11 @@
 
 Este arquivo documenta as alterações, configurações e implementações feitas por IAs (agentes) neste repositório. O objetivo é manter um histórico unificado e transparente sobre o estado do desenvolvimento, facilitando o onboarding de novas IAs e humanos na base de código.
 
+## [04-10-2026] - Deploy: `FIELD_ENCRYPTION_KEY` e a chave da instância
+
+- `docs/deploy.md` ganhou a seção "Chave da instância (federação)": o `bootstrap` agora cria a chave Ed25519; `FIELD_ENCRYPTION_KEY` deve ser definida **antes do primeiro `up`** (se a cifra mudar depois, a privada fica ilegível e não há comando para recifrá-la ou recriá-la sem perder o DID), perder a privada significa perder a identidade da instância (diferente das chaves de LLM, que se recadastram) e o backup precisa de `FIELD_ENCRYPTION_KEY` **e** do banco. O passo 4 do `bootstrap` foi acrescentado à descrição e `.env.example` ganhou o aviso.
+- **Ainda em aberto:** a validação de segredos de produção (`config/segredos.py`) **não** exige `FIELD_ENCRYPTION_KEY`; exigi-la seria o jeito de impedir o erro, mas muda o comportamento de instâncias existentes e não foi feito.
+
 ## [04-10-2026] - F0 da federação, passo 2: chave Ed25519 da instância (ADR 010)
 
 **Contexto e motivação:**
