@@ -1,9 +1,9 @@
-"""Cliente HTTP para a API REST do Ollama (nativo no host, fora do Docker).
+"""Cliente HTTP para a API REST do Ollama.
 
-Ollama roda como um processo comum na máquina do usuário — os containers
-alcançam via settings.OLLAMA_HOST (default http://host.docker.internal:11434,
-que no Linux exige `extra_hosts: host-gateway` no docker-compose) quando
-nenhum `host` explícito é passado. Com várias máquinas no cluster
+O Ollama desta máquina é nativo (Macs) ou um container do compose (ADR 009) — os
+containers do portal/worker o alcançam via settings.OLLAMA_HOST (default
+http://host.docker.internal:11434, que no Linux exige `extra_hosts: host-gateway`
+no docker-compose) quando nenhum `host` explícito é passado. Com várias máquinas no cluster
 (apps.cluster), `apps.cluster.llm_router.escolher_execucao()` decide qual
 `host`/`num_thread` usar para cada chamada — este módulo só sabe FALAR com
 UM Ollama por vez, nunca escolhe qual.

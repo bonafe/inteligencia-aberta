@@ -92,6 +92,11 @@ Gerar: `python3 -c "import secrets; print(secrets.token_urlsafe(32))"`.
 | `BIND_ADDR` | `127.0.0.1` | Interface onde 8000/8001 são publicadas |
 | `DATA_DIR` | `./data` | Onde ficam postgres, garage, qdrant, redis (pode ser outro disco) |
 | `GARAGE_VERSION` | `v2.4.1` | Versão do Garage embutida na imagem de `infra/garage/` (build-arg) |
+| `COMPOSE_PROFILES` | vazio | `ollama` sobe o Ollama em container (modo `container`, ADR 009) |
+| `OLLAMA_HOST` | `http://host.docker.internal:11434` | Ollama que esta instância usa: nativo (padrão), `http://ollama:11434` (container) ou vazio (sem LLM local) |
+| `OLLAMA_ENDPOINT_ANUNCIADO` | = `OLLAMA_HOST` | Endpoint informado aos peers no heartbeat; precisa ser alcançável pela VPN |
+| `OLLAMA_MODELOS` | vazio | Modelos baixados no `up` pelo `ollama-pull` (separados por espaço) |
+| `OLLAMA_BIND_ADDR` / `OLLAMA_PORTA` | `127.0.0.1` / `11434` | Onde o container publica o Ollama; IP da VPN para o cluster alcançá-lo |
 | `GARAGE_CAPACITY` | `100GB` | Capacidade declarada do nó único; não reserva disco |
 | `CORS_ALLOWED_ORIGINS` | vazio em prod | Origens web do orchestrator; a extensão não precisa |
 | `DJANGO_SUPERUSER_USERNAME` / `_EMAIL` | vazio | Dono inicial; sem as três, nenhum é criado |

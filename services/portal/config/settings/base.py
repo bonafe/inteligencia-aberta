@@ -165,10 +165,17 @@ ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 LLM_CLASSIFIER_MODEL = os.environ.get("LLM_CLASSIFIER_MODEL", "claude-haiku-4-5")
 LLM_EXTRACTOR_MODEL = os.environ.get("LLM_EXTRACTOR_MODEL", "claude-sonnet-5")
 
-# Ollama roda nativo no host do usuário, fora do Docker — não é um serviço do
-# compose. host.docker.internal exige `extra_hosts: host-gateway` no Linux
-# (não é automático como no Docker Desktop de Mac/Windows; ver docker-compose.yml).
+# Ollama é uma capacidade do NÓ (ADR 009), não da stack. OLLAMA_HOST é o Ollama que
+# ESTA instância usa — e só ela, de dentro dos containers:
+#   container → http://ollama:11434 (serviço do compose, `COMPOSE_PROFILES=ollama`)
+#   nativo    → http://host.docker.internal:11434 (padrão; Macs, onde o Docker não
+#               acessa a GPU Metal; exige `extra_hosts: host-gateway` no Linux)
+#   nenhum    → vazio: esta máquina não tem LLM local e depende dos peers do cluster
 OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://host.docker.internal:11434")
+# O que esta máquina ANUNCIA aos peers no heartbeat (`Maquina.ollama_endpoint`): precisa
+# ser alcançável por outro nó (IP da VPN), ao contrário de `http://ollama:11434`, que só
+# existe na rede do compose. Sem valor, cai em OLLAMA_HOST (comportamento anterior).
+OLLAMA_ENDPOINT_ANUNCIADO = os.environ.get("OLLAMA_ENDPOINT_ANUNCIADO") or OLLAMA_HOST
 OLLAMA_TIMEOUT_S = int(os.environ.get("OLLAMA_TIMEOUT_S", "120"))
 # Sem isto, o Ollama usa o default de 4096 tokens de contexto mesmo em modelos
 # que suportam muito mais — em modelos "thinking" o raciocínio sozinho estoura

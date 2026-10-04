@@ -51,7 +51,7 @@ Três microserviços Python + workers de processamento:
 
 Em produção só portal (8000) e orchestrator (8001) publicam porta, presas a `BIND_ADDR` (padrão `127.0.0.1`); MCP, Postgres, Redis, Qdrant e Garage (S3) ficam na rede interna. As portas 8002, 5432 e 3900 só são publicadas em dev (`docker-compose.override.yml`).
 
-Infraestrutura de suporte: PostgreSQL 16-alpine (5432), Qdrant v1.9.0 (6333), Garage (armazenamento S3, imagem própria em `infra/garage/`, `GARAGE_VERSION`; 3900; substituiu o MinIO — ADR 008), Redis 7-alpine (6379 — banco 0 para o Celery, banco 1 para o channel layer do painel de eventos).
+Infraestrutura de suporte: PostgreSQL 16-alpine (5432), Qdrant v1.9.0 (6333), Garage (armazenamento S3, imagem própria em `infra/garage/`, `GARAGE_VERSION`; 3900; substituiu o MinIO — ADR 008), Ollama opcional por nó (profile `ollama`; Macs usam o nativo — ADR 009), Redis 7-alpine (6379 — banco 0 para o Celery, banco 1 para o channel layer do painel de eventos).
 
 O `portal` roda sob **ASGI (daphne)**, não WSGI: o painel de eventos usa WebSocket. Em desenvolvimento, `manage.py runserver` já sobe em ASGI porque `daphne` é o primeiro item de `INSTALLED_APPS`.
 
@@ -122,7 +122,7 @@ A pasta `docs/` contém ~2 400 linhas de especificação:
 
 - `docs/roadmap.md` — 6 fases; fase 0 (MVP local) ainda em implementação
 - `docs/arquitetura/visao-geral.md` — visão de 5 camadas e fluxos de dados
-- `docs/arquitetura/decisoes/` — 8 ADRs explicando escolhas de MCP, containers, LLM local, voz, log de eventos, cluster multi-máquina, implantação por instância e armazenamento S3 (Garage)
+- `docs/arquitetura/decisoes/` — 9 ADRs explicando escolhas de MCP, containers, LLM local, voz, log de eventos, cluster multi-máquina, implantação por instância, armazenamento S3 (Garage) e Ollama como capacidade do nó
 - `docs/componentes/agentes/` — spec detalhada de cada agente (planejador, coletor, extrator, correlacionador, validador, analista, redator)
 - `docs/seguranca/classificacao.md` — regras completas do motor de política
 - `docs/componentes/observabilidade.md` — log de eventos, taxonomia de `stage`/`status`, painel e reprocessamento

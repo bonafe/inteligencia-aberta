@@ -136,6 +136,33 @@ def test_no_local_se_autorregistra_no_primeiro_heartbeat(tenant, monkeypatch):
     assert MaquinaStatus.objects.get(maquina=maquina).online is True
 
 
+def test_autorregistro_anuncia_endpoint_alcancavel_e_consulta_o_local(tenant, settings, monkeypatch):
+    """Modo container (ADR 009): o Ollama local é `http://ollama:11434`, mas o que vai
+    para a `Maquina` (e portanto para os peers) é o endpoint anunciado — o de fora."""
+    settings.OLLAMA_HOST = "http://ollama:11434"
+    settings.OLLAMA_ENDPOINT_ANUNCIADO = "http://100.64.0.7:11434"
+    monkeypatch.setenv("CLUSTER_LOCAL_APELIDO", "antares")
+    with mock.patch("apps.artifacts.extractors.ollama_client.listar_modelos", return_value=[]) as listar:
+        emitir_heartbeat_maquina()
+
+    assert Maquina.objects.get(apelido="antares").ollama_endpoint == "http://100.64.0.7:11434"
+    # Quem lista os modelos é o próprio nó, pelo endereço interno.
+    listar.assert_called_once_with(host="http://ollama:11434")
+
+
+def test_autorregistro_sem_ollama_local_nao_anuncia_endpoint(tenant, settings, monkeypatch):
+    """Modo nenhum: OLLAMA_HOST vazio → sem endpoint anunciado, a máquina não vira
+    candidata do roteador de LLM e nem tenta listar modelos."""
+    settings.OLLAMA_HOST = ""
+    settings.OLLAMA_ENDPOINT_ANUNCIADO = ""
+    monkeypatch.setenv("CLUSTER_LOCAL_APELIDO", "netuno")
+    with mock.patch("apps.artifacts.extractors.ollama_client.listar_modelos") as listar:
+        emitir_heartbeat_maquina()
+
+    assert Maquina.objects.get(apelido="netuno").ollama_endpoint == ""
+    listar.assert_not_called()
+
+
 def test_autorregistro_e_idempotente(tenant, monkeypatch):
     """Rodar o heartbeat várias vezes não pode criar Maquina duplicada —
     importante porque, dentro do Docker, isto roda a cada 30s pra sempre."""

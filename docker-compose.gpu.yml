@@ -1,0 +1,14 @@
+# Overlay OPCIONAL: reserva as GPUs NVIDIA para o Ollama em container (Linux com o
+# NVIDIA Container Toolkit). Não serve para Mac — lá o Ollama roda nativo (ADR 009).
+#
+# Uso: COMPOSE_PROFILES=ollama docker compose -f docker-compose.yml -f docker-compose.prod.yml \
+#        -f docker-compose.gpu.yml up -d --build
+services:
+  ollama:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

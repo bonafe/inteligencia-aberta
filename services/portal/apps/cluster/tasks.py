@@ -84,7 +84,7 @@ def _autorregistrar_no_local():
             # HTTP (X-Machine-Token é para peers remotos puxando replicação)
             # — é o próprio processo chamando funções Python diretamente.
             "token_hash": "",
-            "ollama_endpoint": getattr(settings, "OLLAMA_HOST", ""),
+            "ollama_endpoint": getattr(settings, "OLLAMA_ENDPOINT_ANUNCIADO", ""),
         },
     )
     if criada:
@@ -126,8 +126,11 @@ def emitir_heartbeat_maquina():
     if maquina.ollama_endpoint:
         # listar_modelos() nunca levanta — degrada pra lista vazia se o
         # Ollama desta máquina estiver offline no momento do heartbeat.
+        # O heartbeat é sempre DESTA máquina: consulta o Ollama pelo endereço local
+        # (OLLAMA_HOST), não pelo anunciado — que é o de fora (VPN) e pode nem ser
+        # alcançável de dentro do container.
         from apps.artifacts.extractors.ollama_client import listar_modelos
-        payload["modelos_ollama"] = listar_modelos(host=maquina.ollama_endpoint)
+        payload["modelos_ollama"] = listar_modelos(host=getattr(settings, "OLLAMA_HOST", "") or maquina.ollama_endpoint)
 
     evento = emit(
         "maquina.heartbeat", "ok",

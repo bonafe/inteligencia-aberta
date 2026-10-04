@@ -13,7 +13,7 @@ services:
       redis:
         condition: service_healthy
     env_file: .env
-    # Ollama roda nativo no host (fora do Docker) para estruturação manual e
+    # Ollama nativo no host (modo "nativo", ADR 009) para estruturação manual e
     # comparação. No Linux, host.docker.internal não resolve automaticamente
     # (diferente de Docker Desktop Mac/Windows) — precisa deste mapeamento.
     extra_hosts:
@@ -134,3 +134,41 @@ services:
       timeout: 3s
       retries: 20
       start_period: 10s
+
+  # Ollama como container: capacidade do nó, não da stack (ADR 009). Só sobe com
+  # `COMPOSE_PROFILES=ollama` no .env (ou --profile ollama), junto com
+  # OLLAMA_HOST=http://ollama:11434. Em Mac o Docker não acessa a GPU Metal: lá o
+  # Ollama fica nativo. GPU NVIDIA no Linux: docker-compose.gpu.yml.
+  ollama:
+    image: ollama/ollama:${OLLAMA_VERSION:-0.35.1}
+    profiles: ["ollama"]
+    # Sem env_file de propósito: o servidor lê OLLAMA_HOST como endereço de bind, e o
+    # do .env (http://ollama:11434, o que os clientes usam) o quebraria.
+    environment:
+      OLLAMA_HOST: 0.0.0.0:11434
+    volumes:
+      - ${DATA_DIR:-./data}/ollama:/root/.ollama
+    # Loopback por padrão. Para o cluster alcançá-lo, OLLAMA_BIND_ADDR = IP da VPN
+    # (o Ollama não tem autenticação — nunca 0.0.0.0).
+    ports:
+      - "${OLLAMA_BIND_ADDR:-127.0.0.1}:${OLLAMA_PORTA:-11434}:11434"
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+
+  # Baixa os modelos de OLLAMA_MODELOS (separados por espaço) e sai. Idempotente: o
+  # que já está no volume não é baixado de novo. Vazio = não faz nada.
+  ollama-pull:
+    image: ollama/ollama:${OLLAMA_VERSION:-0.35.1}
+    profiles: ["ollama"]
+    restart: "no"
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+      OLLAMA_MODELOS: ${OLLAMA_MODELOS:-}
+    entrypoint: ["sh", "-c", 'for m in $$OLLAMA_MODELOS; do ollama pull "$$m" || exit 1; done']

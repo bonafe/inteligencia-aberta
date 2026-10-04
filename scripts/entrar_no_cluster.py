@@ -22,7 +22,7 @@ Docker, porque é o host que tem acesso ao `tailscale`.
 
 Uso:
     python3 scripts/entrar_no_cluster.py --secret <segredo-do-cluster> \\
-        --organizacao <slug> --modo compute [--ollama-endpoint http://localhost:11434]
+        --organizacao <slug> --modo compute [--ollama-endpoint http://100.x.y.z:11434]
 """
 
 import argparse
@@ -147,8 +147,9 @@ def main():
     parser.add_argument("--organizacao", required=True, help="Slug da organização dona do cluster.")
     parser.add_argument("--modo", choices=["compute", "replica"], default="compute")
     parser.add_argument("--apelido", default=None, help="Nome desta máquina. Default: hostname do Tailscale.")
-    parser.add_argument("--ollama-endpoint", default="",
-                        help="URL do Ollama nesta máquina, se houver (ex.: http://localhost:11434).")
+    parser.add_argument("--ollama-endpoint", default=os.environ.get("OLLAMA_ENDPOINT_ANUNCIADO", ""),
+                        help="URL do Ollama nesta máquina, alcançável pelos outros nós (ex.: http://100.x.y.z:11434), se houver. "
+                             "Default: OLLAMA_ENDPOINT_ANUNCIADO do ambiente.")
     parser.add_argument("--sem-subir", action="store_true",
                         help="Só descobre/registra/escreve o .env — não roda docker compose.")
     args = parser.parse_args()
