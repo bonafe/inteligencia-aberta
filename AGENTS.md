@@ -29,6 +29,10 @@ curl http://localhost:8002/health
 
 # Validar o compose de produção (sem subir)
 docker compose -f docker-compose.yml -f docker-compose.prod.yml config -q
+
+# Ultima Agora: testes do back e do front (Chrome headless)
+docker compose exec portal python -m pytest tests/test_agora_*.py -q
+scripts/testar_agora_ia.sh
 ```
 
 Produção usa `docker-compose.prod.yml` **em vez do** override de dev — ver `docs/deploy.md`.
@@ -59,6 +63,9 @@ Os testes do portal usam pytest + pytest-django (`services/portal/tests/`): `doc
 | `services/portal/apps/artifacts/classificacao_dominio.py` | Regra "tudo deste domínio nasce, no mínimo, nível X": só sobe o nível, casa por sufixo de rótulo |
 | `services/portal/apps/federacao/` | Chave Ed25519 da instância, `Space`, motor de regras de replicação (`regras.py`, função pura), canal assinado (`canal.py`, `views_controle.py`) |
 | `services/portal/apps/cluster/` | `Maquina` = a instância local ou um **par**; enrolamento (`pares.py`), pull do estado dos pares (`pull.py`), roteador de LLM e **controle dos modelos do Ollama** (`ollama_admin.py`, `operacoes.py`, `views_modelos.py`) |
+| `services/portal/apps/agora/` | Ultima Agora (ADR 013/014): `acesso.py` calcula o **papel efetivo** (o papel na organização é o teto), `sync.py` emite os tokens do `agora-sync`, `views_dominio.py` lê o domínio para os componentes `ia-*` (isolado por organização; sem acesso = 404) |
+| `services/portal/static/agora/` e `services/agora-sync/` | **Cópias** do projeto `ultima-agora`, geradas por `scripts/sincronizar_agora.sh` — **não editar**; mude na origem e sincronize (o script também regenera `static/agora-ia/precache.json`) |
+| `services/portal/static/agora-ia/` | Parte do IA: host Django (`django_host.js`), pacote de domínio `pack/` (`ia-search`, `ia-entity`, `ia-news`), política de cache offline (`offline_cache.js`). Testes: `scripts/testar_agora_ia.sh` |
 
 ## Regras obrigatórias para agentes
 
@@ -73,6 +80,7 @@ Os testes do portal usam pytest + pytest-django (`services/portal/tests/`): `doc
 - **Não exponha o Ollama nem crie rota que repasse tráfego a ele.** Ele não tem autenticação; entre instâncias o caminho é o canal assinado (`apps/federacao`), e o receptor **não consegue verificar** o papel que a origem afirma — por isso `próprio` é um rótulo que dá poder e exige confirmação.
 - **Não afirme no site (`index.html`, `jornada.html`, `diario.html`) mais do que o código faz:** um item só entra em "Funciona hoje" quando existe e roda. Entradas do diário levam a assinatura do dono: escreva-as como rascunho.
 - **Compatibilidade com outras instâncias e com dados existentes não é requisito por ora** (o dono pode zerar tudo); veja a seção correspondente do `CLAUDE.md`, que é a referência mais completa.
+- **Não edite `services/portal/static/agora/` nem `services/agora-sync/`:** são cópias do projeto `ultima-agora`. Mude na origem e rode `scripts/sincronizar_agora.sh` (regenera também o `precache.json`; o teste do front confere que está em dia).
 - **Não escreva lógica de negócio no portal Django** que deveria estar no orchestrator. O portal é interface e persistência; o orchestrator é processamento.
 - **Não crie artefatos com psycopg2 direto no banco a partir do orchestrator.** O orchestrator deve chamar `POST portal:8000/artifacts/api/v1/artefatos/` para que o signal Django dispare o pipeline. Escrever diretamente no banco bypassa o ORM e o signal nunca é acionado.
 

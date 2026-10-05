@@ -49,7 +49,7 @@ Três interfaces, todas tratadas como contêineres de primeira classe:
 
 - **Voz:** Transcreve fala em texto (STT), entrega resposta em áudio (TTS). Prioridade máxima para acessibilidade.
 - **Chat:** Conversa em linguagem natural. Principal interface para a maioria dos usuários.
-- **Web:** Interface operacional completa — gestão de configurações, visualização de relatórios, administração.
+- **Web:** Interface operacional completa — gestão de configurações, visualização de relatórios, administração. Inclui o **Ultima Agora** (`/agora/`, ADR 013): workspaces colaborativos em que a pessoa compõe o espaço de investigação com componentes, funcionando **offline** (ADR 015) e, com o serviço opcional `agora-sync` (ADR 014 e 016), em tempo real com presença e chat.
 
 Todas as interfaces convergem para o mesmo API Gateway. Nenhuma tem lógica de negócio — são apenas formas de entrada e saída.
 

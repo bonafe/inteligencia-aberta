@@ -50,7 +50,7 @@ O Portal também se comunica diretamente com o PostgreSQL para persistir usuári
 
 ## 3. Apps Django
 
-O projeto Django é estruturado em apps dentro de `services/portal/apps/`. Esta especificação detalha `accounts`, `artifacts` e `infrastructure`; `events` (observabilidade), `cluster` e `federacao` têm as seções 3.4 e 3.5 abaixo e os documentos citados nelas.
+O projeto Django é estruturado em apps dentro de `services/portal/apps/`. Esta especificação detalha `accounts`, `artifacts` e `infrastructure`; `events` (observabilidade), `cluster`, `federacao` e `agora` têm as seções 3.4, 3.5 e 3.6 abaixo e os documentos citados nelas.
 
 ### 3.1 `accounts` — Contas e Organizações
 
@@ -81,6 +81,10 @@ Gerencia **as instâncias que esta conhece**: a própria (`Maquina.eh_local`) e 
 Identidade e troca entre instâncias: a chave Ed25519 da instância (`ChaveInstancia`), o canal assinado `/federacao/…` (convite e controle; **não** é para a internet: o Caddy o bloqueia), `Space` e o motor de regras de replicação. Detalhes: [`../../arquitetura/federacao.md`](../../arquitetura/federacao.md) e as ADR [010](../../arquitetura/decisoes/010-federacao-por-log-assinado.md), [011](../../arquitetura/decisoes/011-politica-de-replicacao.md) e [012](../../arquitetura/decisoes/012-controle-de-instancias-pares.md). As regras de replicação e os espaços **ainda não têm tela**: só o admin do Django.
 
 ---
+
+### 3.6 `agora` — Ultima Agora (workspaces colaborativos)
+
+Workspaces em que o usuário compõe o espaço de investigação com componentes (`ia-search`, `ia-entity`, `ia-news`, tabela, grafo, notas) e que várias pessoas editam juntas. O app guarda workspaces e papéis (`models.py`), calcula o **papel efetivo** (`acesso.py`: o papel na organização dá o teto; quem não é membro vigente não tem acesso), emite os tokens do serviço de tempo real opcional `agora-sync` (`sync.py`) e lê o domínio para os componentes (`views_dominio.py`, isolado por organização; objeto sem acesso = 404). O front é servido de `static/agora/` (cópia do projeto `ultima-agora`) e `static/agora-ia/`. Detalhes: [`agora.md`](agora.md) e ADRs 013 a 016.
 
 ## 4. Modelo de Dados
 
@@ -428,6 +432,12 @@ Imagem registrada como agente ou worker disponível para a organização. O Orqu
 /cluster/pares/                 Pares: convite, confirmação da impressão digital, tipo, revogação
 /cluster/maquinas/<id>/modelos/ Inventário de modelos de uma máquina (JSON)
 /cluster/operacoes/<id>/        Estado de uma operação de modelo (JSON)
+
+# Ultima Agora (sessão + CSRF; ver agora.md)
+/agora/                         Aplicativo (workspaces, componentes, chat, configurações)
+/agora/sw.js                    Service worker (offline, ADR 015)
+/agora/api/v1/workspaces/…      Workspaces, token do agora-sync, membros
+/agora/api/v1/dominio/…         Leitura de artefatos para os componentes ia-*
 
 # Canal entre instâncias (assinatura, sem sessão; bloqueado no Caddy)
 /federacao/convite/aceitar/     Aceite de um convite de enrolamento

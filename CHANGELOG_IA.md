@@ -2,6 +2,19 @@
 
 Este arquivo documenta as alterações, configurações e implementações feitas por IAs (agentes) neste repositório. O objetivo é manter um histórico unificado e transparente sobre o estado do desenvolvimento, facilitando o onboarding de novas IAs e humanos na base de código.
 
+## [05-10-2026] - Ultima Agora no portal (ADR 013 a 016) e atualização geral da documentação
+
+**O que existe:** o **Ultima Agora** (`/agora/`), ambiente de workspaces colaborativos, integrado ao portal. `apps/agora` (modelos `Workspace` e `WorkspaceMember`, papel efetivo com teto na organização, tokens do `agora-sync`, leitura de domínio isolada por organização); pacote de domínio `static/agora-ia/pack/` (`ia-search`, `ia-entity`, `ia-news`); front do Agora em `static/agora/` e serviço `services/agora-sync/` (**cópias** do projeto `ultima-agora`, via `scripts/sincronizar_agora.sh`; não editar). Offline-first com service worker, catálogo local e política de cache por classificação (teto da instância `AGORA_OFFLINE_CACHE_NIVEL`, nível de cada pessoa em ⚙ Configurações). Chat dos workspaces no `agora-sync` (log por workspace, retenção `CHAT_RETENTION_DAYS`). Testes: `tests/test_agora_*.py` e `scripts/testar_agora_ia.sh`.
+
+**Documentação atualizada nesta rodada:**
+- **`docs/deploy.md`:** seção nova "Ultima Agora" (profile `agora`, segredos, `AGORA_SYNC_URL` com e sem Caddy, volume `agora-sync/`, teto do cache offline, o front é cópia), mais o contrato para automação, segredos, variáveis, verificação de saúde (porta 8787), volumes e atualização. O comando do `tailscale serve` para a 8787 está marcado como **não testado**.
+- **`CLAUDE.md`:** `agora-sync` na tabela de serviços e nas portas, 16 ADRs (eram 11), referências a `deploy.md` e `agora.md`, Caddy publica também `/agora-sync/*`.
+- **`AGENTS.md`:** mapa dos arquivos do Agora, regra de **não editar as cópias**, comandos de teste do Agora. **`README.md`:** seção do Agora, volume `agora-sync/`, linha na stack.
+- **`docs/seguranca/autenticacao.md`** (sexta camada: token curto do `agora-sync`; dois segredos novos), **`docs/componentes/interfaces/web.md`** (§3.6 e rotas `/agora/`), **`docs/arquitetura/visao-geral.md`** e **`docs/componentes/interfaces/agora.md`** (ponteiro para a implantação).
+- **Site:** `index.html` (Agora em *Funciona hoje*, com o limite dito na linha), `jornada.html` e `sobre.html`. **`diario.html`:** entrada nova como **rascunho** para o dono revisar.
+
+**Não verifiquei:** o `agora-sync` não estava rodando nesta sessão (profile `agora` desligado); os textos sobre tempo real e chat vêm das ADRs e do código, não de uma execução ao vivo. A suíte de testes não foi rodada.
+
 ## [04-10-2026] - F0 da federação, passo 3: ID global `urn:uuid:` (ADR 010)
 
 **Decisão de implementação:** os modelos já usam UUID como PK, então o identificador global **é o próprio PK** escrito como URN — sem coluna nova nem tabela de mapeamento. Objetos que passarem entre instâncias **mantêm** o UUID de origem; a origem é dita pelo `author` e pelo espaço no envelope, não pelo ID.

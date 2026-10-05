@@ -11,11 +11,13 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
 docker compose -f docker-compose.yml -f docker-compose.prod.yml ps   # tudo "healthy"
 ```
 
+**Colaboração em tempo real (Ultima Agora) é opcional.** Sem ela o Agora (`/agora/`) abre e funciona, mas cada workspace fica só no navegador de quem o criou. Para ligá-la, acrescente `--profile agora` ao comando e defina as variáveis de "Ultima Agora" (abaixo); `--profile publico --profile agora` combina com o Caddy.
+
 **Sempre com `-f ... -f docker-compose.prod.yml`.** Sem `-f`, o compose carrega o `docker-compose.override.yml` sozinho — que é o de desenvolvimento (runserver, `--reload`, volumes de código, portas abertas).
 
 O passo `bootstrap` roda a cada `up`: aplica migrations, garante os buckets do Garage (S3), cria o superusuário inicial e gera a chave Ed25519 da instância (ver "Chave da instância", abaixo). É idempotente e o portal, o worker e o beat só sobem depois dele terminar com sucesso. Não há passo manual.
 
-Critério de sucesso para a automação: nenhum serviço `unhealthy` e `bootstrap` como `Exited (0)` (é o esperado: roda e sai). `worker`, `worker-ollama` e `beat` não têm healthcheck — basta estarem `Up` (o `worker-ollama` é o que instala modelos do Ollama; sem ele as instalações ficam pendentes). Verificar a aplicação com `/health` (ver o contrato abaixo).
+Critério de sucesso para a automação: nenhum serviço `unhealthy` e `bootstrap` como `Exited (0)` (é o esperado: roda e sai). Com `--profile agora`, o `agora-sync` também deve estar `healthy`. `worker`, `worker-ollama` e `beat` não têm healthcheck — basta estarem `Up` (o `worker-ollama` é o que instala modelos do Ollama; sem ele as instalações ficam pendentes). Verificar a aplicação com `/health` (ver o contrato abaixo).
 
 ## Contrato para automação (Ansible)
 
@@ -34,9 +36,10 @@ Resumo operacional para quem implanta por código. O restante deste documento ex
    - `TLS_MODE` (`proxy` com `tailscale serve`/Caddy na frente; `none` só se HTTP puro for decisão consciente)
    - `BIND_ADDR`, `DATA_DIR`, `INSTANCIA_NOME`, `IA_VERSION` (sugestão: `git rev-parse --short HEAD`)
    - LLM do nó (opcional; ver "LLM por nó e entre nós"): `OLLAMA_HOST`/`COMPOSE_PROFILES`/`OLLAMA_MODELOS` conforme o modo, e, no cluster, `LLM_GATEWAY_TOKEN` + `LLM_GATEWAY_ENDPOINT_ANUNCIADO`
+   - **Ultima Agora com colaboração em tempo real** (opcional; ver "Ultima Agora"): `AGORA_SYNC_SECRET` (aleatório, ≥ 32 caracteres, **por host**), `AGORA_SYNC_URL` (o endereço **como o navegador o vê**), `AGORA_SYNC_ADMIN_URL` + `AGORA_SYNC_ADMIN_TOKEN` (≥ 16 caracteres) e `--profile agora` no comando; opcionais `CHAT_RETENTION_DAYS` e `AGORA_OFFLINE_CACHE_NIVEL`
    - host com domínio público: também `IA_DOMINIO` e `ACME_EMAIL`, e `--profile publico` no comando
    - **várias máquinas** (pares, ver "Pares"): `FEDERACAO_ENDPOINT_ANUNCIADO` (o endereço da VPN pelo qual os outros pares alcançam este host, ex.: `http://100.64.0.5:8000`) e `CLUSTER_LOCAL_APELIDO` (nome estável do host); com **Ollama nativo**, `OLLAMA_DATA_DIR_HOST` (o `~/.ollama` do host, para medir o espaço dos modelos)
-3. `docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build` (acrescentar `--profile publico` no host público). **Nunca sem os dois `-f`**: sem `-f` o compose carrega o `docker-compose.override.yml`, que é de desenvolvimento.
+3. `docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build` (acrescentar `--profile publico` no host público e `--profile agora` se a colaboração em tempo real estiver ligada). **Nunca sem os dois `-f`**: sem `-f` o compose carrega o `docker-compose.override.yml`, que é de desenvolvimento.
 4. Esperar e verificar (abaixo). Se `bootstrap` falhar (`docker compose ... logs bootstrap`), nada mais sobe — é a causa raiz a investigar.
 
 **Verificação de saúde:**
@@ -48,7 +51,7 @@ curl -fsS -H 'Host: localhost' http://${BIND_ADDR:-127.0.0.1}:8000/health   # po
 curl -fsS http://${BIND_ADDR:-127.0.0.1}:8001/health                         # orchestrator
 ```
 
-Ambos devolvem JSON com `"status": "ok"`, `servico`, `instancia` (= `INSTANCIA_NOME`) e `versao` (= `IA_VERSION`). O portal responde `503` se não alcança o banco. Conferir `instancia`/`versao` confirma que a instância certa subiu na versão esperada. O MCP não publica porta; sua saúde aparece em `docker compose ps`.
+Ambos devolvem JSON com `"status": "ok"`, `servico`, `instancia` (= `INSTANCIA_NOME`) e `versao` (= `IA_VERSION`). O portal responde `503` se não alcança o banco. Conferir `instancia`/`versao` confirma que a instância certa subiu na versão esperada. O MCP não publica porta; sua saúde aparece em `docker compose ps`. O `agora-sync` (se ligado) responde `/health` na 8787 (`curl -fsS http://${BIND_ADDR:-127.0.0.1}:8787/health`).
 
 **Armadilhas:**
 
@@ -74,6 +77,8 @@ Cada um deve ser aleatório e **único por instância**. Em produção o process
 | `S3_SECRET_KEY` | Armazenamento de objetos (Garage): 64 hex — `openssl rand -hex 32` |
 | `S3_ACCESS_KEY` | Id da chave S3: `GK` + 24 hex — `echo "GK$(openssl rand -hex 12)"` (formato exigido pelo Garage) |
 | `GARAGE_RPC_SECRET` | Segredo do RPC do Garage: 64 hex — `openssl rand -hex 32` |
+| `AGORA_SYNC_SECRET` | *Só com o Agora em tempo real.* HS256 compartilhado: o portal assina os tokens curtos e o `agora-sync` os valida — **idêntico nos dois**, ≥ 32 caracteres. O portal em produção recusa subir se `AGORA_SYNC_URL` está definida e o segredo é fraco; o `agora-sync` se recusa a subir com segredo ausente ou fraco |
+| `AGORA_SYNC_ADMIN_TOKEN` | *Só com o Agora em tempo real.* Token do canal **portal → agora-sync** (mudança de papel valendo nas conexões abertas), ≥ 16 caracteres. Exigido quando `AGORA_SYNC_ADMIN_URL` está definida |
 | `DJANGO_SUPERUSER_PASSWORD` | *Opcional.* Senha do dono criado pelo bootstrap (só é lida no primeiro boot). Sem as três variáveis `DJANGO_SUPERUSER_*`, o primeiro cadastro é o administrador |
 
 Gerar: `python3 -c "import secrets; print(secrets.token_urlsafe(32))"`.
@@ -132,6 +137,10 @@ A instalação de modelos roda no serviço **`worker-ollama`** (fila `ollama_adm
 | `OLLAMA_BIND_ADDR` / `OLLAMA_PORTA` | `127.0.0.1` / `11434` | Onde o container publica o Ollama; IP da VPN para o cluster alcançá-lo |
 | `GARAGE_CAPACITY` | `100GB` | Capacidade declarada do nó único; não reserva disco |
 | `CORS_ALLOWED_ORIGINS` | vazio em prod | Origens web do orchestrator; a extensão não precisa |
+| `AGORA_SYNC_URL` | vazio | Endereço do `agora-sync` **como o navegador o enxerga**: `wss://ia.exemplo.com.br/agora-sync` (atrás do Caddy) ou `ws://host:8787`/`wss://…` (direto). Vazio = o Agora funciona sem colaboração em tempo real |
+| `AGORA_SYNC_ADMIN_URL` | vazio | Endereço do canal administrativo **como o portal o enxerga**: `http://agora-sync:8787` |
+| `CHAT_RETENTION_DAYS` | `0` | Por quantos dias o `agora-sync` guarda as mensagens do chat (`0` = para sempre) |
+| `AGORA_OFFLINE_CACHE_NIVEL` | `restrito` | **Teto** do nível de classificação que o navegador de cada pessoa pode guardar para trabalhar sem rede (`nenhum`, `publico`, `interno`, `restrito`, `confidencial`). Decisão de segurança: o armazenamento local do navegador **não é cifrado** |
 | `DJANGO_SUPERUSER_USERNAME` / `_EMAIL` | vazio | Dono inicial opcional; sem as três, nenhum é criado e o primeiro cadastro vira o administrador |
 
 ## LLM por nó e entre nós (Ollama e gateway)
@@ -171,9 +180,31 @@ Regras de decisão para a automação:
 - O autorregistro local coloca a máquina na organização do **administrador da instância** (o superusuário mais antigo); sem superusuário e com várias organizações, defina `CLUSTER_MACHINE_ID` (ver `docs/operacao/escala-multimaquina.md`).
 - Validação: `curl -fsS -X POST -H 'Authorization: Bearer <token>' -H 'Content-Type: application/json' -d '{"model":"<modelo>","messages":[{"role":"user","content":"oi"}]}' http://<ip-vpn>:8000/v1/chat/completions` deve devolver JSON no formato OpenAI; sem o header, `401`; sem `LLM_GATEWAY_TOKEN` no nó, `404`. Este comando **não foi testado entre máquinas reais**.
 
+## Ultima Agora (colaboração em tempo real)
+
+O Agora (`/agora/`, ADR 013) é parte do portal e **não exige nada além do que o portal já tem**: abre, cria workspaces e funciona **offline** (service worker, ADR 015). O `agora-sync` (ADR 014 e 016) é o serviço **opcional** que acrescenta edição simultânea, presença, mudança de papel valendo na hora e o **chat** dos workspaces. Ele é um contêiner Node próprio (profile `agora`); o portal continua dono de autenticação e autorização — o `agora-sync` só valida o token curto que o portal emite e não conhece usuários nem organizações.
+
+**Para ligar:**
+
+```bash
+# .env (gerar o segredo e o token: um por host, aleatórios)
+#   AGORA_SYNC_SECRET=$(python3 -c "import secrets; print(secrets.token_urlsafe(48))")
+#   AGORA_SYNC_ADMIN_TOKEN=$(python3 -c "import secrets; print(secrets.token_urlsafe(32))")
+#   AGORA_SYNC_ADMIN_URL=http://agora-sync:8787
+#   AGORA_SYNC_URL=wss://ia.exemplo.com.br/agora-sync        # com Caddy (ver abaixo)
+docker compose -f docker-compose.yml -f docker-compose.prod.yml --profile agora up -d --build
+```
+
+- **Com Caddy** (`--profile publico`): o navegador entra por `/agora-sync/` (WebSocket, `wss`) e a porta 8787 nem precisa ser publicada. O `infra/caddy/Caddyfile` já bloqueia `/agora-sync/admin/*` (canal serviço-a-serviço, com token): **nunca** exponha esse caminho.
+- **Sem Caddy** (`tailscale serve`, host só na tailnet): o `agora-sync` publica `8787` em `BIND_ADDR`; sirva essa porta com TLS (`tailscale serve --bg --https=8787 http://127.0.0.1:8787`, comando **não testado** — conferir a sintaxe instalada) e aponte `AGORA_SYNC_URL` para `wss://<host>.<tailnet>.ts.net:8787`. Sem TLS, o navegador recusa `ws://` a partir de uma página `https://`.
+- **Sem o profile:** `AGORA_SYNC_URL` vazia. O endpoint de token responde `503` e cada workspace fica só no navegador. Não há mais nada a configurar.
+- **Dados:** o `agora-sync` grava os documentos e o log do chat em `${DATA_DIR}/agora-sync/` (entra no backup, ver "Volumes").
+- **Offline e classificação:** `AGORA_OFFLINE_CACHE_NIVEL` é o teto do que cada navegador guarda; cada pessoa escolhe o próprio nível, até o teto, em ⚙ Configurações. Num ambiente com dados `confidencial`, **reduza o teto** (`interno`, `publico` ou `nenhum`): o que fica guardado viaja com o dispositivo.
+- **O front do Agora é cópia:** `services/portal/static/agora/` e `services/agora-sync/` vêm do projeto `ultima-agora` por `scripts/sincronizar_agora.sh`. Não se edita a cópia. O pré-cache do service worker (`static/agora-ia/precache.json`) é **gerado** por esse mesmo script: ao atualizar o front, rode-o e commite o resultado, senão o offline serve versão velha.
+
 ## Portas, rede e HTTPS
 
-Em produção só o **portal (8000)** e o **orchestrator (8001)** publicam porta, e só em `BIND_ADDR`. MCP, Postgres, Redis, Qdrant e Garage ficam na rede interna do compose.
+Em produção só o **portal (8000)** e o **orchestrator (8001)** publicam porta, e só em `BIND_ADDR`. MCP, Postgres, Redis, Qdrant e Garage ficam na rede interna do compose. Com `--profile agora`, o **`agora-sync` (8787)** também publica porta em `BIND_ADDR` (necessária só sem Caddy; ver "Ultima Agora").
 
 **Host só na tailnet:** manter `BIND_ADDR=127.0.0.1` e terminar o TLS com o Tailscale (comandos **não testados** — conferir a sintaxe na versão instalada de `tailscale serve`):
 
@@ -192,7 +223,7 @@ e `ALLOWED_HOSTS=<host>.<tailnet>.ts.net`, `CSRF_TRUSTED_ORIGINS=https://<host>.
 docker compose -f docker-compose.yml -f docker-compose.prod.yml --profile publico up -d --build
 ```
 
-O Caddy obtém o certificado (Let's Encrypt; portas 80/443 abertas para a internet) e publica **apenas** o portal e `/api/v1/capture/*`. Os canais serviço-a-serviço (`/artifacts/api/v1/artefatos/`, `/eventos/api/v1/ingest/`) são bloqueados no proxy com 404. Ver `infra/caddy/Caddyfile`.
+O Caddy obtém o certificado (Let's Encrypt; portas 80/443 abertas para a internet) e publica **apenas** o portal, `/api/v1/capture/*` e, para o Agora em tempo real, o WebSocket `/agora-sync/*`. Os canais serviço-a-serviço (`/artifacts/api/v1/artefatos/`, `/eventos/api/v1/ingest/`) são bloqueados no proxy com 404. Ver `infra/caddy/Caddyfile`.
 
 ## Relação com o cluster
 
@@ -203,7 +234,7 @@ Este documento trata **uma instância completa por host** (stack inteira, dados 
 
 ## Volumes
 
-Tudo em `${DATA_DIR}`: `postgres/`, `garage/` (`meta/` e `data/`), `qdrant/`, `redis/`, `caddy/` (certificados), `fastembed-cache/`. Backup e restore ainda não têm script; até lá, parar a stack e copiar o diretório (`docker compose ... stop`).
+Tudo em `${DATA_DIR}`: `postgres/`, `garage/` (`meta/` e `data/`), `qdrant/`, `redis/`, `caddy/` (certificados), `fastembed-cache/` e, com o Agora em tempo real, `agora-sync/` (documentos colaborativos e log do chat). Backup e restore ainda não têm script; até lá, parar a stack e copiar o diretório (`docker compose ... stop`).
 
 ## Cadastro de usuários
 
@@ -226,7 +257,7 @@ git pull
 docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
 ```
 
-O `bootstrap` reaplica as migrations. Os serviços cujas imagens mudaram são recriados; os dados ficam em `DATA_DIR`.
+O `bootstrap` reaplica as migrations. Os serviços cujas imagens mudaram são recriados; os dados ficam em `DATA_DIR`. Se o Agora em tempo real está ligado, repita `--profile agora` no comando (sem o profile o `up` não recria nem derruba o `agora-sync`). A migration do app `agora` (workspaces e papéis) é aplicada pelo `bootstrap`.
 
 ## Ainda não coberto
 

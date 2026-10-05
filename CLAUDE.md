@@ -48,8 +48,9 @@ Três microserviços Python + workers de processamento:
 | `mcp` | FastAPI + httpx | 8002 | Ferramentas externas (CNPJ, processos, notícias) |
 | `worker` | Celery 5.4 | — | Executa tasks assíncronas do pipeline |
 | `beat` | Celery Beat | — | Agenda tasks periódicas (catch-up scan a cada 2min) |
+| `agora-sync` | Node (Yjs) | 8787 | Tempo real do Ultima Agora: documentos colaborativos, presença, papéis e chat. **Opcional** (`--profile agora`; ADR 014/016) |
 
-Em produção só portal (8000) e orchestrator (8001) publicam porta, presas a `BIND_ADDR` (padrão `127.0.0.1`); MCP, Postgres, Redis, Qdrant e Garage (S3) ficam na rede interna. As portas 8002, 5432 e 3900 só são publicadas em dev (`docker-compose.override.yml`).
+Em produção só portal (8000) e orchestrator (8001) publicam porta, presas a `BIND_ADDR` (padrão `127.0.0.1`); MCP, Postgres, Redis, Qdrant e Garage (S3) ficam na rede interna. As portas 8002, 5432 e 3900 só são publicadas em dev (`docker-compose.override.yml`). O `agora-sync` (8787), quando ligado, também prende a porta a `BIND_ADDR`; atrás do Caddy o navegador entra por `/agora-sync/` e a porta nem precisa ser publicada (`/agora-sync/admin/*` é bloqueado no proxy).
 
 Infraestrutura de suporte: PostgreSQL 16-alpine (5432), Qdrant v1.9.0 (6333), Garage (armazenamento S3, imagem própria em `infra/garage/`, `GARAGE_VERSION`; 3900; substituiu o MinIO — ADR 008), Ollama opcional por nó (profile `ollama`; Macs usam o nativo — ADR 009), Redis 7-alpine (6379 — banco 0 para o Celery, banco 1 para o channel layer do painel de eventos).
 
@@ -102,8 +103,8 @@ Extensão Chrome → POST orchestrator:8001/api/v1/capture/mhtml
 
 **`services/portal/apps/federacao/`** — base da federação entre instâncias (ADR 010; só a F0 existe, o resto é desenho em `docs/arquitetura/federacao.md`). `ChaveInstancia` guarda o par Ed25519 da instância com a privada cifrada; `did.py` e `chaves.py` geram o `did:key`, assinam e verificam. `Artifact.blob_hash` (RFC 6920, `ni:`) é a identidade de conteúdo do MHTML, calculada no orchestrator (`conteudo_hash.py`, com cópia em cada serviço). Fora de `apps/cluster` de propósito: cluster é confiança única, federação não.
 
-**Implantação** (ver `docs/deploy.md` e `docs/arquitetura/decisoes/007-implantacao-por-instancia.md`):
-- `docker-compose.prod.yml` — restart, portas em `BIND_ADDR`, serviço `bootstrap` (one-shot) e `caddy` (profile `publico`). `infra/caddy/Caddyfile` publica só o portal e `/api/v1/capture/*`.
+**Implantação** (ver `docs/deploy.md` e `docs/arquitetura/decisoes/007-implantacao-por-instancia.md`; o Agora em tempo real é opcional e tem seção própria no `deploy.md`: `--profile agora`, `AGORA_SYNC_*`, `CHAT_RETENTION_DAYS`, `AGORA_OFFLINE_CACHE_NIVEL`):
+- `docker-compose.prod.yml` — restart, portas em `BIND_ADDR`, serviço `bootstrap` (one-shot) e `caddy` (profile `publico`). `infra/caddy/Caddyfile` publica só o portal, `/api/v1/capture/*` e o WebSocket `/agora-sync/*` (sem o `/admin/`).
 - `config/settings/production.py` — `TLS_MODE` (`proxy`|`none`), `ALLOWED_HOSTS`, `CSRF_TRUSTED_ORIGINS`; valida segredos na subida (`config/segredos.py`, com cópias em `orchestrator/` e `mcp/`).
 - `config/health.py` — `/health` do portal (checa o banco); orchestrator e mcp têm o seu. Devolvem `INSTANCIA_NOME` e `IA_VERSION`.
 - `apps/accounts/management/commands/bootstrap_instancia.py` — migrations, buckets do Garage (S3) e superusuário inicial opcional (`DJANGO_SUPERUSER_*`), idempotente.
@@ -152,11 +153,12 @@ A pasta `docs/` contém ~2 400 linhas de especificação:
 
 - `docs/roadmap.md` — 6 fases; fase 0 (MVP local) ainda em implementação
 - `docs/arquitetura/visao-geral.md` — visão de 5 camadas e fluxos de dados
-- `docs/arquitetura/decisoes/` — 11 ADRs explicando escolhas de MCP, containers, LLM local, voz, log de eventos, cluster multi-máquina, implantação por instância, armazenamento S3 (Garage), Ollama como capacidade do nó, federação por log assinado (010) e política de replicação (011)
+- `docs/arquitetura/decisoes/` — 16 ADRs explicando escolhas de MCP, containers, LLM local, voz, log de eventos, cluster multi-máquina, implantação por instância, armazenamento S3 (Garage), Ollama como capacidade do nó, federação por log assinado (010), política de replicação (011), controle de instâncias pares (012) e o Ultima Agora (013 camada de workspaces, 014 `agora-sync`, 015 offline-first, 016 chat)
 - `docs/componentes/agentes/` — spec detalhada de cada agente (planejador, coletor, extrator, correlacionador, validador, analista, redator)
 - `docs/seguranca/classificacao.md` — regras completas do motor de política
 - `docs/arquitetura/federacao.md` — **proposta em discussão** (não implementada): federação entre instâncias, espaços, JSON-LD/PROV-O, identidade, roadmap e decisões pendentes
 - `docs/componentes/observabilidade.md` — log de eventos, taxonomia de `stage`/`status`, painel e reprocessamento
-- `docs/deploy.md` — implantação em produção: segredos, variáveis, HTTPS, Caddy, bootstrap, contrato para automação
+- `docs/deploy.md` — implantação em produção: segredos, variáveis, HTTPS, Caddy, bootstrap, contrato para automação e o Ultima Agora em tempo real (profile `agora`)
+- `docs/componentes/interfaces/agora.md` — o Ultima Agora: componentes `ia-*`, API, chat, offline e operação
 
 Antes de implementar um agente ou ferramenta nova, ler a spec correspondente em `docs/`.

@@ -282,6 +282,26 @@
     <div class="container">
         <div class="entries-list">
 
+            <!-- Entrada 37 -->
+            <!-- RASCUNHO: escrito a partir do CHANGELOG, das ADRs e do histórico de commits; revisar o texto e remover este aviso antes de publicar. -->
+            <article class="entry-card">
+                <div class="entry-header">
+                    <div class="entry-meta">
+                        <span class="entry-date">5 de outubro de 2026</span>
+                        <span class="entry-sep"></span>
+                        <span class="entry-author">Bonafé &amp; Claude Code</span>
+                    </div>
+                    <h2 class="entry-title">O que o navegador guarda quando a rede cai</h2>
+                </div>
+                <div class="entry-body">
+                    <p>Investigar não segue uma linha reta: da notícia à pessoa, da pessoa à empresa, da empresa a um contrato, e de volta a outra pessoa. Telas fixas não acompanham esse caminho, e duas pessoas não conseguem olhar para a mesma coisa. Integramos ao portal o Ultima Agora, um ambiente em que cada um monta o seu espaço de trabalho com componentes ligados entre si. O núcleo não sabe o que é uma entidade nem uma organização: o IA entrega um pacote de domínio e um adaptador, e o portal continua dono de quem pode ver o quê. O front do Agora e o serviço de tempo real entram como cópias do projeto de origem, sem gerenciador de pacotes, e não se editam aqui.</p>
+                    <p>A parte que pediu mais conversa foi o <em>offline-first</em>. Quem investiga trabalha onde a rede falha e precisa continuar com tudo o que já tinha aberto. Só que tudo o que o navegador guarda viaja com o dispositivo, e o armazenamento local não é cifrado. A decisão foi dividir a responsabilidade: a instância define um teto para o nível de classificação que pode ser guardado, e cada pessoa escolhe o seu nível, até esse teto. O que está acima do nível nunca é gravado, e baixar o nível apaga na hora o que já estava guardado. A tela de configurações também tem Sair e Limpar este dispositivo, que avisa quantos itens ainda não chegaram ao servidor antes de apagar.</p>
+                    <p>O chat dos workspaces ficou no serviço de tempo real, e não no banco do portal, como a especificação previa. O Agora também roda sem backend e o chat precisava funcionar nele, e o serviço já sabe o papel de cada conexão. O autor da mensagem vem sempre do token, nunca do cliente, e remover uma mensagem apaga o texto do disco: um log só de acréscimo deixaria o original gravado.</p>
+                    <p>O que ainda não existe: a edição simultânea, a presença e o chat só funcionam com o serviço opcional ligado na instância, e eu não o vi rodando de ponta a ponta nesta rodada. O grafo de vínculos como visão do IA segue planejado, e o chat com os agentes também.</p>
+                    <p><em>Guardar para usar sem rede e proteger o que é sensível puxam em direções opostas; em vez de escolher um lado, deixamos o teto com quem administra e o nível com quem carrega o dispositivo.</em></p>
+                </div>
+            </article>
+
             <!-- Entrada 36 -->
             <!-- RASCUNHO: escrito a partir do CHANGELOG, das ADRs e do histórico de commits; revisar o texto e remover este aviso antes de publicar. -->
             <article class="entry-card">

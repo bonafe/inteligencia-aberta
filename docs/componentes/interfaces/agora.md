@@ -46,6 +46,7 @@ Depois do primeiro acesso, o Agora abre e funciona **sem rede**: o aplicativo (s
 
 ## Operação
 
+- Implantação (profile, segredos, Caddy, volume e backup): seção "Ultima Agora" do [`deploy.md`](../../deploy.md).
 - Sem `AGORA_SYNC_URL` o Agora funciona, mas cada workspace fica só no navegador. Com ele e o profile `agora`: colaboração em tempo real.
 - Atualizar o Agora: `scripts/sincronizar_agora.sh [caminho-do-ultima-agora]` e commitar o resultado.
 - Testes: `scripts/testar_agora_ia.sh` (front, Chrome headless) e `pytest tests/test_agora_*.py` (backend).

@@ -190,6 +190,7 @@ Isso não é acessibilidade como concessão. É o design correto para uma ferram
 | Banco Vetorial (RAG) | Qdrant / pgvector |
 | Banco de Grafos | Neo4j *(previsto; ainda não implementado — o grafo será uma projeção dos dados)* |
 | Armazenamento de Objetos | Garage (S3 Compatible) |
+| Workspaces colaborativos | Ultima Agora (web components) + `agora-sync` (Node, Yjs/CRDT) |
 
 ---
 
@@ -247,6 +248,16 @@ Para rodar o projeto na sua máquina (Modo MVP Local), você precisa ter o **Doc
 
 4. **Crie a sua conta (a primeira vira administradora):** abra [http://localhost:8000](http://localhost:8000). Numa instância sem nenhum usuário, o portal leva direto ao cadastro, e a **primeira conta criada é a administradora**. O cadastro continua **aberto**: quem se cadastrar depois ganha uma organização só sua e não vê os dados dos outros até receber permissão. (`REGISTRO_ABERTO=false` no `.env` fecha o cadastro depois do primeiro usuário — use num servidor público; ver [`docs/deploy.md`](docs/deploy.md).)
 
+### Ultima Agora: workspaces colaborativos (`/agora/`)
+
+O portal inclui o **Ultima Agora**, um ambiente em que você monta o seu espaço de investigação com componentes (busca de entidades, entidade com o que as fontes *dizem*, notícias capturadas que a mencionam, tabela, grafo, notas) e os liga entre si. Funciona **offline** depois do primeiro acesso e respeita o isolamento por organização. Para **editar junto com outras pessoas em tempo real** (presença, chat), suba também o serviço opcional `agora-sync`:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.override.yml --profile agora up --build -d
+```
+
+Sem ele, cada workspace fica só no navegador de quem o criou. Detalhes e limites em [`docs/componentes/interfaces/agora.md`](docs/componentes/interfaces/agora.md); decisões nas ADRs 013 a 016; variáveis (`AGORA_SYNC_*`) em [`docs/deploy.md`](docs/deploy.md).
+
 ### Implantação em produção
 
 Este README descreve o modo de desenvolvimento local. Para subir uma instância em um servidor (compose de produção, HTTPS, segredos, healthchecks, Caddy no host público, primeiro boot idempotente), siga **[`docs/deploy.md`](docs/deploy.md)** — inclui um contrato resumido para automação (Ansible). Em produção **não** se usa o `docker-compose.override.yml`.
@@ -258,6 +269,7 @@ A partir da nossa arquitetura modular de volumes mapeados, **todos os dados** do
 - `./data/postgres/`: Banco de dados relacional (Django/Usuários/Artefatos).
 - `./data/garage/`: Arquivos binários brutos como as imagens e páginas capturadas offline (`.mhtml`).
 - `./data/qdrant/`: Banco vetorial (Embeddings de inteligência artificial).
+- `./data/agora-sync/`: documentos colaborativos e chat do Ultima Agora (só se você subiu o `agora-sync`).
 
 Para **fazer um backup** seguro: Pare os containers (`docker compose down`) e copie a pasta `data/` para um HD externo ou nuvem.
 

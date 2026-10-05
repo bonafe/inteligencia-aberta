@@ -2,7 +2,7 @@
 
 A autenticação usa **cinco mecanismos**, cada um na fronteira em que é adequado. Não há um único esquema para tudo — um cliente de browser, um cliente externo com identidade de usuário, e uma chamada serviço-a-serviço têm necessidades diferentes.
 
-## As cinco camadas
+## As seis camadas
 
 | Fronteira | Cliente | Mecanismo | Onde é validado |
 |---|---|---|---|
@@ -10,6 +10,7 @@ A autenticação usa **cinco mecanismos**, cada um na fronteira em que é adequa
 | API de captura/investigação | Extensão Chrome (usuário) | **JWT** (HS256) | Portal emite; orchestrator valida |
 | API interna de criação de artefato | Orchestrator → Portal | **Token de serviço** (`X-Internal-Token`) | `ArtefatoCreateAPIView` |
 | Ferramentas do MCP | Orchestrator (futuro) / testes manuais via Swagger | **Token de ferramenta** (`X-Mcp-Token`) | `require_mcp_token` em `services/mcp/main.py` |
+| Tempo real do Ultima Agora (WebSocket) | Navegador humano, já logado no portal | **Token curto HS256** (5 min) emitido pelo portal (`POST /agora/api/v1/workspaces/<id>/token/`, exige sessão e acesso ao workspace), com `sub`, `workspace` e `role` | `services/agora-sync`; o serviço **não** conhece usuários nem organizações e aplica o papel do token. Mudança de papel chega por canal administrativo (`AGORA_SYNC_ADMIN_TOKEN`, portal → agora-sync; `/agora-sync/admin/*` é bloqueado no Caddy) |
 | Canal entre instâncias (convite e controle) | Outra instância do Inteligência Aberta (um **par**) | **Assinatura Ed25519** (`X-IA-*`) da chave da instância | `apps/federacao/canal.py` e `views_controle.py` |
 
 ### 1. Sessão Django — páginas web
@@ -81,6 +82,8 @@ Portal e MCP expõem documentação interativa da API, e as duas ficam **públic
 |---|---|---|
 | `JWT_SIGNING_KEY` | portal (assina) + orchestrator (valida) | **Deve ser idêntico** nos dois serviços. No portal, cai para `SECRET_KEY` se ausente. |
 | `INTERNAL_API_TOKEN` | orchestrator (envia) + portal (valida) | Segredo do canal serviço-a-serviço (criação de artefato). |
+| `AGORA_SYNC_SECRET` | portal (assina) + agora-sync (valida) | **Idêntico** nos dois, ≥ 32 caracteres; só existe com o Agora em tempo real. Em produção o portal recusa subir com ele fraco quando `AGORA_SYNC_URL` está definida. |
+| `AGORA_SYNC_ADMIN_TOKEN` | portal (envia) + agora-sync (valida) | Canal administrativo (mudança de papel valendo nas conexões abertas), ≥ 16 caracteres; serviço-a-serviço, nunca pela internet. |
 | `MCP_API_TOKEN` | quem chama as ferramentas do MCP (validado pelo próprio MCP) | Segredo do canal de chamada das ferramentas (`/tools/*`); distinto do `INTERNAL_API_TOKEN` — fronteira diferente. |
 
 Todos vêm do `.env` (via `env_file` no `docker-compose.yml`, que todos os serviços já carregam). Ver `.env.example`.
