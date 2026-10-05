@@ -1,0 +1,33 @@
+{
+  "name": "ultima-table",
+  "tag": "ultima-table",
+  "title": "Tabela",
+  "version": "1.0.0",
+  "category": "visualization",
+  "description": "Tabela de dados (CSV) com seleção de linha.",
+  "module": "./ultima-table.js",
+  "inputs": {
+    "rows": { "type": "Table" }
+  },
+  "outputs": {
+    "selectedRow": { "type": "Row" },
+    "table": { "type": "Table" },
+    "graph": { "type": "Graph" }
+  },
+  "actions": {
+    "showGraph": {
+      "title": "Mostrar como grafo",
+      "effect": "create",
+      "produces": "Graph",
+      "port": "graph",
+      "suggests": ["ultima-graph"]
+    }
+  },
+  "config": {
+    "data": { "type": "text", "title": "Dados (CSV)", "default": "from,to,label\nEmpresa Alfa,Pessoa A,sócia\nEmpresa Alfa,Pessoa B,administrador\nPessoa A,Empresa Beta,sócia\nPessoa B,Empresa Beta,procurador" },
+    "fromColumn": { "type": "string", "title": "Coluna de origem (grafo)", "default": "from" },
+    "toColumn": { "type": "string", "title": "Coluna de destino (grafo)", "default": "to" },
+    "labelColumn": { "type": "string", "title": "Coluna do rótulo da aresta", "default": "label" }
+  },
+  "capabilities": ["connectable", "resizable"]
+}

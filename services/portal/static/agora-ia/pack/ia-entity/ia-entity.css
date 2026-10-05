@@ -1,0 +1,11 @@
+:host { display: block; height: 100%; overflow: auto; padding: .75rem 1rem; box-sizing: border-box; color: var(--agora-text, inherit); }
+h2 { margin: 0 0 .2rem; font-size: 1.15rem; }
+h3 { margin: 1rem 0 .2rem; font-size: .75rem; text-transform: uppercase; letter-spacing: .06em; opacity: .65; }
+#meta { margin: 0; font-size: .85rem; opacity: .75; }
+#warning { margin: .5rem 0 0; padding: .4rem .6rem; border: 1px solid var(--agora-danger, #c0392b); border-radius: .3rem; font-size: .85rem; }
+.hint { margin: 0 0 .3rem; font-size: .78rem; opacity: .6; }
+ul { margin: 0; padding-left: 1.1rem; font-size: .9rem; }
+li small { opacity: .65; }
+#empty { opacity: .6; }
+#error { color: var(--agora-danger, #c0392b); }
+[hidden] { display: none; }

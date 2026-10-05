@@ -1,0 +1,18 @@
+{
+  "name": "agora-sync",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Realtime sync service for Ultima Agora: Yjs documents, presence, token auth, role enforcement.",
+  "type": "module",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "node --test test/*.test.js"
+  },
+  "dependencies": {
+    "lib0": "0.2.114",
+    "ws": "8.18.0",
+    "y-protocols": "1.0.6",
+    "yjs": "13.6.27"
+  }
+}

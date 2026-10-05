@@ -1,0 +1,17 @@
+{
+  "name": "ultima-text",
+  "tag": "ultima-text",
+  "title": "Texto",
+  "version": "1.1.0",
+  "category": "content",
+  "description": "Texto no workspace; pode exibir o que outro componente emitir.",
+  "module": "./ultima-text.js",
+  "inputs": {
+    "text": { "type": "String" }
+  },
+  "config": {
+    "text": { "type": "text", "default": "", "title": "Texto" },
+    "size": { "type": "enum", "values": ["small", "normal", "large"], "default": "normal", "title": "Tamanho" }
+  },
+  "capabilities": ["connectable", "resizable"]
+}

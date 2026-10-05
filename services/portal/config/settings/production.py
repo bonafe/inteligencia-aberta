@@ -17,6 +17,16 @@ validar_segredos([
     "POSTGRES_PASSWORD", "S3_SECRET_KEY",
 ])
 
+# Ultima Agora: a colaboração em tempo real é opcional, então o segredo só é exigido quando ela está ligada.
+# Sem ele o portal NÃO emite tokens (nunca cai no valor de desenvolvimento de base.py).
+AGORA_SYNC_SECRET = os.environ.get("AGORA_SYNC_SECRET", "")
+if os.environ.get("AGORA_SYNC_URL"):
+    validar_segredos(["AGORA_SYNC_SECRET"])
+    if len(AGORA_SYNC_SECRET) < 32:
+        raise RuntimeError("AGORA_SYNC_SECRET precisa ter pelo menos 32 caracteres.")
+if os.environ.get("AGORA_SYNC_ADMIN_URL"):
+    validar_segredos(["AGORA_SYNC_ADMIN_TOKEN"])
+
 SECRET_KEY = os.environ["DJANGO_SECRET_KEY"]
 
 # Nomes pelos quais o portal é acessado (ex.: host.tailnet.ts.net,ia.exemplo.com.br).

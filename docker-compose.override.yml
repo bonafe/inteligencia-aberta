@@ -6,6 +6,19 @@ services:
     volumes:
       - ./services/portal:/app
     command: python manage.py runserver 0.0.0.0:8000
+    environment:
+      AGORA_SYNC_URL: ${AGORA_SYNC_URL:-ws://localhost:8787}
+      AGORA_SYNC_ADMIN_URL: ${AGORA_SYNC_ADMIN_URL:-http://agora-sync:8787}
+      AGORA_SYNC_ADMIN_TOKEN: ${AGORA_SYNC_ADMIN_TOKEN:-token-admin-apenas-para-dev}
+
+  # Valores de desenvolvimento do Ultima Agora (NUNCA em produção): segredo fixo, igual nos dois lados.
+  # O navegador fala com o agora-sync direto, na porta publicada.
+  agora-sync:
+    ports:
+      - "8787:8787"
+    environment:
+      AGORA_SYNC_SECRET: ${AGORA_SYNC_SECRET:-inseguro-apenas-para-dev-agora-sync-0123456789}
+      AGORA_SYNC_ADMIN_TOKEN: ${AGORA_SYNC_ADMIN_TOKEN:-token-admin-apenas-para-dev}
 
   orchestrator:
     ports:

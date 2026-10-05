@@ -1,0 +1,12 @@
+:host { display: block; height: 100%; overflow: auto; color: var(--agora-text, inherit); }
+#empty { padding: 1rem; opacity: .6; }
+#empty[hidden] { display: none; }
+table { border-collapse: collapse; width: 100%; font-size: .9rem; }
+th, td { text-align: left; padding: .35rem .6rem; border-bottom: 1px solid var(--agora-border, #ccc); }
+th { position: sticky; top: 0; background: var(--agora-surface, #fff); cursor: pointer; user-select: none; white-space: nowrap; }
+th[aria-sort="ascending"]::after { content: " ▲"; font-size: .7em; }
+th[aria-sort="descending"]::after { content: " ▼"; font-size: .7em; }
+tbody tr { cursor: pointer; }
+tbody tr:hover { background: color-mix(in srgb, var(--agora-accent, #2a6df4) 10%, transparent); }
+tbody tr[aria-selected="true"] { background: color-mix(in srgb, var(--agora-accent, #2a6df4) 28%, transparent); }
+tr:focus-visible, th:focus-visible { outline: 2px solid var(--agora-accent, #2a6df4); outline-offset: -2px; }

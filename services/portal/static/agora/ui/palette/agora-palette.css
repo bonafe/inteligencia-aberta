@@ -1,0 +1,10 @@
+:host { display: block; }
+.palette { display: flex; flex-direction: column; gap: .5rem; padding: .5rem; height: 100%; box-sizing: border-box; }
+input { font: inherit; padding: .35rem .5rem; border: 1px solid var(--agora-border, #ccc); border-radius: .3rem; background: var(--agora-surface, #fff); color: inherit; }
+h3 { margin: .6rem 0 .2rem; font-size: .7rem; text-transform: uppercase; letter-spacing: .06em; opacity: .6; }
+#list { overflow: auto; }
+button.item { display: block; width: 100%; text-align: left; font: inherit; padding: .45rem .6rem; margin-bottom: .25rem; border: 1px solid var(--agora-border, #ccc); background: var(--agora-surface, #fff); color: inherit; border-radius: .35rem; cursor: grab; }
+button.item:hover { border-color: var(--agora-accent, #2a6df4); }
+button.item:focus-visible { outline: 2px solid var(--agora-accent, #2a6df4); outline-offset: 1px; }
+button.item small { display: block; opacity: .65; margin-top: .1rem; }
+.empty { opacity: .6; font-size: .85rem; padding: .5rem 0; }

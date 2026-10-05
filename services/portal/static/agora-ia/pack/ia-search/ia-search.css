@@ -1,0 +1,12 @@
+:host { display: block; height: 100%; overflow: auto; color: var(--agora-text, inherit); }
+form { display: flex; gap: .4rem; padding: .6rem; position: sticky; top: 0; background: var(--agora-surface, #fff); border-bottom: 1px solid var(--agora-border, #ccc); }
+input { flex: 1; font: inherit; padding: .35rem .5rem; border: 1px solid var(--agora-border, #ccc); border-radius: .3rem; background: transparent; color: inherit; }
+button { font: inherit; padding: .35rem .8rem; border: 1px solid var(--agora-accent, #2a6df4); background: transparent; color: inherit; border-radius: .3rem; cursor: pointer; }
+#status { margin: .5rem .75rem; font-size: .85rem; opacity: .7; }
+#status.error { color: var(--agora-danger, #c0392b); opacity: 1; }
+ul { list-style: none; margin: 0; padding: 0 .6rem .6rem; }
+li button { display: block; width: 100%; text-align: left; margin-bottom: .3rem; border-color: var(--agora-border, #ccc); }
+li button[aria-pressed="true"] { background: color-mix(in srgb, var(--agora-accent, #2a6df4) 22%, transparent); border-color: var(--agora-accent, #2a6df4); }
+li small { opacity: .65; margin-left: .4rem; }
+li .warn { color: var(--agora-danger, #c0392b); }
+:focus-visible { outline: 2px solid var(--agora-accent, #2a6df4); outline-offset: 1px; }

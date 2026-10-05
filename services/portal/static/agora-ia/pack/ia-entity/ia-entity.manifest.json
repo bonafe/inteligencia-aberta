@@ -1,0 +1,29 @@
+{
+  "name": "ia-entity",
+  "tag": "ia-entity",
+  "title": "Entidade",
+  "version": "1.0.0",
+  "category": "intelligence",
+  "description": "Detalhes de um artefato, o que as fontes dizem sobre ele e suas relações.",
+  "module": "./ia-entity.js",
+  "inputs": {
+    "entity": { "type": "Entity" }
+  },
+  "outputs": {
+    "entity": { "type": "Entity" },
+    "relations": { "type": "Graph" }
+  },
+  "actions": {
+    "showRelations": {
+      "title": "Mostrar relações",
+      "effect": "create",
+      "produces": "Graph",
+      "port": "relations",
+      "suggests": ["ultima-graph"]
+    }
+  },
+  "config": {
+    "entity": { "type": "reference", "default": "", "title": "Entidade (id)" }
+  },
+  "capabilities": ["domain-data", "connectable", "resizable"]
+}

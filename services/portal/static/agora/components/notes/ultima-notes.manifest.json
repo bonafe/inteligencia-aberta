@@ -1,0 +1,10 @@
+{
+  "name": "ultima-notes",
+  "tag": "ultima-notes",
+  "title": "Notas",
+  "version": "1.1.0",
+  "category": "content",
+  "description": "Notas em Markdown do workspace.",
+  "module": "./ultima-notes.js",
+  "capabilities": ["shared-content", "presence-aware", "resizable"]
+}

@@ -1,0 +1,5 @@
+:host { display: block; padding: 1rem; overflow: auto; height: 100%; box-sizing: border-box; color: var(--agora-text, inherit); }
+p { margin: 0; white-space: pre-wrap; line-height: 1.5; }
+p[data-size="small"] { font-size: .85rem; }
+p[data-size="large"] { font-size: 1.5rem; }
+p:empty::before { content: "Defina o texto no inspetor."; opacity: .5; }

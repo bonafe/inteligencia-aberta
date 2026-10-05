@@ -129,6 +129,20 @@ services:
         condition: service_healthy
     env_file: .env
 
+  # Tempo real do Ultima Agora (workspaces colaborativos): documentos Yjs, presença e papéis (ADR 013/014).
+  # Opcional: só sobe com `--profile agora`. Sem ele o Agora funciona, mas cada workspace fica só no navegador.
+  agora-sync:
+    build: ./services/agora-sync
+    profiles: ["agora"]
+    env_file: .env
+    volumes:
+      - ${DATA_DIR:-./data}/agora-sync:/data
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8787/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   redis:
     image: redis:7-alpine
     volumes:

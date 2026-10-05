@@ -27,6 +27,16 @@
 		respond 404
 	}
 
+	# Tempo real do Ultima Agora (WebSocket). O canal administrativo (mudança de papel, com token) é
+	# serviço-a-serviço: nunca sai pela internet.
+	@agora_admin path /agora-sync/admin/*
+	handle @agora_admin {
+		respond 404
+	}
+	handle_path /agora-sync/* {
+		reverse_proxy agora-sync:8787
+	}
+
 	# Captura da extensão (JWT validado pelo orchestrator). MHTML pode ser grande.
 	handle /api/v1/capture/* {
 		request_body {

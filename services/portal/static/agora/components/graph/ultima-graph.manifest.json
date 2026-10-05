@@ -1,0 +1,19 @@
+{
+  "name": "ultima-graph",
+  "tag": "ultima-graph",
+  "title": "Grafo",
+  "version": "1.0.0",
+  "category": "visualization",
+  "description": "Nós e relações; a seleção de um nó sai pela porta selectedNode.",
+  "module": "./ultima-graph.js",
+  "inputs": {
+    "graph": { "type": "Graph" }
+  },
+  "outputs": {
+    "selectedNode": { "type": "Node" }
+  },
+  "config": {
+    "layout": { "type": "enum", "values": ["force", "circle"], "default": "force", "title": "Disposição" }
+  },
+  "capabilities": ["connectable", "resizable"]
+}

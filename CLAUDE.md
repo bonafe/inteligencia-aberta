@@ -113,6 +113,8 @@ Extensão Chrome → POST orchestrator:8001/api/v1/capture/mhtml
 
 **`services/mcp/tools/cnpj.py`** — única ferramenta funcional (BrasilAPI). `processos.py` e `noticias.py` são stubs.
 
+**Ultima Agora** (`services/portal/apps/agora/`, ADR 013/014) — workspaces colaborativos. `acesso.py` calcula o **papel efetivo** (o papel na organização dá o teto; quem não é membro vigente não tem acesso), `sync.py` emite os tokens do `agora-sync` e avisa mudança de papel, `views_dominio.py` é a leitura de domínio dos componentes `ia-*` (isolada por organização; objeto sem acesso = 404). O front vive em `static/agora/` (**cópia** do projeto `ultima-agora`, gerada por `scripts/sincronizar_agora.sh`: não editar) e `static/agora-ia/` (host Django e pacote `ia-*`: este sim é do IA). Serviço de tempo real: `services/agora-sync/` (também cópia; profile `agora` do compose). Testes do front: `scripts/testar_agora_ia.sh`.
+
 ## Convenções
 
 - **Idioma:** domínio e nomes de negócio em português (agentes, campos, endpoints); infraestrutura e código técnico em inglês. Commits em português.

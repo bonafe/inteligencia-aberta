@@ -1,0 +1,34 @@
+:host { display: block; position: relative; overflow: hidden; background: var(--agora-bg, #f4f5f7); color: var(--agora-text, inherit); }
+#root { position: absolute; inset: 0; display: flex; }
+#root > .panel, #root > .split { flex: 1 1 0; }
+.empty { margin: auto; text-align: center; opacity: .6; padding: 2rem; }
+.empty.drop { outline: 2px dashed var(--agora-accent, #2a6df4); outline-offset: -1rem; opacity: 1; }
+.split { display: flex; flex: 1 1 0; min-width: 0; min-height: 0; }
+.split.row { flex-direction: row; }
+.split.column { flex-direction: column; }
+.splitter { flex: 0 0 6px; background: var(--agora-border, #ccc); cursor: col-resize; }
+.split.column > .splitter { cursor: row-resize; }
+.splitter:hover, .splitter:focus-visible { background: var(--agora-accent, #2a6df4); outline: none; }
+.panel { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--agora-surface, #fff); border: 1px solid var(--agora-border, #ccc); box-sizing: border-box; }
+.tabbar { display: flex; align-items: stretch; background: var(--agora-bg, #f4f5f7); border-bottom: 1px solid var(--agora-border, #ccc); position: relative; }
+.tabs { display: flex; flex: 1; overflow-x: auto; }
+.tab { display: flex; align-items: center; gap: .3rem; padding: 0 .3rem 0 .7rem; border-right: 1px solid var(--agora-border, #ccc); background: transparent; cursor: pointer; white-space: nowrap; }
+.tab[aria-selected="true"] { background: var(--agora-surface, #fff); font-weight: 600; }
+.tab.selected { box-shadow: inset 0 2px 0 var(--agora-accent, #2a6df4); }
+.tab button, .tabbar > button { font: inherit; border: 0; background: transparent; color: inherit; cursor: pointer; padding: .35rem .5rem; }
+.tab > button.label { padding: .35rem 0; font-weight: inherit; }
+.tab button.close { opacity: .55; padding: .2rem .35rem; }
+.tab button.close:hover { opacity: 1; }
+button:focus-visible { outline: 2px solid var(--agora-accent, #2a6df4); outline-offset: -2px; }
+.menu { position: absolute; right: 0; top: 100%; z-index: 20; min-width: 12rem; padding: .25rem; background: var(--agora-surface, #fff); border: 1px solid var(--agora-border, #ccc); border-radius: .35rem; box-shadow: 0 6px 20px rgb(0 0 0 / .18); }
+.menu button { border: 0; background: transparent; color: inherit; font: inherit; display: block; width: 100%; text-align: left; padding: .4rem .6rem; border-radius: .25rem; }
+.menu button:hover { background: var(--agora-bg, #f4f5f7); }
+.tabpanel { flex: 1; min-height: 0; overflow: auto; position: relative; }
+.tabpanel[hidden] { display: none; }
+.tabpanel > * { box-sizing: border-box; min-height: 100%; }
+.notice { padding: 1rem; opacity: .7; }
+.notice.error { color: var(--agora-danger, #c0392b); opacity: 1; }
+.hint { position: absolute; z-index: 10; pointer-events: none; background: color-mix(in srgb, var(--agora-accent, #2a6df4) 28%, transparent); border: 2px solid var(--agora-accent, #2a6df4); }
+.hint.center { inset: 0; } .hint.left { inset: 0 50% 0 0; } .hint.right { inset: 0 0 0 50%; }
+.hint.top { inset: 0 0 50% 0; } .hint.bottom { inset: 50% 0 0 0; }
+.peer-dot { min-width: .7rem; height: .7rem; border-radius: 50%; margin-right: .3rem; display: inline-grid; place-items: center; font-size: .6rem; color: #fff; align-self: center; }

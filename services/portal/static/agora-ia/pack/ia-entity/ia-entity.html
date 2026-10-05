@@ -1,0 +1,19 @@
+<link rel="stylesheet" href="ia-entity.css">
+<p id="empty">Conecte uma entidade a este componente (inspetor → Conexões) ou informe o id.</p>
+<article id="card" hidden>
+    <header>
+        <h2 id="label"></h2>
+        <p id="meta"></p>
+        <p id="warning" role="note" hidden>Este objeto é mais restrito que o workspace: ele é só referenciado aqui, nada foi copiado.</p>
+    </header>
+    <section aria-labelledby="claims-title">
+        <h3 id="claims-title">O que as fontes dizem</h3>
+        <p class="hint">Alegações: o que uma fonte afirma, não o que o sistema sabe.</p>
+        <ul id="claims"></ul>
+    </section>
+    <section aria-labelledby="sources-title">
+        <h3 id="sources-title">Fontes</h3>
+        <ul id="sources"></ul>
+    </section>
+</article>
+<p id="error" role="alert" hidden></p>

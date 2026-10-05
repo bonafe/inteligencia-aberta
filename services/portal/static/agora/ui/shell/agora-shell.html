@@ -1,0 +1,23 @@
+<link rel="stylesheet" href="agora-shell.css">
+<header>
+    <strong class="brand">Ultima Agora</strong>
+    <label class="title"><span class="sr-only">Título do workspace</span><input id="title" type="text" placeholder="Sem título"></label>
+    <label><span class="sr-only">Workspaces</span><select id="workspaces"></select></label>
+    <button id="new" type="button">Novo</button>
+    <button id="duplicate" type="button">Duplicar</button>
+    <button id="archive" type="button">Arquivar</button>
+    <span class="spacer"></span>
+    <button id="undo" type="button" aria-label="Desfazer" title="Desfazer (Ctrl+Z)">↶</button>
+    <button id="redo" type="button" aria-label="Refazer" title="Refazer (Ctrl+Shift+Z)">↷</button>
+    <span id="peers" aria-label="Participantes"></span>
+    <span id="role" hidden></span>
+    <span id="status" role="status" aria-live="polite"></span>
+    <button id="toggle-palette" type="button" aria-pressed="true">Componentes</button>
+    <button id="toggle-inspector" type="button" aria-pressed="true">Inspetor</button>
+</header>
+<div id="banner" role="alert" hidden></div>
+<div class="body">
+    <aside id="palette-pane" aria-label="Componentes"><agora-palette></agora-palette></aside>
+    <main><agora-workspace></agora-workspace></main>
+    <aside id="inspector-pane" aria-label="Inspetor"><agora-inspector></agora-inspector></aside>
+</div>

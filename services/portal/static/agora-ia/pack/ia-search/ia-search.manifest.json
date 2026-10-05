@@ -1,0 +1,18 @@
+{
+  "name": "ia-search",
+  "tag": "ia-search",
+  "title": "Busca de entidades",
+  "version": "1.0.0",
+  "category": "intelligence",
+  "description": "Procura artefatos da sua organização; escolher um resultado o envia adiante.",
+  "module": "./ia-search.js",
+  "outputs": {
+    "results": { "type": "Entity[]" },
+    "selected": { "type": "Entity" }
+  },
+  "config": {
+    "query": { "type": "string", "default": "", "title": "Consulta" },
+    "limit": { "type": "integer", "default": 20, "min": 1, "max": 50, "title": "Máximo de resultados" }
+  },
+  "capabilities": ["domain-data", "connectable", "resizable"]
+}

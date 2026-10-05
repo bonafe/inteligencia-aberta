@@ -32,4 +32,5 @@ urlpatterns = [
     path("eventos/", include("apps.events.urls")),
     path("cluster/", include("apps.cluster.urls")),
     path("federacao/", include("apps.federacao.urls")),
+    path("agora/", include("apps.agora.urls")),
 ]

@@ -66,6 +66,18 @@ services:
       bootstrap:
         condition: service_completed_successfully
 
+  # Só com `--profile agora`. Sem Caddy (tailscale serve), publique a porta e aponte AGORA_SYNC_URL para ela;
+  # com Caddy, o navegador entra por /agora-sync/ (wss) e a porta nem precisa ser publicada.
+  agora-sync:
+    <<: *restart
+    ports:
+      - "${BIND_ADDR:-127.0.0.1}:8787:8787"
+    environment:
+      # Vazio por padrão (o compose interpola mesmo com o profile desligado, então `:?` quebraria quem não usa o Agora):
+      # o próprio agora-sync se recusa a subir com segredo ausente ou fraco.
+      AGORA_SYNC_SECRET: ${AGORA_SYNC_SECRET:-}
+      AGORA_SYNC_ADMIN_TOKEN: ${AGORA_SYNC_ADMIN_TOKEN:-}
+
   db:
     <<: *restart
 

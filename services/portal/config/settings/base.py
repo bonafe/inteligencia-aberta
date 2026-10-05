@@ -43,6 +43,7 @@ INSTALLED_APPS = [
     "apps.events.apps.EventsConfig",
     "apps.cluster.apps.ClusterConfig",
     "apps.federacao.apps.FederacaoConfig",
+    "apps.agora.apps.AgoraConfig",
 ]
 
 MIDDLEWARE = [
@@ -318,3 +319,15 @@ OLLAMA_DATA_DIR_NA_PORTAL = os.environ.get("OLLAMA_DATA_DIR_NA_PORTAL", "")
 CELERY_TASK_ROUTES = {"apps.cluster.tasks.executar_operacao_modelo": {"queue": "ollama_admin"}}
 # Espaço mínimo que deve sobrar no volume do Ollama depois de instalar (GB).
 OLLAMA_RESERVA_DISCO_GB = float(os.environ.get("OLLAMA_RESERVA_DISCO_GB", "10"))
+
+
+# --- Ultima Agora (workspaces colaborativos) ---
+# O portal emite tokens curtos (HS256) que o serviço `agora-sync` valida. O segredo é compartilhado entre os
+# dois; em produção é obrigatório (config/settings/production.py). Em desenvolvimento cai para um valor fixo.
+AGORA_SYNC_SECRET = os.environ.get("AGORA_SYNC_SECRET", "inseguro-apenas-para-dev-agora-sync-0123456789")
+# Endereço do serviço de tempo real **como o navegador o enxerga** (ws:// ou wss://). Vazio = o Agora funciona
+# só localmente, sem colaboração.
+AGORA_SYNC_URL = os.environ.get("AGORA_SYNC_URL", "")
+# Canal servidor-a-servidor para avisar mudança de papel às conexões abertas (opcional).
+AGORA_SYNC_ADMIN_URL = os.environ.get("AGORA_SYNC_ADMIN_URL", "")
+AGORA_SYNC_ADMIN_TOKEN = os.environ.get("AGORA_SYNC_ADMIN_TOKEN", "")

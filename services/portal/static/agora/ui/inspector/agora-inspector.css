@@ -1,0 +1,23 @@
+:host { display: block; }
+#inspector { padding: .75rem; font-size: .9rem; }
+h2 { margin: 0 0 .5rem; font-size: 1rem; }
+h3 { margin: 1rem 0 .4rem; font-size: .7rem; text-transform: uppercase; letter-spacing: .06em; opacity: .6; }
+label { display: block; margin-bottom: .6rem; }
+label > span { display: block; margin-bottom: .15rem; font-size: .8rem; opacity: .75; }
+input[type=text], input[type=number], input[type=date], input:not([type]), select, textarea { width: 100%; box-sizing: border-box; font: inherit; padding: .3rem .4rem; border: 1px solid var(--agora-border, #ccc); border-radius: .3rem; background: var(--agora-surface, #fff); color: inherit; }
+textarea { min-height: 5rem; resize: vertical; }
+input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-visible { outline: 2px solid var(--agora-accent, #2a6df4); outline-offset: 1px; }
+.error { color: var(--agora-danger, #c0392b); font-size: .8rem; margin-top: .15rem; }
+dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: .15rem .6rem; font-size: .8rem; }
+dt { opacity: .6; } dd { margin: 0; word-break: break-all; }
+button.danger { margin-top: 1rem; font: inherit; padding: .35rem .7rem; border: 1px solid var(--agora-danger, #c0392b); color: var(--agora-danger, #c0392b); background: transparent; border-radius: .3rem; cursor: pointer; }
+.empty { opacity: .6; padding: .75rem; }
+button.action { display: block; width: 100%; margin: 0 0 .35rem; text-align: left; font: inherit; padding: .4rem .6rem; border: 1px solid var(--agora-accent, #2a6df4); color: inherit; background: transparent; border-radius: .3rem; cursor: pointer; }
+button.action:disabled { opacity: .4; cursor: default; }
+.action-result { margin-top: .4rem; font-size: .85rem; }
+.port-out { margin-bottom: .6rem; font-size: .85rem; }
+.port-out > span { display: block; font-size: .8rem; opacity: .75; margin-bottom: .15rem; }
+.link { display: flex; justify-content: space-between; align-items: center; gap: .4rem; padding: .1rem 0; }
+.link.muted { opacity: .55; }
+.link button { border: 0; background: transparent; color: inherit; cursor: pointer; opacity: .6; }
+.link button:hover { opacity: 1; }
