@@ -2,7 +2,7 @@
 //Only the document is stored here; domain data never is (R-DOC-3, R-LF-4).
 import { MemoryWorkspaceDoc } from '../document/memory_state_store.js';
 
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const SAVE_DELAY_MS = 150;
 
 export class IndexedDbBackend {
@@ -14,8 +14,10 @@ export class IndexedDbBackend {
         this.#dbPromise ??= new Promise((resolve, reject) => {
             const request = indexedDB.open(this.#name, DB_VERSION);
             request.onupgradeneeded = () => {
-                request.result.createObjectStore('documents');                      //key: workspace id -> snapshot
-                request.result.createObjectStore('workspaces', { keyPath: 'id' });  //dev catalog metadata
+                const db = request.result;
+                if (!db.objectStoreNames.contains('documents')) db.createObjectStore('documents');                      //key: workspace id -> snapshot
+                if (!db.objectStoreNames.contains('workspaces')) db.createObjectStore('workspaces', { keyPath: 'id' });  //catalog metadata
+                if (!db.objectStoreNames.contains('cache')) db.createObjectStore('cache');                              //v2: offline copies of host data (key -> entry)
             };
             request.onsuccess = () => resolve(request.result);
             request.onerror = () => reject(request.error);
@@ -36,6 +38,22 @@ export class IndexedDbBackend {
     getDocument(id) { return this.#run('documents', 'readonly', s => s.get(id)); }
     putDocument(id, snapshot) { return this.#run('documents', 'readwrite', s => s.put(snapshot, id)); }
     deleteDocument(id) { return this.#run('documents', 'readwrite', s => s.delete(id)); }
+    //Offline copies of data the host serves (domain objects the user already looked at). The host decides what may
+    //be stored here (classification policy); this is only the storage.
+    getCache(key) { return this.#run('cache', 'readonly', s => s.get(key)); }
+    putCache(key, entry) { return this.#run('cache', 'readwrite', s => s.put(entry, key)); }
+    deleteCache(key) { return this.#run('cache', 'readwrite', s => s.delete(key)); }
+    async cacheEntries() {
+        const db = await this.#db();
+        return new Promise((resolve, reject) => {
+            const transaction = db.transaction('cache', 'readonly');
+            const entries = [];
+            const cursor = transaction.objectStore('cache').openCursor();
+            cursor.onsuccess = () => { const c = cursor.result; if (c) { entries.push([c.key, c.value]); c.continue(); } };
+            transaction.oncomplete = () => resolve(entries);
+            transaction.onerror = transaction.onabort = () => reject(transaction.error);
+        });
+    }
     listWorkspaces() { return this.#run('workspaces', 'readonly', s => s.getAll()); }
     getWorkspace(id) { return this.#run('workspaces', 'readonly', s => s.get(id)); }
     putWorkspace(meta) { return this.#run('workspaces', 'readwrite', s => s.put(meta)); }
@@ -48,6 +66,11 @@ export class IndexedDbBackend {
 export class MemoryBackend {
     #documents = new Map();
     #workspaces = new Map();
+    #cache = new Map();
+    async getCache(key) { return this.#cache.get(key); }
+    async putCache(key, entry) { this.#cache.set(key, structuredClone(entry)); }
+    async deleteCache(key) { this.#cache.delete(key); }
+    async cacheEntries() { return structuredClone([...this.#cache.entries()]); }
     async getDocument(id) { return this.#documents.get(id); }
     async putDocument(id, snapshot) { this.#documents.set(id, structuredClone(snapshot)); }
     async deleteDocument(id) { this.#documents.delete(id); }

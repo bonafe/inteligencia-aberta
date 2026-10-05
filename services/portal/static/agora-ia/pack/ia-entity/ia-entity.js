@@ -45,6 +45,10 @@ export default class IaEntity extends AgoraComponent {
             const [detail, graph] = await Promise.all([this.domain.get(`/artefatos/${id}/`), this.domain.get(`/artefatos/${id}/relacoes/`)]);
             if (run !== this.#run) return;
             this.#relations = graph;
+            const note = root.querySelector('#offline');
+            const copy = detail.offline || graph.offline;
+            note.textContent = copy ? `Sem conexão: dados guardados às ${new Date(detail.cached_at ?? graph.cached_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}${detail.omitted || graph.omitted ? '; parte não foi guardada por nível de classificação' : ''}.` : '';
+            note.toggleAttribute('hidden', !copy);
             root.querySelector('#label').textContent = detail.label;
             root.querySelector('#meta').textContent = `${detail.kind} · nível ${LEVELS[detail.classification] ?? detail.classification} · ${INFO[detail.info_type] ?? detail.info_type}`;
             set('#warning', !detail.above_workspace);
@@ -61,7 +65,7 @@ export default class IaEntity extends AgoraComponent {
             this.#relations = null;
             set('#card', true);
             const box = root.querySelector('#error');
-            box.textContent = error.status === 404 ? 'Sem acesso a este objeto (ou ele não existe).' : `Não foi possível carregar: ${error.message}`;
+            box.textContent = error.status === 404 ? 'Sem acesso a este objeto (ou ele não existe).' : error.status === 0 ? error.message : `Não foi possível carregar: ${error.message}`;
             set('#error', false);
         }
     }

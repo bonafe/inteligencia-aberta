@@ -50,7 +50,10 @@ export class SyncProvider {
         };
         ydoc.on('update', onUpdate);
         awareness.on('update', onAwareness);
-        this.#listeners = [() => ydoc.off('update', onUpdate), () => awareness.off('update', onAwareness)];
+        //The browser says the network is back: reconnect now instead of waiting out the backoff (offline-first)
+        const onOnline = () => { if (this.#wanted && !this.#transport) { clearTimeout(this.#timer); this.#timer = null; this.#attempts = 0; this.#attempt(); } };
+        globalThis.addEventListener?.('online', onOnline);
+        this.#listeners = [() => ydoc.off('update', onUpdate), () => awareness.off('update', onAwareness), () => globalThis.removeEventListener?.('online', onOnline)];
     }
 
     get status() { return this.#status; }

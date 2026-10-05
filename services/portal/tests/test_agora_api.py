@@ -191,3 +191,56 @@ def test_remover_o_papel_explicito_volta_ao_padrao(dono_e_workspace, org):
     resposta = cliente.delete(f"/agora/api/v1/workspaces/{ws.pk}/members/", data=json.dumps({"username": "membro"}), content_type="application/json")
     assert resposta.json() == {"removed": True}
     assert not WorkspaceMember.objects.filter(workspace=ws).exists()
+
+
+# ── offline-first ───────────────────────────────────────────────────────────
+
+def test_o_service_worker_e_servido_de_dentro_de_agora_sem_login_e_sem_cache_http(org):
+    resposta = Client().get("/agora/sw.js")
+    assert resposta.status_code == 200
+    assert resposta["Content-Type"].startswith("text/javascript")
+    assert resposta["Service-Worker-Allowed"] == "/agora/" and resposta["Cache-Control"] == "no-cache"
+    assert b"agora-shell-" in b"".join(resposta.streaming_content if resposta.streaming else [resposta.content])
+
+
+def test_a_pagina_informa_o_nivel_de_cache_offline_da_instancia(org, settings):
+    settings.AGORA_OFFLINE_CACHE_NIVEL = "restrito"
+    cliente, _ = _cliente(org, "dono", Membership.Role.OWNER)
+    configuracao = json.loads(cliente.get("/agora/").content.decode().split('id="agora-config" type="application/json">')[1].split("</script>")[0])
+    assert configuracao["offline_cache_level"] == "restrito"
+
+
+def test_criar_com_id_do_cliente_e_idempotente_para_o_dono(org):
+    cliente, dono = _cliente(org, "dono", Membership.Role.OWNER)
+    identificador = "6f0f7e7c-1d0b-4a35-9a3a-0b5e2f4c9a11"
+    primeira = _post(cliente, "/agora/api/v1/workspaces/", {"id": identificador, "title": "Criado offline"})
+    segunda = _post(cliente, "/agora/api/v1/workspaces/", {"id": identificador, "title": "Criado offline"})
+    assert (primeira.status_code, segunda.status_code) == (201, 200)
+    assert primeira.json()["id"] == segunda.json()["id"] == identificador
+    assert Workspace.objects.filter(pk=identificador).count() == 1
+
+
+def test_id_do_cliente_ja_usado_por_outra_pessoa_e_409_e_nao_revela_o_dono(org):
+    dono_cliente, _ = _cliente(org, "dono", Membership.Role.OWNER)
+    identificador = _post(dono_cliente, "/agora/api/v1/workspaces/", {"title": "Do dono"}).json()["id"]
+    outro, _ = _cliente(org, "membro", Membership.Role.MEMBER)
+    resposta = _post(outro, "/agora/api/v1/workspaces/", {"id": identificador, "title": "Tentativa"})
+    assert resposta.status_code == 409 and "dono" not in resposta.content.decode().lower()
+    assert Workspace.objects.get(pk=identificador).title == "Do dono"
+
+
+def test_id_invalido_e_400(org):
+    cliente, _ = _cliente(org, "dono", Membership.Role.OWNER)
+    assert _post(cliente, "/agora/api/v1/workspaces/", {"id": "../../etc", "title": "x"}).status_code == 400
+
+
+def test_nivel_de_cache_offline_invalido_impede_a_subida():
+    import importlib
+    import os
+    from unittest import mock
+
+    from config.settings import base
+    with mock.patch.dict(os.environ, {"AGORA_OFFLINE_CACHE_NIVEL": "tudo"}):
+        with pytest.raises(RuntimeError, match="AGORA_OFFLINE_CACHE_NIVEL"):
+            importlib.reload(base)
+    importlib.reload(base)

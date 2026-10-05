@@ -6,6 +6,7 @@ app_name = "agora"
 
 urlpatterns = [
     path("", views.AppView.as_view(), name="app"),
+    path("sw.js", views.ServiceWorkerView.as_view(), name="sw"),
     path("api/v1/workspaces/", views.WorkspacesView.as_view(), name="workspaces"),
     path("api/v1/workspaces/<uuid:workspace_id>/", views.WorkspaceView.as_view(), name="workspace"),
     path("api/v1/workspaces/<uuid:workspace_id>/archive/", views.ArquivarView.as_view(), name="arquivar"),

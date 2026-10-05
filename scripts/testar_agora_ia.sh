@@ -6,7 +6,12 @@
 # real I/O virtual time does not wait for. Instead it polls the page title, which tests.js sets to
 # "PASS n/n passed" or "FAIL k/n passed | test — message || test — message".
 set -u
-cd "$(dirname "$0")/../services/portal/static"
+RAIZ="$(cd "$(dirname "$0")/.." && pwd)"
+# A lista do que o service worker guarda precisa estar em dia (senão um arquivo novo some offline)
+python3 "$RAIZ/scripts/gerar_precache.py" --check --raiz "$RAIZ/services/portal/static" --saida "$RAIZ/services/portal/static/agora-ia/precache.json" \
+    --prefixo /static/ --pastas agora agora-ia --extras --sem-pagina-raiz || exit 1
+
+cd "$RAIZ/services/portal/static"
 
 CHROME="${CHROME:-$(command -v google-chrome || command -v chromium || command -v chromium-browser || true)}"
 [ -n "$CHROME" ] || { echo "Chrome/Chromium not found (set CHROME=...)" >&2; exit 2; }

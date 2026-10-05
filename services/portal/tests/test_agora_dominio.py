@@ -97,6 +97,8 @@ def test_relacoes_usa_linhagem_e_vinculos_so_dentro_da_organizacao(mundo):
     assert {(e["label"]) for e in grafo["edges"]} == {"extracao", "vínculo"}
     ids = {n["id"] for n in grafo["nodes"]}
     assert all(e["from"] in ids and e["to"] in ids for e in grafo["edges"])
+    assert all(n["classification"] in {"publico", "interno", "restrito", "confidencial"} for n in grafo["nodes"]), "o cliente aplica a política offline por nó"
+
 
 
 def test_sinaliza_o_que_e_mais_restrito_que_o_workspace_sem_copiar_nada(mundo):

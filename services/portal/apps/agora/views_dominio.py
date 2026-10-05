@@ -126,7 +126,7 @@ class RelacoesView(View):
                 arestas.append({"from": str(centro.pk), "to": str(alvo.pk), "label": "vínculo"})
 
         return JsonResponse({
-            "nodes": [{"id": str(a.pk), "label": rotulo(a), "kind": a.artifact_type} for a in nos.values()],
+            "nodes": [{"id": str(a.pk), "label": rotulo(a), "kind": a.artifact_type, "classification": a.classification_level} for a in nos.values()],
             "edges": arestas,
         })
 

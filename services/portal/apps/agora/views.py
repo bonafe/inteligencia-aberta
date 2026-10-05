@@ -4,10 +4,11 @@ Tudo que muda estado emite um evento operacional (ADR 005) com identificadores, 
 """
 
 import json
+import uuid
 
 from django.contrib.auth import get_user_model
 from django.core.exceptions import PermissionDenied
-from django.http import Http404, JsonResponse
+from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, render
 from django.utils import timezone
 from django.utils.decorators import method_decorator
@@ -73,7 +74,30 @@ class AppView(View):
             "sync_url": settings.AGORA_SYNC_URL,                     # vazio: sem colaboração em tempo real
             "api": "/agora/api/v1",
             "usuario": {"id": str(request.user.pk), "name": request.user.get_full_name() or request.user.get_username()},
+            "offline_cache_level": settings.AGORA_OFFLINE_CACHE_NIVEL,
         }})
+
+
+class ServiceWorkerView(View):
+    """O service worker do Agora (o mesmo arquivo do projeto de origem), servido em /agora/sw.js.
+
+    Precisa ser servido de dentro de /agora/ para controlar essa página (o escopo de um service worker é o
+    diretório do seu script); por isso não sai direto de /static/. Sem cache HTTP: o navegador precisa ver a versão nova.
+    """
+
+    def get(self, request):
+        from django.contrib.staticfiles import finders
+
+        #Pelo finder (a árvore de fontes), e não pelo STATIC_ROOT: em desenvolvimento nada foi coletado ainda
+        caminho = finders.find("agora/sw.js")
+        if not caminho:
+            raise Http404("service worker indisponível")
+        with open(caminho, "rb") as arquivo:
+            corpo = arquivo.read()
+        resposta = HttpResponse(corpo, content_type="text/javascript; charset=utf-8")
+        resposta["Service-Worker-Allowed"] = "/agora/"
+        resposta["Cache-Control"] = "no-cache"
+        return resposta
 
 
 class WorkspacesView(View):
@@ -91,7 +115,21 @@ class WorkspacesView(View):
         classificacao = dados.get("classification", Artifact.ClassificationLevel.RESTRICTED)
         if classificacao not in CLASSIFICACOES:
             return JsonResponse({"error": "classificação inválida"}, status=400)
+        #O id pode vir do cliente: um workspace criado offline já tem id (e documento) antes do servidor conhecê-lo.
+        #Idempotente para o mesmo dono; qualquer outro caso é 409, sem dizer de quem é.
+        identificador = None
+        if dados.get("id"):
+            try:
+                identificador = uuid.UUID(str(dados["id"]))
+            except ValueError:
+                return JsonResponse({"error": "id inválido"}, status=400)
+            existente = Workspace.objects.filter(pk=identificador).first()
+            if existente is not None:
+                if existente.owner_id == request.user.pk:
+                    return JsonResponse(_serializar(existente, acesso.papel_efetivo(request.user, existente)), status=200)
+                return JsonResponse({"error": "id já em uso"}, status=409)
         workspace = Workspace.objects.create(
+            **({"id": identificador} if identificador else {}),
             title=(dados.get("title") or "Novo workspace")[:200], organization=organizacao, owner=request.user, classification=classificacao,
         )
         _evento(request, "workspace.criado", workspace, classification=classificacao)

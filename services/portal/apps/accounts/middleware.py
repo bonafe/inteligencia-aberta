@@ -27,6 +27,7 @@ class LoginRequiredMiddleware:
         "/registro/",
         "/admin/",                       # autenticação própria do admin (is_staff)
         "/static/",
+        "/agora/sw.js",                  # service worker do Ultima Agora: só código, nenhum dado (o navegador o busca sozinho)
         "/api/v1/token/",                # emissão/refresh de JWT (credencial no corpo)
         "/artifacts/api/v1/artefatos/",  # canal serviço-a-serviço (X-Internal-Token)
         "/eventos/api/v1/ingest/",       # idem: eventos vindos do orchestrator e do MCP

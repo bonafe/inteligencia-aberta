@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Ultima Agora — Inteligência Aberta (offline)</title>
+    <!-- Mostrada pelo service worker quando /agora/ não pode ser buscada (sem rede). É estática: não carrega
+         dados de ninguém. A identidade vem da última vez que o Agora foi aberto com conexão neste navegador
+         (boot.js lê localStorage), e o documento do workspace vem do IndexedDB. -->
+    <style>html, body { height: 100%; margin: 0; } agora-shell { display: flex; height: 100%; }
+        #fatal { font: 14px system-ui; padding: 1rem; background: #fde8e6; color: #7a1c12; border-bottom: 2px solid #c0392b; }
+        #fatal[hidden] { display: none; }</style>
+</head>
+<body>
+    <agora-shell></agora-shell>
+    <div id="fatal" role="alert" hidden></div>
+    <script type="module" src="/static/agora-ia/boot.js"></script>
+</body>
+</html>

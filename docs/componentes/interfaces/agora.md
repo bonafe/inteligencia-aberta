@@ -32,6 +32,10 @@ Em `/agora/` (menu "Investigação (Agora)"). Especificação do produto: projet
 
 Workspace ou objeto sem acesso é **404** (não revela que existe).
 
+## Offline (ADR 015)
+
+Depois do primeiro acesso, o Agora abre e funciona **sem rede**: o aplicativo (service worker), a lista de workspaces, os documentos e o que você já consultou. Criar, renomear e arquivar offline ficam pendentes e vão ao servidor quando a rede volta (o `id` do workspace é gerado no navegador, então o mesmo id chega ao servidor). O que fica guardado de dados do domínio depende de `AGORA_OFFLINE_CACHE_NIVEL` (padrão `interno`); itens acima do nível **nunca** são gravados e a interface diz quantos ficaram de fora.
+
 ## Operação
 
 - Sem `AGORA_SYNC_URL` o Agora funciona, mas cada workspace fica só no navegador. Com ele e o profile `agora`: colaboração em tempo real.

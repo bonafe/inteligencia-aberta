@@ -24,6 +24,14 @@ mkdir -p "$SERVIDOR"
 cp -r "$ORIGEM/server/agora-sync/src" "$SERVIDOR/src"
 cp "$ORIGEM/server/agora-sync/package.json" "$ORIGEM/server/agora-sync/package-lock.json" "$ORIGEM/server/agora-sync/Dockerfile" "$SERVIDOR/"
 
+cp "$ORIGEM/sw.js" "$DESTINO/sw.js"
+cp "$ORIGEM/tools/gerar_precache.py" scripts/gerar_precache.py      # o teste do front confere que a lista está em dia
+
+# Lista do que o service worker guarda para o Agora abrir sem rede. GERADA (nunca à mão): esquecer um arquivo = ele some
+# offline. A versão é o hash do conteúdo, então um deploy novo troca o cache sozinho.
+python3 "$ORIGEM/tools/gerar_precache.py" --raiz services/portal/static --saida services/portal/static/agora-ia/precache.json \
+    --prefixo /static/ --pastas agora agora-ia --extras --sem-pagina-raiz
+
 COMMIT="$(git -C "$ORIGEM" rev-parse --short HEAD 2>/dev/null || echo desconhecido)"
 SUJO="$(git -C "$ORIGEM" status --porcelain 2>/dev/null | head -1)"
 cat > "$DESTINO/ORIGEM.txt" <<TXT
