@@ -59,6 +59,12 @@ export class IndexedDbBackend {
     putWorkspace(meta) { return this.#run('workspaces', 'readwrite', s => s.put(meta)); }
 
     async close() { (await this.#dbPromise)?.close(); this.#dbPromise = null; }
+
+    //Deletes the whole local database (documents, catalog, cached host data). Irreversible.
+    async destroy() {
+        await this.close();
+        await new Promise(resolve => { const request = indexedDB.deleteDatabase(this.#name); request.onsuccess = request.onerror = request.onblocked = resolve; });
+    }
 }
 
 //Same surface as IndexedDbBackend, in memory: the fallback when IndexedDB is unavailable (private windows,
@@ -78,6 +84,7 @@ export class MemoryBackend {
     async getWorkspace(id) { return structuredClone(this.#workspaces.get(id)); }
     async putWorkspace(meta) { this.#workspaces.set(meta.id, structuredClone(meta)); }
     async close() {}
+    async destroy() { this.#documents.clear(); this.#workspaces.clear(); this.#cache.clear(); }
 }
 
 //StateStore that loads a document from IndexedDB and saves it, debounced, on every change.

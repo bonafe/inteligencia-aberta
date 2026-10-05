@@ -26,6 +26,7 @@ main { flex: 1; min-width: 0; display: flex; }
 agora-workspace { flex: 1; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 @media (max-width: 800px) { aside { flex-basis: 11rem; } #inspector-pane { flex-basis: 12rem; } }
+#settings { font-size: 1.05rem; line-height: 1; padding: .2rem .5rem; }
 #banner { padding: .5rem .75rem; background: color-mix(in srgb, var(--agora-danger) 18%, var(--agora-surface)); border-bottom: 1px solid var(--agora-danger); }
 #banner.warning { background: color-mix(in srgb, #e0a800 22%, var(--agora-surface)); border-color: #e0a800; }
 #banner[hidden] { display: none; }

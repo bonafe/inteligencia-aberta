@@ -434,6 +434,110 @@ test('catalog: what the server stops listing is hidden locally; revoked access i
     assert(await host.get('w2') === null, 'a 404 while online is not answered from the local copy');
 }));
 
+// ---- settings: who chooses the cache level, logout, wiping ----
+
+const hostWith = (extra = {}, userId = '7') => new DjangoHost({ config: { ...hostConfig, usuario: { id: userId, name: 'Maria' }, ...extra }, backend: new MemoryBackend() });
+const cleanLevels = () => { try { for (const k of Object.keys(localStorage).filter(key => key.startsWith('agora.'))) localStorage.removeItem(k); } catch { /* ignore */ } };
+
+test('cache level: the instance sets a ceiling, the person picks under it, and the default is "interno" (or the ceiling if lower)', () => {
+    cleanLevels();
+    const levels = host => host.settings.device.cacheLevels.join();
+    assert(levels(hostWith({ offline_cache_max: 'restrito' })) === 'nenhum,publico,interno,restrito');
+    assert(levels(hostWith({ offline_cache_max: 'confidencial' })) === 'nenhum,publico,interno,restrito,confidencial');
+    assert(levels(hostWith({ offline_cache_max: 'nenhum' })) === 'nenhum');
+    assert(hostWith({ offline_cache_max: 'restrito' }).settings.device.cacheLevel === 'interno', 'default: conservative');
+    assert(hostWith({ offline_cache_max: 'publico' }).settings.device.cacheLevel === 'publico', 'the ceiling wins when lower than the default');
+    assert(hostWith({ offline_cache_max: 'nenhum' }).settings.device.cacheLevel === 'nenhum');
+    assert(hostWith({}).settings.device.cacheLevels.join() === 'nenhum', 'a page without the setting keeps nothing');
+    assert(hostWith({ offline_cache_max: 'valor-estranho' }).settings.device.cacheLevels.join() === 'nenhum', 'an unknown ceiling keeps nothing');
+});
+
+test('cache level: the choice is remembered per person on this device, bounded by the ceiling, and applied at once (purging what is above)', async () => {
+    cleanLevels();
+    const host = hostWith({ offline_cache_max: 'restrito' });
+    await host.settings.device.setCacheLevel('restrito');
+    assert(host.settings.device.cacheLevel === 'restrito');
+    assert(hostWith({ offline_cache_max: 'restrito' }).settings.device.cacheLevel === 'restrito', 'remembered next time');
+    assert(hostWith({ offline_cache_max: 'restrito' }, '99').settings.device.cacheLevel === 'interno', 'another person on the same device is not affected');
+    try { await host.settings.device.setCacheLevel('confidencial'); throw new Error('accepted'); }
+    catch (error) { assert(error.message.includes('acima do permitido'), error.message); }
+    assert(hostWith({ offline_cache_max: 'interno' }).settings.device.cacheLevel === 'interno', 'a choice above a ceiling that was lowered is ignored');
+
+    const calls = portal({ '/agora/api/v1/dominio/artefatos/': [200, LIST] });
+    await host.domain.get('/artefatos/');
+    await wait(50);
+    assert((await host.settings.device.describe()).cacheEntries === 1);
+    await host.settings.device.setCacheLevel('interno');
+    assert((await host.settings.device.describe()).cacheEntries === 0, 'lowering the level removes what was stored above it, now');
+    cleanLevels();
+    restore();
+});
+
+test('settings: describe() counts workspaces, cached copies and what is still pending', guard(async () => {
+    cleanLevels();
+    cutNetwork('/agora/api/v1/');
+    const host = hostWith({ offline_cache_max: 'restrito' });
+    await host.create('Um');
+    await host.create('Dois');
+    const summary = await host.settings.device.describe();
+    assert(summary.workspaces === 2 && summary.pending === 2 && summary.cacheEntries === 0, JSON.stringify(summary));
+}));
+
+test('settings: clearing the device deletes workspaces, documents and cached copies, and every agora.* local setting', guard(async () => {
+    cleanLevels();
+    localStorage.setItem('agora.config', '{"x":1}');
+    localStorage.setItem('agora.theme', 'dark');
+    portal({ '/agora/api/v1/workspaces/': [200, { workspaces: [metaFromServer('w1')] }], '/agora/api/v1/dominio/artefatos/': [200, LIST] });
+    const host = hostWith({ offline_cache_max: 'restrito' });
+    await host.list();
+    const doc = await host.openDocument(await host.get('w1'));
+    doc.set('meta.note', 'x');
+    await host.domain.get('/artefatos/');
+    await wait(60);
+    assert((await host.settings.device.describe()).cacheEntries === 1 && (await host.list()).length === 1);
+
+    await host.settings.device.clear();
+    cutNetwork('/agora/api/v1/');
+    assert((await host.list()).length === 0, 'the catalog copy is gone');
+    assert((await host.settings.device.describe()).cacheEntries === 0, 'so are the cached copies');
+    assert(localStorage.getItem('agora.config') === null && localStorage.getItem('agora.theme') === null, 'and the local settings');
+}));
+
+test('logout: asks the server (with CSRF), forgets the offline config, goes to the login page, and wipes the device only if asked', guard(async () => {
+    for (const clearDevice of [false, true]) {
+        cleanLevels();
+        localStorage.setItem('agora.config', '{"x":1}');
+        document.cookie = 'csrftoken=tok123; path=/';
+        const went = [];
+        const host = new DjangoHost({ config: { ...hostConfig, offline_cache_max: 'restrito' }, backend: new MemoryBackend(), navigate: url => went.push(url) });
+        cutNetwork('/agora/api/v1/');
+        await host.create('Local');                                  // exists only here (pending)
+        restore();
+        const calls = portal({ '/sair/': [200, {}] });
+        await host.settings.account.logout({ clearDevice });
+        restore();
+        cutNetwork('/agora/api/v1/');
+        const call = calls.find(c => c.path === '/sair/');
+        assert(call && call.method === 'POST' && call.headers['X-CSRFToken'] === 'tok123', 'a POST with the CSRF token');
+        assert(localStorage.getItem('agora.config') === null, 'the offline page must not open the app for the next person');
+        assert(went.join() === '/entrar/');
+        assert((await host.list()).length === (clearDevice ? 0 : 1), clearDevice ? 'wiped on request' : 'kept: the data waits for the next login of the same person');
+        restore();
+    }
+}));
+
+test('logout offline: it says it could not end the session, and does NOT pretend or wipe anything', guard(async () => {
+    cleanLevels();
+    localStorage.setItem('agora.config', '{"x":1}');
+    cutNetwork('/sair/', '/agora/api/v1/');
+    const host = hostWith({ offline_cache_max: 'restrito' });
+    await host.create('Fica');
+    try { await host.settings.account.logout({ clearDevice: true }); throw new Error('accepted'); }
+    catch (error) { assert(error.message.includes('Sem conexão') && error.message.includes('limpar este dispositivo'), error.message); }
+    assert(localStorage.getItem('agora.config') !== null, 'still signed in on the server, so still usable');
+    assert((await host.list()).length === 1, 'nothing was wiped');
+}));
+
 // ---- offline-first: the components say so ----
 
 test('ia-search offline: shows the local copy and says it is a copy, and what was left out', guard(async () => {

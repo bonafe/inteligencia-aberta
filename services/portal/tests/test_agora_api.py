@@ -203,11 +203,11 @@ def test_o_service_worker_e_servido_de_dentro_de_agora_sem_login_e_sem_cache_htt
     assert b"agora-shell-" in b"".join(resposta.streaming_content if resposta.streaming else [resposta.content])
 
 
-def test_a_pagina_informa_o_nivel_de_cache_offline_da_instancia(org, settings):
-    settings.AGORA_OFFLINE_CACHE_NIVEL = "restrito"
+def test_a_pagina_informa_o_teto_de_cache_offline_da_instancia(org, settings):
+    settings.AGORA_OFFLINE_CACHE_NIVEL = "interno"
     cliente, _ = _cliente(org, "dono", Membership.Role.OWNER)
     configuracao = json.loads(cliente.get("/agora/").content.decode().split('id="agora-config" type="application/json">')[1].split("</script>")[0])
-    assert configuracao["offline_cache_level"] == "restrito"
+    assert configuracao["offline_cache_max"] == "interno"
 
 
 def test_criar_com_id_do_cliente_e_idempotente_para_o_dono(org):

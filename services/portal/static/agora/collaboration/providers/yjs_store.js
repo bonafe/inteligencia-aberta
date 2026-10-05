@@ -99,6 +99,9 @@ export class YjsStateStore {
         await this.#backend.deleteDocument(workspaceId);
     }
 
+    //Stops every open document (their saves would recreate what is being wiped)
+    closeAll() { for (const id of [...this.#docs.keys()]) this.forget(id); }
+
     forget(workspaceId) {
         this.#docs.get(workspaceId)?.provider?.destroy();
         this.#docs.delete(workspaceId);

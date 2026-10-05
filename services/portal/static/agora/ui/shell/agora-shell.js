@@ -6,6 +6,7 @@ import { h } from '../dom.js';
 import '../palette/agora-palette.js';
 import '../workspace/agora-workspace.js';
 import '../inspector/agora-inspector.js';
+import { loadTheme } from '../settings/agora-settings.js';
 
 const STATUS_TEXT = { synced: 'Salvo', saving: 'Salvando…', error: 'Erro', offline: 'Offline (salvo aqui)', connecting: 'Conectando…' };
 const ROLE_TEXT = { owner: 'Dono', editor: 'Editor', participant: 'Participante', viewer: 'Somente leitura' };
@@ -46,6 +47,7 @@ export class AgoraShell extends ReactiveComponent {
         this.#host = host;
         this.#registry = registry;
         this.#$('agora-palette').registry = registry;
+        this.#applyTheme(loadTheme());
         this.#wire();
         if (host.persistent === false) this.notify('Armazenamento do navegador indisponível (janela anônima ou dados de site bloqueados). Seu trabalho NÃO será salvo ao recarregar.', 'warning');
         const open = () => this.#openFromHash().catch(error => {
@@ -72,6 +74,10 @@ export class AgoraShell extends ReactiveComponent {
             if (this.#meta) this.#meta = await this.#host.rename(this.#meta.id, title);
             await this.#refreshList();
         });
+        on('#settings', 'click', () => this.#$('agora-settings').open({ host: this.#host }));
+        this.rootNode.addEventListener('theme-change', event => this.#applyTheme(event.detail.theme));
+        //After "limpar este dispositivo" nothing local remains, so start over (online: back through the host's own entry)
+        this.rootNode.addEventListener('device-cleared', () => location.reload());
         on('#undo', 'click', () => this.#workspace?.canCompose && this.#workspace.doc.undo());
         on('#redo', 'click', () => this.#workspace?.canCompose && this.#workspace.doc.redo());
         for (const [button, pane] of [['#toggle-palette', '#palette-pane'], ['#toggle-inspector', '#inspector-pane']]) {
@@ -95,6 +101,11 @@ export class AgoraShell extends ReactiveComponent {
             if (!this.#workspace?.canCompose) return;
             if (event.shiftKey) this.#workspace.doc.redo(); else this.#workspace.doc.undo();
         });
+    }
+
+    //'auto' follows the system; 'light'/'dark' force it (the CSS keys off data-theme on the shell)
+    #applyTheme(theme) {
+        if (theme === 'light' || theme === 'dark') this.dataset.theme = theme; else delete this.dataset.theme;
     }
 
     async #openFromHash() {

@@ -1,0 +1,23 @@
+:host { color: var(--agora-text, inherit); font: inherit; }
+dialog { width: min(34rem, 94vw); max-height: 88vh; padding: 0; border: 1px solid var(--agora-border, #ccc); border-radius: .6rem; background: var(--agora-surface, #fff); color: inherit; box-shadow: 0 12px 40px rgb(0 0 0 / .35); }
+dialog::backdrop { background: rgb(0 0 0 / .45); }
+header { display: flex; align-items: center; justify-content: space-between; padding: .7rem 1rem; border-bottom: 1px solid var(--agora-border, #ccc); position: sticky; top: 0; background: var(--agora-surface, #fff); }
+h2 { margin: 0; font-size: 1.05rem; }
+#content { padding: .25rem 1rem 1rem; overflow: auto; max-height: calc(88vh - 3.2rem); }
+section { padding: .75rem 0; border-bottom: 1px solid var(--agora-border, #ccc); }
+section:last-child { border-bottom: 0; }
+h3 { margin: 0 0 .5rem; font-size: .75rem; text-transform: uppercase; letter-spacing: .06em; opacity: .65; }
+.row { display: flex; align-items: center; justify-content: space-between; gap: .75rem; margin: .4rem 0; }
+.hint { margin: .3rem 0 0; font-size: .8rem; opacity: .7; }
+.warn { margin: .4rem 0 0; padding: .4rem .6rem; font-size: .82rem; border: 1px solid #e0a800; border-radius: .3rem; background: color-mix(in srgb, #e0a800 14%, transparent); }
+.error { color: var(--agora-danger, #c0392b); font-size: .85rem; margin-top: .4rem; }
+.ok { font-size: .85rem; opacity: .8; }
+select, button { font: inherit; padding: .3rem .7rem; border: 1px solid var(--agora-border, #ccc); border-radius: .3rem; background: var(--agora-surface, #fff); color: inherit; cursor: pointer; }
+button.danger { border-color: var(--agora-danger, #c0392b); color: var(--agora-danger, #c0392b); }
+button.primary { border-color: var(--agora-accent, #2a6df4); }
+button:disabled { opacity: .45; cursor: default; }
+label.check { display: flex; gap: .5rem; align-items: flex-start; font-size: .88rem; margin-top: .5rem; }
+:focus-visible { outline: 2px solid var(--agora-accent, #2a6df4); outline-offset: 2px; }
+.actions { display: flex; gap: .5rem; justify-content: flex-end; margin-top: .75rem; }
+dl { display: grid; grid-template-columns: auto 1fr; gap: .15rem .8rem; margin: .4rem 0 0; font-size: .85rem; }
+dt { opacity: .65; } dd { margin: 0; }

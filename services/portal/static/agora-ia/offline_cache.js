@@ -43,6 +43,9 @@ export class DomainCache {
         this.#maxLevel = maxLevel;
     }
 
+    get level() { return this.#maxLevel; }
+    setLevel(level) { this.#maxLevel = level; }
+
     static keyFor(path, params = {}) {
         const sorted = Object.entries(params).filter(([, v]) => v !== undefined && v !== null && v !== '').sort(([a], [b]) => a.localeCompare(b));
         return `${path}?${new URLSearchParams(sorted)}`;

@@ -34,7 +34,7 @@ Workspace ou objeto sem acesso é **404** (não revela que existe).
 
 ## Offline (ADR 015)
 
-Depois do primeiro acesso, o Agora abre e funciona **sem rede**: o aplicativo (service worker), a lista de workspaces, os documentos e o que você já consultou. Criar, renomear e arquivar offline ficam pendentes e vão ao servidor quando a rede volta (o `id` do workspace é gerado no navegador, então o mesmo id chega ao servidor). O que fica guardado de dados do domínio depende de `AGORA_OFFLINE_CACHE_NIVEL` (padrão `interno`); itens acima do nível **nunca** são gravados e a interface diz quantos ficaram de fora.
+Depois do primeiro acesso, o Agora abre e funciona **sem rede**: o aplicativo (service worker), a lista de workspaces, os documentos e o que você já consultou. Criar, renomear e arquivar offline ficam pendentes e vão ao servidor quando a rede volta (o `id` do workspace é gerado no navegador, então o mesmo id chega ao servidor). O que fica guardado de dados do domínio é **escolha de cada pessoa** em ⚙ Configurações → Dados neste dispositivo (até o teto `AGORA_OFFLINE_CACHE_NIVEL` da instância); itens acima do nível **nunca** são gravados e a interface diz quantos ficaram de fora. As mesmas Configurações têm **Sair** (com a opção de limpar o dispositivo), **Limpar este dispositivo** e o tema.
 
 ## Operação
 

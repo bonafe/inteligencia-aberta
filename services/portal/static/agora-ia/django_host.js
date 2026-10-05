@@ -12,7 +12,7 @@ import { IndexedDbBackend, MemoryBackend } from '../agora/collaboration/provider
 import { YjsStateStore } from '../agora/collaboration/providers/yjs_store.js';
 import { colorFor } from '../agora/collaboration/presence/presence.js';
 import { uuid } from '../agora/core/ids.js';
-import { DomainCache } from './offline_cache.js';
+import { DomainCache, LEVELS } from './offline_cache.js';
 
 const cookie = name => document.cookie.split('; ').find(row => row.startsWith(`${name}=`))?.split('=')[1];
 
@@ -78,6 +78,9 @@ export class DjangoHost {
     #config;
     #backend;
     #syncing = null;
+    #cache;
+    #ceiling;
+    #navigate;
     store;
     identity;
     domain;
@@ -85,7 +88,8 @@ export class DjangoHost {
     syncEnabled;
 
     //One local database per user: documents cached on this device must not be reachable by someone else who logs in here
-    constructor({ config, backend = new IndexedDbBackend(`ia-agora-${config.usuario.id}`) }) {
+    constructor({ config, backend = new IndexedDbBackend(`ia-agora-${config.usuario.id}`), navigate = url => location.assign(url) }) {
+        this.#navigate = navigate;
         this.#config = config;
         this.#base = config.api;
         this.#backend = backend;
@@ -93,9 +97,11 @@ export class DjangoHost {
         this.persistent = !(backend instanceof MemoryBackend);
         this.identity = { id: config.usuario.id, name: config.usuario.name, kind: 'human', color: colorFor(config.usuario.id) };
 
-        const cache = new DomainCache({ backend, maxLevel: config.offline_cache_level ?? 'interno' });
-        cache.enforce().catch(() => {});                      // the policy may have been tightened since the last visit
-        this.domain = domainClient(this.#base, null, cache);
+        //The instance sets a CEILING; each person picks their own level under it, per device (default: interno, or the ceiling if lower)
+        this.#ceiling = LEVELS[config.offline_cache_max] === undefined ? 'nenhum' : config.offline_cache_max;
+        this.#cache = new DomainCache({ backend, maxLevel: this.#storedLevel() });
+        this.#cache.enforce().catch(() => {});                // the policy may have been tightened since the last visit
+        this.domain = domainClient(this.#base, null, this.#cache);
 
         this.store = new YjsStateStore({
             backend,
@@ -106,15 +112,75 @@ export class DjangoHost {
     }
 
     //Falls back to memory when the browser has no IndexedDB, so the app never opens "dead"
-    static async create({ config }) {
+    static async create({ config, ...rest }) {
         try {
             const backend = new IndexedDbBackend(`ia-agora-${config.usuario.id}`);
             await Promise.race([backend.listWorkspaces(), new Promise((_, reject) => setTimeout(() => reject(new Error('IndexedDB não respondeu')), 3000))]);
-            return new DjangoHost({ config, backend });
+            return new DjangoHost({ config, backend, ...rest });
         } catch (error) {
             console.warn('[DjangoHost] IndexedDB indisponível, trabalhando em memória:', error);
-            return new DjangoHost({ config, backend: new MemoryBackend() });
+            return new DjangoHost({ config, backend: new MemoryBackend(), ...rest });
         }
+    }
+
+    // ---- settings (what the shell's dialog shows) ----
+
+    #levelKey() { return `agora.cacheLevel.${this.identity.id}`; }
+
+    //The levels this person may choose: from "nenhum" up to the instance's ceiling
+    #allowedLevels() { return Object.keys(LEVELS).filter(level => LEVELS[level] <= LEVELS[this.#ceiling]); }
+
+    #storedLevel() {
+        let chosen = null;
+        try { chosen = localStorage.getItem(this.#levelKey()); } catch { /* storage blocked: the default applies */ }
+        const allowed = this.#allowedLevels();
+        if (chosen && allowed.includes(chosen)) return chosen;                 // a choice above a ceiling that was lowered since is ignored
+        return LEVELS.interno <= LEVELS[this.#ceiling] ? 'interno' : this.#ceiling;
+    }
+
+    async #clearDevice() {
+        this.store.closeAll();
+        await this.#backend.destroy();
+        try { for (const key of Object.keys(localStorage).filter(k => k.startsWith('agora.'))) localStorage.removeItem(key); } catch { /* blocked */ }
+    }
+
+    //Ends the session on the server. The remembered config is dropped either way: without it the offline page will not
+    //open the app for the next person who picks up the device (the data stays until "limpar este dispositivo").
+    async #logout({ clearDevice }) {
+        try {
+            const response = await fetch('/sair/', { method: 'POST', credentials: 'same-origin', redirect: 'manual', headers: { 'X-CSRFToken': decodeURIComponent(cookie('csrftoken') ?? '') } });
+            if (UNREACHABLE.has(response.status)) throw new OfflineError();
+        } catch (error) {
+            if (error instanceof ApiError || error instanceof TypeError) {
+                throw new Error('Sem conexão: não é possível sair agora (a sessão continua aberta no servidor). Você ainda pode limpar este dispositivo.');
+            }
+            throw error;
+        }
+        try { localStorage.removeItem('agora.config'); } catch { /* blocked */ }
+        if (clearDevice) await this.#clearDevice();
+        this.#navigate('/entrar/');
+    }
+
+    get settings() {
+        const host = this;                                        // the live `cacheLevel` getter below needs the host, not itself
+        return {
+            account: { name: this.identity.name, detail: this.#config.usuario.detail ?? '', logout: options => this.#logout(options) },
+            device: {
+                cacheLevels: this.#allowedLevels(),
+                get cacheLevel() { return host.#cache.level; },
+                setCacheLevel: async level => {
+                    if (!this.#allowedLevels().includes(level)) throw new Error('Nível acima do permitido por esta instância.');
+                    try { localStorage.setItem(this.#levelKey(), level); } catch { /* applies to this session only */ }
+                    this.#cache.setLevel(level);
+                    await this.#cache.enforce();                       // what is stored above the new level goes now
+                },
+                describe: async () => ({
+                    workspaces: (await this.#localList()).length, pending: await this.pendingCount(),
+                    cacheEntries: (await this.#backend.cacheEntries()).length,
+                }),
+                clear: () => this.#clearDevice(),
+            },
+        };
     }
 
     // ---- local copy of the catalog ----

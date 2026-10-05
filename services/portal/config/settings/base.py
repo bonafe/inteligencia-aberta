@@ -331,9 +331,10 @@ AGORA_SYNC_URL = os.environ.get("AGORA_SYNC_URL", "")
 # Canal servidor-a-servidor para avisar mudança de papel às conexões abertas (opcional).
 AGORA_SYNC_ADMIN_URL = os.environ.get("AGORA_SYNC_ADMIN_URL", "")
 AGORA_SYNC_ADMIN_TOKEN = os.environ.get("AGORA_SYNC_ADMIN_TOKEN", "")
-# Offline-first: até que nível de classificação o navegador pode GUARDAR cópias locais do que o usuário já consultou,
-# para continuar trabalhando sem rede. É uma decisão de segurança da instância (um notebook perdido leva consigo o que
-# estava guardado nele): o padrão é conservador. publico < interno < restrito < confidencial; `nenhum` desliga.
-AGORA_OFFLINE_CACHE_NIVEL = os.environ.get("AGORA_OFFLINE_CACHE_NIVEL", "interno").strip().lower() or "interno"
+# Offline-first: TETO do nível de classificação que o navegador de qualquer usuário pode guardar localmente (cópias do que
+# ele consultou, para trabalhar sem rede). Cada pessoa escolhe o próprio nível em Configurações → Dados neste dispositivo,
+# sempre até este teto (o padrão de cada um é `interno`, ou o teto, se menor). É decisão de segurança da instância: o que fica
+# guardado viaja com o dispositivo e o IndexedDB não é cifrado. publico < interno < restrito < confidencial; `nenhum` desliga.
+AGORA_OFFLINE_CACHE_NIVEL = os.environ.get("AGORA_OFFLINE_CACHE_NIVEL", "restrito").strip().lower() or "restrito"
 if AGORA_OFFLINE_CACHE_NIVEL not in ("nenhum", "publico", "interno", "restrito", "confidencial"):
     raise RuntimeError(f"AGORA_OFFLINE_CACHE_NIVEL inválido: {AGORA_OFFLINE_CACHE_NIVEL!r} (nenhum, publico, interno, restrito ou confidencial)")

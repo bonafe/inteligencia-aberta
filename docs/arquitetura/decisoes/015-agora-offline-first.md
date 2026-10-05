@@ -15,26 +15,39 @@ Offline-first em quatro camadas, todas verificadas com o servidor desligado:
 3. **Os documentos são locais** (já eram): editar offline e mesclar na volta (CRDT).
 4. **O que o usuário já consultou fica disponível**, **dentro de uma política de classificação** (abaixo).
 
-## A política de cache de dados (decisão de segurança da instância)
+## A política de cache de dados: o teto é da instância, o nível é de cada pessoa
 
-Tudo que fica no navegador acompanha o dispositivo (um notebook perdido leva consigo o que estava guardado). Por isso a instância define até que nível pode ser guardado: `AGORA_OFFLINE_CACHE_NIVEL` (`nenhum` | `publico` | `interno` | `restrito` | `confidencial`), **padrão `interno`**, o conservador. Aplicação, em três camadas (`static/agora-ia/offline_cache.js`):
+Tudo que fica no navegador acompanha o dispositivo (um notebook perdido leva consigo o que estava guardado). Duas camadas de decisão:
+
+- **A instância define o TETO** (`AGORA_OFFLINE_CACHE_NIVEL`: `nenhum` | `publico` | `interno` | `restrito` | `confidencial`, padrão `restrito`): ninguém guarda acima dele.
+- **Cada pessoa escolhe o próprio nível**, até o teto, em **Configurações → Dados neste dispositivo → Nível do cache offline**, por dispositivo (padrão: `interno`, ou o teto se for menor). A escolha vale na hora: o que está acima do novo nível é **apagado imediatamente**. Escolher `restrito` ou mais mostra o aviso de que o armazenamento local **não é cifrado**.
+
+A aplicação é em três camadas (`static/agora-ia/offline_cache.js`):
 
 - o que está acima do nível é **descartado antes de ser gravado**, e a interface diz quantos itens ficaram de fora ("1 item não guardado por nível de classificação");
 - resposta de formato desconhecido **não** é guardada;
-- baixar o nível **apaga** o que já estava guardado acima dele (na próxima abertura).
+- baixar o nível (pela pessoa ou pelo teto da instância) **apaga** o que já estava guardado acima dele.
 
 Respostas do servidor que **recusam** (403/404: acesso revogado) **nunca** são respondidas pela cópia. O cache é por usuário (um banco por usuário) e limitado (300 entradas, as mais antigas saem).
 
+## Configurações (usuário e aplicativo)
+
+O botão ⚙ do Agora abre um diálogo montado a partir do que o hospedeiro oferece (`host.settings`):
+
+- **Conta:** nome e **Sair**. Sair encerra a sessão no servidor (`POST /sair/`), **esquece a configuração guardada** (sem ela a página offline não abre o app para a próxima pessoa que pegar o dispositivo) e leva ao login. Há a opção **"Também limpar os dados deste dispositivo ao sair"**. Offline, Sair **não finge**: avisa que a sessão continua aberta no servidor e não apaga nada.
+- **Dados neste dispositivo:** o nível do cache, um resumo (workspaces, cópias de dados, pendentes de envio) e **Limpar este dispositivo**: apaga workspaces, documentos, cópias de dados e as preferências locais. É em **duas etapas**, exige marcar que entendeu, e **avisa quantos itens ainda não chegaram ao servidor** (serão perdidos). O que já foi enviado continua no servidor e volta no próximo acesso com conexão.
+- **Aplicativo:** tema (automático, claro, escuro) e estado da rede.
+
 ## Consequências
 
-- O padrão `interno` **não** mantém offline os artefatos `restrito` (que são o padrão de classificação dos artefatos capturados). Quem quiser tudo que vê offline define `AGORA_OFFLINE_CACHE_NIVEL=restrito` — uma decisão consciente de aceitar esse dado no dispositivo.
+- O padrão de cada pessoa (`interno`) **não** mantém offline os artefatos `restrito` (o padrão de classificação dos capturados): quem quiser tudo que vê offline escolhe `restrito` em Configurações — uma decisão consciente, com o aviso de que não é cifrado. Uma instância que não quer isso baixa o teto.
 - `confidencial` só deve ser guardado em dispositivo com **cifra em repouso** (decisão D-17 do Agora, ainda em aberto): hoje o IndexedDB não é cifrado.
 - O IA passa a depender de um service worker e de um segundo arquivo estático gerado (`precache.json`), que `scripts/testar_agora_ia.sh` confere que está em dia.
 
 ## Limites conhecidos
 
 - Primeiro acesso exige conexão (para instalar o app e fazer login). Sem login recente a sessão do Django pode expirar; offline isso não importa, e online o portal pede o login de novo.
-- Sair da conta (`/sair/`) **não** apaga o que está guardado no dispositivo (o isolamento é por usuário no mesmo navegador). Falta um "sair e limpar este dispositivo".
+- Sair **sem** limpar mantém os dados no dispositivo para o próximo login da mesma pessoa (isolados por usuário, mas **não cifrados**): em dispositivo compartilhado, use "Também limpar os dados deste dispositivo ao sair".
 - Papéis e acesso mudados enquanto offline só valem na volta: o servidor continua sendo a autoridade (`agora-sync` recusa escritas sem permissão, e o aviso "descartar alterações locais" cobre o caso).
 - Busca e detalhes só funcionam offline para o que já foi consultado antes (cópia, não índice).
 - Mudar o título de um workspace que outra pessoa renomeou offline: vale a última sincronização (último a chegar).

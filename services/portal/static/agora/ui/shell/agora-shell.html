@@ -12,10 +12,12 @@
     <span id="peers" aria-label="Participantes"></span>
     <span id="role" hidden></span>
     <span id="status" role="status" aria-live="polite"></span>
+    <button id="settings" type="button" aria-label="Configurações" title="Configurações" aria-haspopup="dialog">⚙</button>
     <button id="toggle-palette" type="button" aria-pressed="true">Componentes</button>
     <button id="toggle-inspector" type="button" aria-pressed="true">Inspetor</button>
 </header>
 <div id="banner" role="alert" hidden></div>
+<agora-settings></agora-settings>
 <div class="body">
     <aside id="palette-pane" aria-label="Componentes"><agora-palette></agora-palette></aside>
     <main><agora-workspace></agora-workspace></main>

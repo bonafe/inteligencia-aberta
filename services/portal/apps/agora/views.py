@@ -74,7 +74,7 @@ class AppView(View):
             "sync_url": settings.AGORA_SYNC_URL,                     # vazio: sem colaboração em tempo real
             "api": "/agora/api/v1",
             "usuario": {"id": str(request.user.pk), "name": request.user.get_full_name() or request.user.get_username()},
-            "offline_cache_level": settings.AGORA_OFFLINE_CACHE_NIVEL,
+            "offline_cache_max": settings.AGORA_OFFLINE_CACHE_NIVEL,       # teto da instância; o nível é escolha de cada usuário
         }})
 
 

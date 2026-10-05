@@ -1,3 +1,3 @@
 Cópia do Ultima Agora (runtime do navegador).
-commit: 0234d81
+commit: d9cedff
 gerado por scripts/sincronizar_agora.sh — não edite estes arquivos; altere o projeto de origem e sincronize de novo.

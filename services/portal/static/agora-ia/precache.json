@@ -1,5 +1,5 @@
 {
- "version": "621862d16687308d",
+ "version": "0b21ba89ea362338",
  "files": [
   "/static/agora/collaboration/document/memory_state_store.js",
   "/static/agora/collaboration/document/yjs_state_store.js",
@@ -43,6 +43,9 @@
   "/static/agora/ui/palette/agora-palette.css",
   "/static/agora/ui/palette/agora-palette.html",
   "/static/agora/ui/palette/agora-palette.js",
+  "/static/agora/ui/settings/agora-settings.css",
+  "/static/agora/ui/settings/agora-settings.html",
+  "/static/agora/ui/settings/agora-settings.js",
   "/static/agora/ui/shell/agora-shell.css",
   "/static/agora/ui/shell/agora-shell.html",
   "/static/agora/ui/shell/agora-shell.js",
