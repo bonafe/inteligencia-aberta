@@ -22,7 +22,7 @@ SERVIDOR="services/agora-sync"
 rm -rf "$SERVIDOR"
 mkdir -p "$SERVIDOR"
 cp -r "$ORIGEM/server/agora-sync/src" "$SERVIDOR/src"
-cp "$ORIGEM/server/agora-sync/package.json" "$ORIGEM/server/agora-sync/package-lock.json" "$ORIGEM/server/agora-sync/Dockerfile" "$SERVIDOR/"
+cp "$ORIGEM/server/agora-sync/package.json" "$ORIGEM/server/agora-sync/package-lock.json" "$ORIGEM/server/agora-sync/Dockerfile" "$ORIGEM/server/agora-sync/docker-entrypoint.sh" "$SERVIDOR/"
 
 cp "$ORIGEM/sw.js" "$DESTINO/sw.js"
 cp "$ORIGEM/tools/gerar_precache.py" scripts/gerar_precache.py      # o teste do front confere que a lista está em dia

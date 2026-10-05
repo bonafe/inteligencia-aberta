@@ -75,6 +75,10 @@ class ArtefatosView(View):
             limite = LIMITE_PADRAO
         consulta = request.GET.get("q", "").strip()
         queryset = Artifact.objects.filter(tenant__in=orgs_do_usuario(request.user))
+        #?tipo=documento (ou várias, separadas por vírgula): só os tipos pedidos; tipo inexistente não devolve nada (e não erro)
+        tipos = [t for t in request.GET.get("tipo", "").split(",") if t.strip()]
+        if tipos:
+            queryset = queryset.filter(artifact_type__in=[t.strip() for t in tipos])
         if consulta:
             queryset = queryset.annotate(texto=Cast("content", TextField())).filter(Q(texto__icontains=consulta))
         piso = _piso_do_workspace(request)

@@ -19,6 +19,11 @@ export function registerIaTypes(types) {
             rows: entities.map(({ id, label = '', kind = '', classification = '' }) => ({ label, kind, classification, id })),
         }),
     });
+    //A node of a graph (id + label) becomes an Entity: this is what lets "the node I chose in the graph" feed ia-entity and ia-news
+    types.registerConverter({
+        from: 'Node', to: 'Entity', label: 'nó → entidade',
+        convert: node => ({ id: String(node.id), label: String(node.label ?? node.id), kind: String(node.kind ?? ''), classification: String(node.classification ?? '') }),
+    });
     //Only meaningful for rows that came from entities (they carry an id); other rows are ignored by ia-entity
     types.registerConverter({
         from: 'Row', to: 'Entity', label: 'linha → entidade',

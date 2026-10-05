@@ -26,6 +26,12 @@ main { flex: 1; min-width: 0; display: flex; }
 agora-workspace { flex: 1; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 @media (max-width: 800px) { aside { flex-basis: 11rem; } #inspector-pane { flex-basis: 12rem; } }
+#chat-pane { flex-basis: 21rem; border-left: 1px solid var(--agora-border); display: flex; flex-direction: column; }
+#chat-pane > * { flex: 1; min-height: 0; }
+#chat-toggle { position: relative; }
+#chat-badge { position: absolute; top: -.35rem; right: -.35rem; min-width: 1.05rem; height: 1.05rem; padding: 0 .2rem; box-sizing: border-box; border-radius: 1rem; background: var(--agora-accent); color: #fff; font-size: .68rem; line-height: 1.05rem; text-align: center; }
+#chat-badge.mention { background: #d9381e; }
+#chat-badge[hidden] { display: none; }
 #settings { font-size: 1.05rem; line-height: 1; padding: .2rem .5rem; }
 #banner { padding: .5rem .75rem; background: color-mix(in srgb, var(--agora-danger) 18%, var(--agora-surface)); border-bottom: 1px solid var(--agora-danger); }
 #banner.warning { background: color-mix(in srgb, #e0a800 22%, var(--agora-surface)); border-color: #e0a800; }

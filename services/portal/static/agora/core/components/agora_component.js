@@ -5,7 +5,7 @@ import { ReactiveComponent } from '../../vendor/ultima/reactive_component.js';
 import { mix } from './mix.js';
 
 //Services the shell injects through attach(). Each one backs a capability.
-const SERVICE_CAPABILITY = { ports: 'connectable', shared: 'shared-content', presence: 'presence-aware', domain: 'domain-data' };
+const SERVICE_CAPABILITY = { ports: 'connectable', shared: 'shared-content', presence: 'presence-aware', domain: 'domain-data', chat: 'chat' };
 
 export const AgoraInstance = (Base) => class extends Base {
     #instanceId = null;
@@ -52,6 +52,7 @@ export const AgoraInstance = (Base) => class extends Base {
     get shared() { return this.#requireCapability('shared'); }
     get presence() { return this.#requireCapability('presence'); }
     get domain() { return this.#requireCapability('domain'); }
+    get chat() { return this.#requireCapability('chat'); }
 
     //The shell calls this when the document's config for this instance changes (including our own setConfig).
     applyConfig(config) {

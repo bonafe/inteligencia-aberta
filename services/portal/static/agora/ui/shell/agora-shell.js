@@ -25,6 +25,8 @@ export class AgoraShell extends ReactiveComponent {
     #meta = null;
     #cleanup = [];
     #touchTimer = null;
+    #chatElement = null;
+    #baseTitle = 'Ultima Agora';
 
     constructor() {
         super({ templateUrl: './agora-shell.html', shadowDom: true }, import.meta.url);
@@ -74,6 +76,7 @@ export class AgoraShell extends ReactiveComponent {
             if (this.#meta) this.#meta = await this.#host.rename(this.#meta.id, title);
             await this.#refreshList();
         });
+        on('#chat-toggle', 'click', () => this.#toggleChat());
         on('#settings', 'click', () => this.#$('agora-settings').open({ host: this.#host }));
         this.rootNode.addEventListener('theme-change', event => this.#applyTheme(event.detail.theme));
         //After "limpar este dispositivo" nothing local remains, so start over (online: back through the host's own entry)
@@ -143,7 +146,8 @@ export class AgoraShell extends ReactiveComponent {
         const showTitle = () => {
             const title = doc.get('meta.title') || this.#meta.title;
             this.#$('#title').value = title;
-            document.title = `${title} — Ultima Agora`;
+            this.#baseTitle = `${title} — Ultima Agora`;
+            this.#paintUnread();
             if (title !== this.#meta.title) {                       //keep the catalog's copy in step with the document
                 this.#host.rename(id, title).then(meta => { this.#meta = meta; return this.#refreshList(); }).catch(() => {});
             }
@@ -162,6 +166,7 @@ export class AgoraShell extends ReactiveComponent {
         const showPeers = () => this.#paintPeers(doc);
 
         showTitle(); applyRole(); showStatus(doc.status); showPeers();
+        await this.#mountChat(workspace);
         this.#cleanup.push(
             doc.onHistory(() => this.#refreshHistory()),
             doc.onChange('meta.title', showTitle),
@@ -182,6 +187,54 @@ export class AgoraShell extends ReactiveComponent {
             doc.presence.onPeers(showPeers),
         );
         await this.#refreshList();
+    }
+
+    // ---- chat drawer: the same ultima-chat component, docked ----
+
+    async #mountChat(workspace) {
+        const pane = this.#$('#chat-pane');
+        this.#chatElement?.dispose?.();
+        this.#chatElement = null;
+        pane.replaceChildren();
+        pane.setAttribute('hidden', '');
+        this.#$('#chat-toggle').setAttribute('aria-pressed', 'false');
+        const chat = workspace.chat;
+        this.#$('#chat-toggle').toggleAttribute('hidden', !chat);
+        if (!chat || !this.#registry.has('ultima-chat')) { this.#paintUnread(); return; }
+
+        await this.#registry.load('ultima-chat');
+        const manifest = this.#registry.getManifest('ultima-chat');
+        const element = document.createElement(manifest.tag);
+        element.attach({ instanceId: 'shell-chat', manifest, config: {}, services: { chat } });
+        pane.append(element);
+        this.#chatElement = element;
+        this.#cleanup.push(chat.onChange(() => this.#paintUnread()), workspace.onRole(() => element.onRole?.(workspace.role)));
+        this.#paintUnread();
+    }
+
+    #toggleChat() {
+        const pane = this.#$('#chat-pane');
+        const open = pane.hasAttribute('hidden');
+        pane.toggleAttribute('hidden', !open);
+        this.#$('#chat-toggle').setAttribute('aria-pressed', String(open));
+        if (open) { this.#workspace?.chat?.markRead(); this.#chatElement?.rootNode.querySelector('#text')?.focus(); }
+        this.#paintUnread();
+    }
+
+    //Unread count on the button and in the tab title; mentions get their own colour (and are announced to screen readers)
+    #paintUnread() {
+        const chat = this.#workspace?.chat;
+        const open = !this.#$('#chat-pane').hasAttribute('hidden');
+        const unread = chat && !open ? chat.unread : 0;
+        const mentions = chat && !open ? chat.unreadMentions : 0;
+        const badge = this.#$('#chat-badge');
+        badge.textContent = unread > 99 ? '99+' : String(unread);
+        badge.toggleAttribute('hidden', unread === 0);
+        badge.classList.toggle('mention', mentions > 0);
+        const label = unread ? `Chat: ${unread} mensagem(ns) não lida(s)${mentions ? `, ${mentions} mencionando você` : ''}` : 'Chat';
+        this.#$('#chat-toggle').setAttribute('aria-label', label);
+        this.#$('#chat-toggle').title = label;
+        document.title = unread ? `(${unread}) ${this.#baseTitle}` : this.#baseTitle;
     }
 
     #refreshHistory() {

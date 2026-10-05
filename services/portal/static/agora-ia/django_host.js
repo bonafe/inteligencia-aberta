@@ -306,7 +306,8 @@ export class DjangoHost {
         return (await this.#backend.listWorkspaces()).filter(m => m.pending || m.dirtyTitle || m.dirtyArchive).length;
     }
 
-    openDocument(meta) { return this.store.open(meta.id, { role: meta.role }); }
+    //`me` is who "you" are in the chat (the server takes the author from the token anyway)
+    openDocument(meta) { return this.store.open(meta.id, { role: meta.role, me: { id: this.identity.id, name: this.identity.name } }); }
     discardLocal(id) { return this.store.discard(id); }
 
     //Copies composition and authored content into a new workspace (never domain data: the document only has references)

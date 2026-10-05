@@ -2,7 +2,7 @@
 //Only the document is stored here; domain data never is (R-DOC-3, R-LF-4).
 import { MemoryWorkspaceDoc } from '../document/memory_state_store.js';
 
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 const SAVE_DELAY_MS = 150;
 
 export class IndexedDbBackend {
@@ -17,7 +17,8 @@ export class IndexedDbBackend {
                 const db = request.result;
                 if (!db.objectStoreNames.contains('documents')) db.createObjectStore('documents');                      //key: workspace id -> snapshot
                 if (!db.objectStoreNames.contains('workspaces')) db.createObjectStore('workspaces', { keyPath: 'id' });  //catalog metadata
-                if (!db.objectStoreNames.contains('cache')) db.createObjectStore('cache');                              //v2: offline copies of host data (key -> entry)
+                if (!db.objectStoreNames.contains('cache')) db.createObjectStore('cache');
+                if (!db.objectStoreNames.contains('local')) db.createObjectStore('local');                             //v3: what the user authored here (chat history, unsent messages): never subject to the data-cache policy                              //v2: offline copies of host data (key -> entry)
             };
             request.onsuccess = () => resolve(request.result);
             request.onerror = () => reject(request.error);
@@ -40,6 +41,11 @@ export class IndexedDbBackend {
     deleteDocument(id) { return this.#run('documents', 'readwrite', s => s.delete(id)); }
     //Offline copies of data the host serves (domain objects the user already looked at). The host decides what may
     //be stored here (classification policy); this is only the storage.
+    //Authored-here data (chat history, unsent messages). Kept apart from `cache` on purpose: the data-cache policy purges `cache`.
+    getLocal(key) { return this.#run('local', 'readonly', s => s.get(key)); }
+    putLocal(key, value) { return this.#run('local', 'readwrite', s => s.put(value, key)); }
+    deleteLocal(key) { return this.#run('local', 'readwrite', s => s.delete(key)); }
+
     getCache(key) { return this.#run('cache', 'readonly', s => s.get(key)); }
     putCache(key, entry) { return this.#run('cache', 'readwrite', s => s.put(entry, key)); }
     deleteCache(key) { return this.#run('cache', 'readwrite', s => s.delete(key)); }
@@ -73,6 +79,10 @@ export class MemoryBackend {
     #documents = new Map();
     #workspaces = new Map();
     #cache = new Map();
+    #local = new Map();
+    async getLocal(key) { return this.#local.get(key); }
+    async putLocal(key, value) { this.#local.set(key, structuredClone(value)); }
+    async deleteLocal(key) { this.#local.delete(key); }
     async getCache(key) { return this.#cache.get(key); }
     async putCache(key, entry) { this.#cache.set(key, structuredClone(entry)); }
     async deleteCache(key) { this.#cache.delete(key); }
@@ -84,7 +94,7 @@ export class MemoryBackend {
     async getWorkspace(id) { return structuredClone(this.#workspaces.get(id)); }
     async putWorkspace(meta) { this.#workspaces.set(meta.id, structuredClone(meta)); }
     async close() {}
-    async destroy() { this.#documents.clear(); this.#workspaces.clear(); this.#cache.clear(); }
+    async destroy() { this.#documents.clear(); this.#workspaces.clear(); this.#cache.clear(); this.#local.clear(); }
 }
 
 //StateStore that loads a document from IndexedDB and saves it, debounced, on every change.

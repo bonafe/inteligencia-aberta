@@ -122,3 +122,16 @@ def test_workspace_de_outra_organizacao_no_parametro_e_ignorado(mundo):
 
 def test_exige_login(mundo):
     assert Client().get("/agora/api/v1/dominio/artefatos/").status_code == 302
+
+
+def test_filtro_por_tipo_aceita_varios_e_tipo_desconhecido_nao_devolve_nada(mundo):
+    org_a, dono_a, *_ = mundo
+    _artefato(org_a, tipo=Artifact.Type.DOCUMENT, titulo="Notícia sobre a Empresa Alfa")
+    _artefato(org_a, tipo=Artifact.Type.PERSON, nome="Pessoa A")
+    cliente = _cliente(dono_a)
+    url = "/agora/api/v1/dominio/artefatos/"
+    assert [r["kind"] for r in cliente.get(f"{url}?tipo=documento").json()["results"]] == ["documento"]
+    assert {r["kind"] for r in cliente.get(f"{url}?tipo=documento,pessoa").json()["results"]} == {"documento", "pessoa"}
+    assert cliente.get(f"{url}?tipo=inexistente").json()["results"] == []
+    assert len(cliente.get(f"{url}?tipo=").json()["results"]) == 2, "tipo vazio = sem filtro"
+    assert [r["label"] for r in cliente.get(f"{url}?tipo=documento&q=alfa").json()["results"]] == ["Notícia sobre a Empresa Alfa"]

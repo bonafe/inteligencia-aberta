@@ -7,6 +7,7 @@ try {
         secret: process.env.AGORA_SYNC_SECRET,
         adminToken: process.env.AGORA_SYNC_ADMIN_TOKEN || null,
         dataDir: process.env.DATA_DIR ?? './data',
+        chatRetentionDays: Number(process.env.CHAT_RETENTION_DAYS ?? 0) || 0,
         devAuth,
         log: message => console.log(`[agora-sync] ${message}`),
     });

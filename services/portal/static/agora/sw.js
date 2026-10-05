@@ -52,7 +52,9 @@ self.addEventListener('activate', evento => {
 
 const daRedeComLimite = (requisicao) => new Promise((resolve, reject) => {
     const temporizador = setTimeout(() => reject(new Error('rede lenta')), ESPERA_REDE_MS);
-    fetch(requisicao).then(resposta => { clearTimeout(temporizador); resolve(resposta); }, erro => { clearTimeout(temporizador); reject(erro); });
+    //'no-cache': revalidate with the server (a cheap 304 when nothing changed). Without it the browser's HTTP cache may answer
+    //"network first" with an old copy, and an updated app would keep running the previous version.
+    fetch(requisicao, { cache: 'no-cache' }).then(resposta => { clearTimeout(temporizador); resolve(resposta); }, erro => { clearTimeout(temporizador); reject(erro); });
 });
 
 self.addEventListener('fetch', evento => {

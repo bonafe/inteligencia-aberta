@@ -1,0 +1,21 @@
+{
+  "name": "ia-news",
+  "tag": "ia-news",
+  "title": "Notícias e documentos",
+  "version": "1.0.0",
+  "category": "intelligence",
+  "description": "Documentos capturados que falam da entidade escolhida.",
+  "module": "./ia-news.js",
+  "inputs": {
+    "entity": { "type": "Entity" }
+  },
+  "outputs": {
+    "selected": { "type": "Entity" },
+    "results": { "type": "Entity[]" }
+  },
+  "config": {
+    "subject": { "type": "string", "default": "", "title": "Assunto (nome da entidade)" },
+    "limit": { "type": "integer", "default": 20, "min": 1, "max": 50, "title": "Máximo de documentos" }
+  },
+  "capabilities": ["domain-data", "connectable", "resizable"]
+}

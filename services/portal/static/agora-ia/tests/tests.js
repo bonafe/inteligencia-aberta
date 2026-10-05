@@ -108,10 +108,10 @@ const newRegistry = async () => {
 
 test('pack: installs its types, converters and components', async () => {
     const registry = await newRegistry();
-    assert(registry.has('ia-search') && registry.has('ia-entity') && registry.types.has('Entity'));
+    assert(registry.has('ia-search') && registry.has('ia-entity') && registry.has('ia-news') && registry.types.has('Entity'));
     const t = registry.types;
     assert(t.validate('Entity', { id: 'a' }) === null && t.validate('Entity', { label: 'x' }) !== null);
-    assert(t.compatibility('Entity', 'String').ok && t.compatibility('Entity[]', 'Table').ok && t.compatibility('Row', 'Entity').ok);
+    assert(t.compatibility('Entity', 'String').ok && t.compatibility('Entity[]', 'Table').ok && t.compatibility('Row', 'Entity').ok && t.compatibility('Node', 'Entity').ok);
     assert(!t.compatibility('Entity[]', 'Graph').ok);
     const table = t.compatibility('Entity[]', 'Table').convert(ENTITIES);
     assert(table.rows.length === 2 && table.rows[0].label === 'Empresa Alfa' && table.columns.length === 4);
@@ -154,7 +154,13 @@ const DOMAIN = {
     '/agora/api/v1/dominio/artefatos/a1/relacoes/': [200, GRAPH],
     '/agora/api/v1/dominio/artefatos/a1/': [200, DETAIL],
     '/agora/api/v1/dominio/artefatos/zz/': [404, { error: 'Objeto não encontrado' }],
-    '/agora/api/v1/dominio/artefatos/': (path) => [200, { results: path.includes('q=alfa') ? [ENTITIES[0]] : ENTITIES }],
+    '/agora/api/v1/dominio/artefatos/': (path) => {
+        if (path.includes('tipo=documento')) {
+            const q = decodeURIComponent(path.match(/q=([^&]*)/)?.[1] ?? '').replace(/\+/g, ' ');
+            return [200, { results: q === 'Pessoa A' ? [{ id: 'd1', kind: 'documento', label: 'Reportagem sobre Pessoa A', classification: 'interno', info_type: 'fato' }, { id: 'd2', kind: 'documento', label: 'Nota fiscal citando Pessoa A', classification: 'restrito', info_type: 'fato', above_workspace: true }] : [] }];
+        }
+        return [200, { results: path.includes('q=alfa') ? [ENTITIES[0]] : ENTITIES }];
+    },
 };
 
 test('ia-search: searches through the host client, scoped to the workspace, and lists what it found', guard(async () => {
@@ -228,6 +234,61 @@ test('ia-entity: showing relations creates a graph, linked, in one undo step (th
     assert(nodes.length === 2, `graph shows ${nodes.length} nodes`);
     workspace.doc.undo();
     assert(workspace.instances().length === 1 && workspace.bus.list().length === 0);
+}));
+
+test('ia-news: lists the documents that mention the entity, scoped by type, and the chosen document goes out', guard(async () => {
+    const { calls, workspace, view } = await mountWorkspace(DOMAIN);
+    const id = workspace.addInstance('ia-news', { config: { subject: 'Pessoa A' } });
+    await wait(700);
+    assert(calls.some(c => c.path.includes('tipo=documento') && c.path.includes('q=Pessoa')), JSON.stringify(calls.map(c => c.path)));
+    const root = el(view, id).rootNode;
+    assert(root.querySelector('#title').textContent.includes('Pessoa A'));
+    const items = [...root.querySelectorAll('li button')];
+    assert(items.length === 2 && items[0].textContent.includes('Reportagem') && items[1].textContent.includes('⚠'), 'the one above the workspace level is flagged');
+    items[0].click();
+    assert(workspace.bus.outputValue(id, 'selected').id === 'd1');
+    assert(workspace.bus.outputValue(id, 'results').length === 2);
+}));
+
+test('criterion 5: selecting a person in the graph makes ia-news show the news about that person (Node → Entity)', guard(async () => {
+    const { workspace, view } = await mountWorkspace(DOMAIN);
+    const entity = workspace.addInstance('ia-entity', { config: { entity: 'a1' } });
+    await wait(700);
+    const { suggestions, port } = await workspace.invokeAction(entity, 'showRelations');
+    const graph = workspace.createLinked(entity, port, suggestions[0]);
+    const news = workspace.addInstance('ia-news', { target: { panelId: workspace.layout.findPanelOf(graph), side: 'bottom' } });
+    await wait(700);
+    workspace.bus.connect({ instance: graph, port: 'selectedNode' }, { instance: news, port: 'entity' });          // Node → Entity is a registered conversion
+    const person = [...el(view, graph).rootNode.querySelectorAll('.node')].find(n => n.getAttribute('aria-label') === 'Pessoa A');
+    person.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    await wait(800);
+    const root = el(view, news).rootNode;
+    assert(root.querySelector('#title').textContent.includes('Pessoa A'), root.querySelector('#title').textContent);
+    assert([...root.querySelectorAll('li button')].length === 2);
+    assert(workspace.instance(news).config.subject === 'Pessoa A', 'the subject is pinned so everyone sees the same thing');
+}));
+
+test('ia-news offline: shows the copy of what was already searched, says so, and the item above the cache level was never stored', guard(async () => {
+    const cache = new DomainCache({ backend: new MemoryBackend(), maxLevel: 'interno' });
+    portal(DOMAIN);
+    const w = new Workspace({ doc: await new MemoryStateStore().open('w-news'), registry: await newRegistry(), user: { id: 'u' }, domain: domainClient('/agora/api/v1', 'w1', cache), id: 'w1' });
+    const v = document.createElement('agora-workspace');
+    v.style.cssText = 'display:block;width:700px;height:300px';
+    document.body.append(v);
+    assert(await settleOrTimeout(v.whenLoaded()));
+    v.workspace = w;
+    const id = w.addInstance('ia-news', { config: { subject: 'Pessoa A' } });
+    await wait(800);
+    const component = v.rootNode.querySelector(`[data-instance-id="${id}"]`);
+    assert(component.rootNode.querySelectorAll('li button').length === 2, 'online: both documents');
+
+    cutNetwork('/agora/api/v1/');
+    w.setConfig(id, { subject: 'Outro assunto' }); await wait(500);                  // a search that was never made: no copy
+    assert(component.rootNode.querySelector('#status').classList.contains('error'));
+    w.setConfig(id, { subject: 'Pessoa A' }); await wait(700);
+    const status = component.rootNode.querySelector('#status').textContent;
+    assert(status.includes('sem conexão: cópia local') && status.includes('1 não guardado'), status);
+    assert(component.rootNode.querySelectorAll('li button').length === 1, 'the restricted document was never stored on this device');
 }));
 
 test('ia-entity: an object the user cannot see reads as "no access", and says nothing about the object', guard(async () => {
@@ -397,6 +458,16 @@ test('catalog offline: creating works, gets its identity at once, and reaches th
     assert(sent[0].method === 'POST' && sent[0].body.id === meta.id && sent[0].body.title === 'Criado no avião', 'the server receives the id chosen offline');
     assert(await host.pendingCount() === 0 && !(await host.get(meta.id)).pending);
     assert((await host.openDocument(meta)).get('meta.title') === 'Criado no avião', 'the document made offline is the same one');
+}));
+
+test('the chat is wired: a document opened through the host has a chat client for this person', guard(async () => {
+    cutNetwork('/agora/api/v1/');
+    const host = new DjangoHost({ config: { ...hostConfig, sync_url: 'ws://127.0.0.1:1' }, backend: new MemoryBackend() });
+    const meta = await host.create('Com chat');
+    const doc = await host.openDocument(meta);
+    assert(doc.chat && doc.chat.me.id === '7' && doc.chat.me.name === 'Maria', 'the shell needs doc.chat to show the chat button');
+    assert(doc.chat.canWrite && doc.chat.available(), 'an owner of a workspace with a sync server can write');
+    doc.provider?.destroy();
 }));
 
 test('catalog offline: renaming and archiving are applied locally at once and sent later; the server refusing does not loop', guard(async () => {

@@ -32,6 +32,14 @@ Em `/agora/` (menu "Investigação (Agora)"). Especificação do produto: projet
 
 Workspace ou objeto sem acesso é **404** (não revela que existe).
 
+## Chat (ADR 016)
+
+O botão 💬 do topo abre o chat do workspace (o mesmo componente `Chat`, que também pode ser uma aba). Mensagens em tempo real, `@nome` para mencionar (o contador fica de outra cor e o título da aba mostra `(n)`), editar e remover as suas (o dono remove qualquer uma). Quem tem papel de leitura **lê** e não escreve. Sem rede, você lê o histórico e escreve: as mensagens ficam "Pendentes" e saem quando a conexão volta. O chat precisa de um `agora-sync` ligado ao workspace.
+
+## Componentes de domínio (`ia-*`)
+
+| `ia-news` | `entity: Entity` | `selected: Entity`, `results: Entity[]` | Documentos capturados que **mencionam o nome** da entidade (busca textual, `?tipo=documento`). O assunto fica gravado no componente. Escolher o nó de um grafo alimenta este componente (conversão `Node → Entity`). |
+
 ## Offline (ADR 015)
 
 Depois do primeiro acesso, o Agora abre e funciona **sem rede**: o aplicativo (service worker), a lista de workspaces, os documentos e o que você já consultou. Criar, renomear e arquivar offline ficam pendentes e vão ao servidor quando a rede volta (o `id` do workspace é gerado no navegador, então o mesmo id chega ao servidor). O que fica guardado de dados do domínio é **escolha de cada pessoa** em ⚙ Configurações → Dados neste dispositivo (até o teto `AGORA_OFFLINE_CACHE_NIVEL` da instância); itens acima do nível **nunca** são gravados e a interface diz quantos ficaram de fora. As mesmas Configurações têm **Sair** (com a opção de limpar o dispositivo), **Limpar este dispositivo** e o tema.

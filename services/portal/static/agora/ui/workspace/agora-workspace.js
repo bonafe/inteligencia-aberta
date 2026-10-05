@@ -256,6 +256,7 @@ export class AgoraWorkspaceView extends ReactiveComponent {
                     },
                     ports: workspace.bus.portsFor(record.id),
                     domain: workspace.domain ?? undefined,
+                    chat: workspace.chat ?? undefined,
                     presence: {
                         //"I am editing here" (typing); cleared by passing null
                         setActivity: kind => workspace.doc.presence.setLocal({ activity: kind ? { instance: record.id, kind } : null }),

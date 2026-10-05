@@ -10,8 +10,12 @@ import * as encoding from 'lib0/encoding';
 import * as decoding from 'lib0/decoding';
 import { issueToken, verifyToken, checkSecret, ROLES } from './auth.js';
 import { mayWrite } from './permissions.js';
+import { ChatLog, ChatError } from './chat.js';
 
-const MSG_SYNC = 0, MSG_AWARENESS = 1, MSG_CONTROL = 3;
+const MSG_SYNC = 0, MSG_AWARENESS = 1, MSG_CONTROL = 3, MSG_CHAT = 4;
+const CHAT_WRITERS = new Set(['owner', 'editor', 'participant']);        // viewers read the chat, they do not write (D-30)
+const CHAT_RATE = { perWindow: 20, windowMs: 10_000 };
+const CHAT_HISTORY = 100;
 const WORKSPACE_ID = /^[A-Za-z0-9_-]{1,80}$/;
 //Close codes (4xxx are ours). The client does not retry 4400/4401/4403/4404, and does retry 4408.
 export const CLOSE = { BAD_REQUEST: 4400, UNAUTHORIZED: 4401, FORBIDDEN: 4403, EXPIRED: 4408, TOO_BIG: 1009 };
@@ -22,10 +26,13 @@ class Room {
     connections = new Set();
     #file; #timer = null; #idleTimer = null;
 
-    constructor(id, dataDir, onIdle, log) {
+    chat;
+
+    constructor(id, dataDir, onIdle, log, chatRetentionDays = 0) {
         this.id = id;
         this.log = log;
         this.#file = dataDir ? join(dataDir, `${id}.bin`) : null;
+        this.chat = new ChatLog({ file: dataDir ? join(dataDir, `${id}.chat.jsonl`) : null, retentionDays: chatRetentionDays });
         this.onIdle = onIdle;
         if (this.#file && existsSync(this.#file)) Y.applyUpdate(this.doc, readFileSync(this.#file), 'disk');
         this.awareness.setLocalState(null);                      //the server itself is not a participant
@@ -40,6 +47,9 @@ class Room {
             this.#broadcast(MSG_AWARENESS, e => encoding.writeVarUint8Array(e, awarenessProtocol.encodeAwarenessUpdate(this.awareness, changed)), origin);
         });
     }
+
+    //Sends a chat event to everyone connected to this workspace
+    chatBroadcast(event) { for (const connection of this.connections) connection.chat(event); }
 
     #broadcast(type, write, except) {
         for (const connection of this.connections) {
@@ -95,16 +105,29 @@ class Connection {
         encoding.writeVarString(e, JSON.stringify(message));
         this.send(encoding.toUint8Array(e));
     }
+    chat(event) {
+        const e = encoding.createEncoder();
+        encoding.writeVarUint(e, MSG_CHAT);
+        encoding.writeVarString(e, JSON.stringify(event));
+        this.send(encoding.toUint8Array(e));
+    }
+    //At most CHAT_RATE.perWindow sends per window: a runaway client cannot flood the log
+    allowChatSend(now = Date.now()) {
+        this.chatSends = (this.chatSends ?? []).filter(t => now - t < CHAT_RATE.windowMs);
+        if (this.chatSends.length >= CHAT_RATE.perWindow) return false;
+        this.chatSends.push(now);
+        return true;
+    }
     close(code, reason) { this.socket.close(code, reason); }
 }
 
-export function createSyncServer({ secret, adminToken = null, dataDir = null, devAuth = false, maxMessageBytes = 2 * 1024 * 1024, log = () => {} } = {}) {
+export function createSyncServer({ secret, adminToken = null, dataDir = null, chatRetentionDays = 0, devAuth = false, maxMessageBytes = 2 * 1024 * 1024, log = () => {} } = {}) {
     const key = checkSecret(secret, devAuth);
     if (dataDir) mkdirSync(dataDir, { recursive: true });
     const rooms = new Map();
     const connections = new Set();
     const roomFor = id => {
-        if (!rooms.has(id)) rooms.set(id, new Room(id, dataDir, roomId => { rooms.get(roomId)?.destroy(); rooms.delete(roomId); }, log));
+        if (!rooms.has(id)) rooms.set(id, new Room(id, dataDir, roomId => { rooms.get(roomId)?.destroy(); rooms.delete(roomId); }, log, chatRetentionDays));
         return rooms.get(id);
     };
 
@@ -186,6 +209,7 @@ export function createSyncServer({ secret, adminToken = null, dataDir = null, de
         syncProtocol.writeSyncStep1(hello, room.doc);
         connection.send(encoding.toUint8Array(hello));
         connection.control({ type: 'role', role: connection.role });
+        connection.chat({ type: 'history', ...room.chat.page({ limit: CHAT_HISTORY }) });
         const states = awarenessProtocol.encodeAwarenessUpdate(room.awareness, [...room.awareness.getStates().keys()]);
         if (room.awareness.getStates().size) {
             const presence = encoding.createEncoder();
@@ -219,12 +243,44 @@ export function createSyncServer({ secret, adminToken = null, dataDir = null, de
             case MSG_AWARENESS:
                 awarenessProtocol.applyAwarenessUpdate(room.awareness, decoding.readVarUint8Array(decoder), connection);
                 return;
+            case MSG_CHAT:
+                onChat(room, connection, JSON.parse(decoding.readVarString(decoder)));
+                return;
             default:
                 throw new Error('unknown message type');
         }
     }
 
     let closed = false;
+    //Chat requests. A refused or invalid one answers the SENDER with { type: 'error', ref, code, message } and changes nothing.
+    function onChat(room, connection, request) {
+        const fail = (code, message) => connection.chat({ type: 'error', ref: request.clientId ?? request.id ?? null, code, message });
+        const author = { id: connection.userId, name: connection.claims.name ?? connection.userId };
+        try {
+            if (request.type === 'history') {
+                connection.chat({ type: 'history', ...room.chat.page({ beforeSeq: Number(request.before) || Infinity, limit: Number(request.limit) || CHAT_HISTORY }) });
+                return;
+            }
+            if (!CHAT_WRITERS.has(connection.role)) return fail('forbidden', 'Seu papel só permite ler o chat.');
+            if (request.type === 'send') {
+                if (!connection.allowChatSend()) return fail('rate', 'Muitas mensagens em pouco tempo. Aguarde um instante.');
+                const { message, duplicate } = room.chat.add(author, request);
+                if (duplicate) connection.chat({ type: 'message', message });          // a retry: tell the sender, do not repeat it to everyone
+                else room.chatBroadcast({ type: 'message', message });
+            } else if (request.type === 'edit') {
+                room.chatBroadcast({ type: 'updated', message: room.chat.edit(request.id, connection.userId, request.body) });
+            } else if (request.type === 'delete') {
+                room.chatBroadcast({ type: 'deleted', message: room.chat.remove(request.id, connection.userId, { isOwner: connection.role === 'owner' }) });
+            } else {
+                fail('bad_request', 'Pedido de chat desconhecido.');
+            }
+        } catch (error) {
+            if (error instanceof ChatError) return fail(error.code, error.message);
+            log(`chat error in ${room.id}: ${error.message}`);                       // never close the connection over a chat problem
+            return fail('internal', 'Erro interno no chat. Tente de novo.');
+        }
+    }
+
     const server = {
         http,
         rooms,

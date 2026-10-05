@@ -1,13 +1,13 @@
 //Syncs a Y.Doc and its awareness with a server over any transport (docs/especificacao/05, 5.2/5.9).
 //
 //Wire format = y-websocket's: one varuint message type, then the payload.
-//   0 sync (Yjs sync protocol)   1 awareness   3 control (JSON string, server -> client: role changes, errors)
+//   0 sync (Yjs sync protocol)   1 awareness   3 control (JSON string, server -> client: role changes, errors)   4 chat (JSON string, both ways)
 //
 //Transport: { send(Uint8Array), close(code?, reason?), onopen, onmessage(Uint8Array), onclose({ code, reason }) }
 //Status: 'connecting' | 'synced' | 'offline' | 'error'. Offline edits stay in the local doc and merge on reconnect.
 import { Y, syncProtocol, awarenessProtocol, encoding, decoding } from '../../vendor/yjs/yjs.js';
 
-const MSG_SYNC = 0, MSG_AWARENESS = 1, MSG_CONTROL = 3;
+const MSG_SYNC = 0, MSG_AWARENESS = 1, MSG_CONTROL = 3, MSG_CHAT = 4;
 const NO_RETRY_CODES = new Set([4400, 4401, 4403, 4404]);       //bad request, auth failed, forbidden, unknown workspace
 
 export class SyncProvider {
@@ -16,6 +16,7 @@ export class SyncProvider {
     #openTransport;
     #onStatus;
     #onControl;
+    #onChat;
     #minDelay;
     #maxDelay;
     #transport = null;
@@ -25,12 +26,13 @@ export class SyncProvider {
     #timer = null;
     #listeners = [];
 
-    constructor({ ydoc, awareness, openTransport, onStatus = () => {}, onControl = () => {}, minDelayMs = 1000, maxDelayMs = 30000 }) {
+    constructor({ ydoc, awareness, openTransport, onStatus = () => {}, onControl = () => {}, onChat = () => {}, minDelayMs = 1000, maxDelayMs = 30000 }) {
         this.#ydoc = ydoc;
         this.#awareness = awareness;
         this.#openTransport = openTransport;
         this.#onStatus = onStatus;
         this.#onControl = onControl;
+        this.#onChat = onChat;
         this.#minDelay = minDelayMs;
         this.#maxDelay = maxDelayMs;
 
@@ -136,10 +138,23 @@ export class SyncProvider {
             case MSG_AWARENESS:
                 awarenessProtocol.applyAwarenessUpdate(this.#awareness, decoding.readVarUint8Array(decoder), this);
                 break;
+            case MSG_CHAT:
+                try { this.#onChat(JSON.parse(decoding.readVarString(decoder))); } catch (error) { console.error('[sync] bad chat message:', error); }
+                break;
             case MSG_CONTROL:
                 try { this.#onControl(JSON.parse(decoding.readVarString(decoder))); } catch (error) { console.error('[sync] bad control message:', error); }
                 break;
         }
+    }
+
+    //Sends a chat request. False when there is no connection (the caller keeps it queued and retries when `status` is synced).
+    sendChat(request) {
+        if (!this.#open || this.#status !== 'synced') return false;
+        const message = encoding.createEncoder();
+        encoding.writeVarUint(message, MSG_CHAT);
+        encoding.writeVarString(message, JSON.stringify(request));
+        this.#send(message);
+        return true;
     }
 
     //Forces a reconnect (e.g. with a fresh token after a role change)

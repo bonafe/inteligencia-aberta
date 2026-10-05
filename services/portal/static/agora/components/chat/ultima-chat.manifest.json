@@ -1,0 +1,10 @@
+{
+  "name": "ultima-chat",
+  "tag": "ultima-chat",
+  "title": "Chat",
+  "version": "1.0.0",
+  "category": "collaboration",
+  "description": "Conversa do workspace, em tempo real, com menções.",
+  "module": "./ultima-chat.js",
+  "capabilities": ["chat", "resizable"]
+}

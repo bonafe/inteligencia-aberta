@@ -1,0 +1,12 @@
+:host { display: block; height: 100%; overflow: auto; padding: .75rem 1rem; box-sizing: border-box; color: var(--agora-text, inherit); }
+h2 { margin: 0 0 .2rem; font-size: 1rem; }
+#empty { opacity: .6; }
+#status { margin: .2rem 0 .5rem; font-size: .85rem; opacity: .7; }
+#status.error { color: var(--agora-danger, #c0392b); opacity: 1; }
+ul { list-style: none; margin: 0; padding: 0; }
+li button { display: block; width: 100%; text-align: left; font: inherit; padding: .45rem .6rem; margin-bottom: .3rem; border: 1px solid var(--agora-border, #ccc); background: transparent; color: inherit; border-radius: .3rem; cursor: pointer; }
+li button[aria-pressed="true"] { background: color-mix(in srgb, var(--agora-accent, #2a6df4) 22%, transparent); border-color: var(--agora-accent, #2a6df4); }
+li small { opacity: .65; margin-left: .4rem; }
+li .warn { color: var(--agora-danger, #c0392b); }
+:focus-visible { outline: 2px solid var(--agora-accent, #2a6df4); outline-offset: 1px; }
+[hidden] { display: none; }

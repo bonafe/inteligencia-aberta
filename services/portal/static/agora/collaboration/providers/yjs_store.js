@@ -7,6 +7,7 @@ import { Y, awarenessProtocol } from '../../vendor/yjs/yjs.js';
 import { YjsWorkspaceDoc } from '../document/yjs_state_store.js';
 import { YjsPresence } from '../presence/presence.js';
 import { SyncProvider, webSocketTransport } from './sync_provider.js';
+import { ChatClient } from './chat_client.js';
 
 const SAVE_DELAY_MS = 150;
 const PERSISTENCE = 'persistence';
@@ -30,7 +31,8 @@ export class YjsStateStore {
     }
 
     //role: what the catalog last knew about this user in this workspace (until the server says otherwise)
-    async open(workspaceId, { role = 'owner' } = {}) {
+    //me: { id, name } of the person, for the chat (who "you" are; the server takes the author from the token anyway)
+    async open(workspaceId, { role = 'owner', me = null } = {}) {
         if (this.#docs.has(workspaceId)) return this.#docs.get(workspaceId);
         const ydoc = new Y.Doc();
         const doc = new YjsWorkspaceDoc(ydoc);
@@ -40,8 +42,18 @@ export class YjsStateStore {
         const awareness = new awarenessProtocol.Awareness(ydoc);
         doc.presence = new YjsPresence(awareness);
 
-        let timer = null;
+        //The chat lives outside the document (own log on the server, own history here); it needs the provider to talk
         let provider = null;
+        if (me) {
+            doc.chat = new ChatClient({
+                workspaceId, me, storage: this.#backend,
+                send: request => provider?.sendChat(request) ?? false,
+                canWrite: () => doc.role !== 'viewer',
+                available: () => this.#sync !== null,
+            });
+        }
+
+        let timer = null;
         const refreshStatus = () => {
             doc.status = provider && provider.status !== 'synced' ? provider.status : (timer ? 'saving' : 'synced');
         };
@@ -69,7 +81,8 @@ export class YjsStateStore {
                     if (session.role) doc.role = session.role;
                     return webSocketTransport(`${this.#sync.url}/${encodeURIComponent(workspaceId)}`, session.token);
                 },
-                onStatus: refreshStatus,
+                onStatus: status => { refreshStatus(); if (status === 'synced') doc.chat?.onConnected(); },
+                onChat: event => doc.chat?.receive(event),
                 onControl: message => {
                     if (message.type === 'role') doc.role = message.role;
                     if (message.type === 'closed' && message.code === 4403) doc.role = 'viewer';
