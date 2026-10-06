@@ -82,6 +82,7 @@
         <a href="{% url 'agora:app' %}">Investigação (Agora)</a>
         <a href="{% url 'events:painel' %}">Eventos</a>
         <a href="{% url 'cluster:painel' %}">Cluster</a>
+        <a href="{% url 'membros' %}">Membros</a>
         <span style="color:#94a3b8;font-size:.85rem;margin-left:1rem;">{{ user.username }}</span>
         <form method="post" action="{% url 'logout' %}">
           {% csrf_token %}

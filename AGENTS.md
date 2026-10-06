@@ -58,6 +58,7 @@ Os testes do portal usam pytest + pytest-django (`services/portal/tests/`): `doc
 | `services/portal/config/celery.py` | App Celery — não modificar sem entender impacto no worker/beat |
 | `services/portal/apps/accounts/models.py` | Multi-tenancy: User, Organization, Membership, Team |
 | `services/portal/config/settings/` | Django settings por ambiente (base/development/production) |
+| `services/portal/apps/accounts/membros.py` | Adicionar membro à organização (e a um workspace) pelo nome de usuário; tela `/membros/` (`views.membros`). Só OWNER/ADMIN; nunca concede `owner`; não altera papel de quem já é membro |
 | `services/portal/apps/accounts/permissoes.py` | Papéis: `exige_admin`/`eh_admin` (só OWNER/ADMIN vigentes); `orgs_do_usuario` continua sendo o isolamento por organização |
 | `services/portal/apps/artifacts/alegacoes.py` | **Único** caminho para criar `Claim`/`Evidence` (`registrar_alegacao`); alegação é imutável e nasce com evidência |
 | `services/portal/apps/artifacts/classificacao_dominio.py` | Regra "tudo deste domínio nasce, no mínimo, nível X": só sobe o nível, casa por sufixo de rótulo |

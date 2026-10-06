@@ -75,6 +75,8 @@ Extensão Chrome → POST orchestrator:8001/api/v1/capture/mhtml
 
 **`services/portal/apps/accounts/`** — multi-tenancy. `User` com UUID PK, `Organization` (INDIVIDUAL/TEAM/INSTITUTIONAL), `Membership` com papéis (OWNER/ADMIN/MEMBER/GUEST).
 
+**Membros da organização** (`apps/accounts/membros.py`, view `membros`, rota `/membros/`) — dono/administrador adiciona uma pessoa **já cadastrada**, pelo nome de usuário, à organização e, opcionalmente, a um workspace do Agora. Sem convite por e-mail; nunca concede `owner`; não altera o papel de quem já é membro; o papel no workspace respeita o teto da organização. Antes disso a única via era o `/admin/`.
+
 **`services/portal/apps/artifacts/`** — modelo de dados central.
 - `models.py`: `Artifact` (tipos: pessoa/empresa/documento/processo/texto/fragmento), `ArtifactLineage` (rastreia pai→filho + transformação + processador), `AuditLog`, `Sharing`.
 - `tasks.py`: `extract_text_from_mhtml` (Etapa 1 do pipeline), `scan_unprocessed_documents` (catch-up periódico via Beat).

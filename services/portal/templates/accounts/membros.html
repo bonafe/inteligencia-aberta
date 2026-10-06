@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}Membros — Inteligência Aberta{% endblock %}
+
+{% block content %}
+{% if sem_org %}
+<div class="card" style="max-width:520px;margin:3rem auto;">
+  <h1>Membros</h1>
+  <p>Só dono ou administrador de uma organização gerencia os membros dela.</p>
+</div>
+{% else %}
+<div class="card">
+  <h1>Membros de {{ org.name }}</h1>
+  {% if orgs.count > 1 %}
+  <p style="margin-bottom:1rem;font-size:.9rem;">
+    Organização:
+    {% for o in orgs %}{% if o.pk == org.pk %}<strong>{{ o.name }}</strong>{% else %}<a href="{% url 'membros' org_id=o.pk %}">{{ o.name }}</a>{% endif %}{% if not forloop.last %} · {% endif %}{% endfor %}
+  </p>
+  {% endif %}
+
+  <h2 style="font-size:1.1rem;margin-bottom:.75rem;">Adicionar pessoa</h2>
+  <p style="color:#6b7280;font-size:.875rem;margin-bottom:1rem;">A pessoa precisa já ter conta (<code>/registro/</code>). Entra na hora, sem convite.</p>
+  <form method="post">
+    {% csrf_token %}
+    <div class="form-group">
+      <label for="username">Nome de usuário</label>
+      <input type="text" id="username" name="username" required autocomplete="off">
+    </div>
+    <div class="form-group">
+      <label for="papel">Papel na organização</label>
+      <select id="papel" name="papel" style="padding:.5rem;border:1px solid #d1d5db;border-radius:6px;">
+        {% for valor, rotulo in papeis %}<option value="{{ valor }}" {% if valor == "member" %}selected{% endif %}>{{ rotulo }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="form-group">
+      <label for="workspace">Também dar acesso a um workspace (opcional)</label>
+      <select id="workspace" name="workspace" style="padding:.5rem;border:1px solid #d1d5db;border-radius:6px;">
+        <option value="">— nenhum —</option>
+        {% for w in workspaces %}<option value="{{ w.pk }}">{{ w.title }}</option>{% endfor %}
+      </select>
+      <select name="papel_workspace" aria-label="Papel no workspace" style="padding:.5rem;border:1px solid #d1d5db;border-radius:6px;">
+        {% for valor, rotulo in papeis_workspace %}<option value="{{ valor }}" {% if valor == "editor" %}selected{% endif %}>{{ rotulo }}</option>{% endfor %}
+      </select>
+      <p style="color:#6b7280;font-size:.8rem;margin-top:.3rem;">O papel no workspace nunca passa do teto do papel na organização (Convidado só lê).</p>
+    </div>
+    <button type="submit" class="btn btn-primary">Adicionar</button>
+  </form>
+</div>
+
+<div class="card" style="margin-top:1.5rem;">
+  <h2 style="font-size:1.1rem;margin-bottom:.75rem;">Membros atuais</h2>
+  <table style="width:100%;border-collapse:collapse;font-size:.9rem;">
+    <tr style="text-align:left;color:#6b7280;"><th>Usuário</th><th>Papel</th><th>Desde</th></tr>
+    {% for m in membros %}
+    <tr style="border-top:1px solid #e5e7eb;"><td>{{ m.user.username }}</td><td>{{ m.get_role_display }}</td><td>{{ m.joined_at|date:"d/m/Y" }}</td></tr>
+    {% endfor %}
+  </table>
+</div>
+{% endif %}
+{% endblock %}

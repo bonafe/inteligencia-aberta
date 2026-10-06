@@ -2,6 +2,19 @@
 
 Este arquivo documenta as alterações, configurações e implementações feitas por IAs (agentes) neste repositório. O objetivo é manter um histórico unificado e transparente sobre o estado do desenvolvimento, facilitando o onboarding de novas IAs e humanos na base de código.
 
+## [05-10-2026] - Tela `/membros/`: adicionar pessoa à organização e a um workspace
+
+**Motivação:** para dois usuários entrarem no mesmo workspace do Agora eles precisam ser membros da mesma organização, e não havia tela para isso (só o `/admin/`; `Membership.invited_by` existia sem uso).
+
+**O que foi implementado:**
+- **`apps/accounts/membros.py`** (`adicionar_membro`): dono/administrador vigente informa o nome de usuário de quem já tem conta; papéis `admin`/`member`/`guest` (nunca `owner`); quem já é membro vigente mantém o papel; vínculo vencido é reativado; grava `invited_by`. Opcionalmente cria o `WorkspaceMember` (workspace da mesma organização, não arquivado; papel efetivo limitado pelo teto da organização) e avisa o `agora-sync`. Eventos `accounts.membro_adicionado` e `agora.papel_alterado`.
+- **View `membros`** e rotas `/membros/` e `/membros/<org_id>/`, `templates/accounts/membros.html`, card no painel e link no menu.
+- Testes: `tests/test_accounts_membros.py` (8); com `test_agora_api` e `test_cadastro_aberto`, 42 passando. Não rodei a suíte completa nem abri a tela no navegador.
+
+**Documentação atualizada:** `docs/seguranca/autenticacao.md`, `docs/deploy.md` (Cadastro de usuários), `docs/componentes/interfaces/agora.md` e `web.md`, `CLAUDE.md`, `AGENTS.md`.
+
+**Limites:** sem convite para quem ainda não tem conta; sem remover/rebaixar membro (segue no `/admin/`); o link do menu aparece para todos (quem não administra vê acesso negado). Não invalida dados existentes.
+
 ## [05-10-2026] - Ultima Agora no portal (ADR 013 a 016) e atualização geral da documentação
 
 **O que existe:** o **Ultima Agora** (`/agora/`), ambiente de workspaces colaborativos, integrado ao portal. `apps/agora` (modelos `Workspace` e `WorkspaceMember`, papel efetivo com teto na organização, tokens do `agora-sync`, leitura de domínio isolada por organização); pacote de domínio `static/agora-ia/pack/` (`ia-search`, `ia-entity`, `ia-news`); front do Agora em `static/agora/` e serviço `services/agora-sync/` (**cópias** do projeto `ultima-agora`, via `scripts/sincronizar_agora.sh`; não editar). Offline-first com service worker, catálogo local e política de cache por classificação (teto da instância `AGORA_OFFLINE_CACHE_NIVEL`, nível de cada pessoa em ⚙ Configurações). Chat dos workspaces no `agora-sync` (log por workspace, retenção `CHAT_RETENTION_DAYS`). Testes: `tests/test_agora_*.py` e `scripts/testar_agora_ia.sh`.

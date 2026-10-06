@@ -387,6 +387,7 @@ Imagem registrada como agente ou worker disponível para a organização. O Orqu
 /accounts/login/                Formulário de login
 /accounts/logout/               Encerrar sessão
 /accounts/registro/             Criar conta + organização inicial
+/membros/                       Adicionar pessoa à organização (e a um workspace do Agora) pelo nome de usuário; dono/admin
 
 # Investigações
 /investigacoes/                 Lista de investigações

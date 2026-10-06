@@ -32,6 +32,8 @@ Em `/agora/` (menu "Investigação (Agora)"). Especificação do produto: projet
 
 Workspace ou objeto sem acesso é **404** (não revela que existe).
 
+**Como duas pessoas entram no mesmo workspace:** as duas precisam ser membros vigentes da **mesma organização** (o papel nela dá o teto). Dono ou administrador da organização adiciona a segunda em **`/membros/`** (portal), pelo nome de usuário, e pode já lhe dar um papel no workspace; a pessoa então o vê em `/agora/`. O papel no workspace também pode ser mudado depois pela API `.../members/` (só o dono do workspace). Quem se cadastra sozinha em `/registro/` ganha uma organização própria e **não** vê o workspace de outra até ser adicionada.
+
 ## Chat (ADR 016)
 
 O botão 💬 do topo abre o chat do workspace (o mesmo componente `Chat`, que também pode ser uma aba). Mensagens em tempo real, `@nome` para mencionar (o contador fica de outra cor e o título da aba mostra `(n)`), editar e remover as suas (o dono remove qualquer uma). Quem tem papel de leitura **lê** e não escreve. Sem rede, você lê o histórico e escreve: as mensagens ficam "Pendentes" e saem quando a conexão volta. O chat precisa de um `agora-sync` ligado ao workspace.

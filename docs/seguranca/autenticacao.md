@@ -60,7 +60,11 @@ Depois da assinatura, o servidor confere que o DID é de um **par `confirmado` e
 
 ### Autorização por papel (organização)
 
-Pela primeira vez o portal usa `Membership.role`: `apps/accounts/permissoes.py` (`eh_admin`, `exige_admin`, `orgs_onde_e_admin`) — só dono e administrador **vigentes** (`expires_at`); `is_staff`/superusuário **não** administra organização alheia. Hoje vale para `/cluster/pares/` e para instalar/remover modelos do Ollama; `orgs_do_usuario` (isolamento por organização) não mudou.
+Pela primeira vez o portal usa `Membership.role`: `apps/accounts/permissoes.py` (`eh_admin`, `exige_admin`, `orgs_onde_e_admin`) — só dono e administrador **vigentes** (`expires_at`); `is_staff`/superusuário **não** administra organização alheia. Hoje vale para `/cluster/pares/` e para instalar/remover modelos do Ollama; `orgs_do_usuario` (isolamento por organização) não mudou. Também vale para a tela **`/membros/`** (adicionar pessoas à organização; ver abaixo).
+
+### Adicionar pessoas a uma organização (`/membros/`)
+
+Não há convite por e-mail nem link: dono ou administrador **vigente** informa o **nome de usuário** de alguém que já tem conta (`/registro/`) e a pessoa vira membro na hora (`apps/accounts/membros.py`, view `membros`; `/membros/` leva à primeira organização que a pessoa administra, `/membros/<org_id>/` a uma específica). Regras: só dono/administrador (`exige_admin`, 403 para os demais; superusuário não administra organização alheia); papéis concedíveis `admin`, `member`, `guest` (**nunca `owner`**); quem **já é membro vigente** não tem o papel alterado por aqui; vínculo vencido (`expires_at`) é reativado; `Membership.invited_by` guarda quem adicionou. Opcionalmente a mesma tela dá um papel explícito num workspace do Agora da mesma organização (`WorkspaceMember`, nunca acima do teto do papel na organização; workspace de outra organização ou arquivado é recusado) e avisa o `agora-sync`. Emite os eventos `accounts.membro_adicionado` e `agora.papel_alterado` (identificadores, sem conteúdo). Limites: sem convite para quem ainda não tem conta, sem remover nem rebaixar membro (isso segue no `/admin/`).
 
 ## Documentação da API (Swagger) — pública por decisão
 
