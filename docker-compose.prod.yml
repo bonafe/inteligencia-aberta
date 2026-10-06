@@ -73,6 +73,9 @@ services:
     ports:
       - "${BIND_ADDR:-127.0.0.1}:8787:8787"
     environment:
+      # O env_file traz o BIND_ADDR do HOST (IP da tailnet ou 127.0.0.1), que não existe/não alcança de fora
+      # dentro do contêiner. Dentro dele o serviço escuta em todas as interfaces; quem restringe é o `ports` acima.
+      BIND_ADDR: 0.0.0.0
       # Vazio por padrão (o compose interpola mesmo com o profile desligado, então `:?` quebraria quem não usa o Agora):
       # o próprio agora-sync se recusa a subir com segredo ausente ou fraco.
       AGORA_SYNC_SECRET: ${AGORA_SYNC_SECRET:-}
