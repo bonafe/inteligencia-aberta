@@ -14,13 +14,13 @@ if [[ "${resposta,,}" != "s" ]]; then
 fi
 
 echo "==> Parando e removendo containers..."
-docker compose down --remove-orphans
+docker compose --profile '*' down --remove-orphans
 
 echo "==> Removendo dados persistentes (postgres, garage, qdrant, redis)..."
 sudo rm -rf "$REPO_ROOT/data/"
 
 echo "==> Removendo imagens buildadas do projeto..."
-docker compose images -q 2>/dev/null | xargs -r docker rmi -f || true
+docker compose --profile '*' images -q 2>/dev/null | xargs -r docker rmi -f || true
 
 echo ""
 echo "Ambiente limpo. Para subir novamente: ./scripts/subir_containers.sh"
