@@ -546,6 +546,17 @@ Decisões e limites na [ADR 012](decisoes/012-controle-de-instancias-pares.md). 
 
 O que os casos reais (família, tio, órgãos, fotos) pedem além do motor atual está na **proposta** [ADR 018](decisoes/018-federacao-casos-de-uso-pessoais.md). Resumo para leigos, com o modelo de dados gerado dos models (`manage.py mer_federacao`): `federacao.html` no site; regras e simulador no portal: `/cluster/regras/`.
 
+### F1b — pacote offline (implementado em 2026-10-11)
+
+Troca de um espaço **por arquivo** (`apps/federacao/pacote.py`, `envelope.py`, `blobs.py`; modelo `EventoFederado`, migration `federacao.0004`; comandos `exportar_pacote` e `importar_pacote`):
+
+- **Pacote** (zip): `manifesto.json` (envelope assinado, endereçado ao `did` do **destino**, com os ids dos eventos e os blobs), `eventos/NNNNN.json` (um envelope `artefato.compartilhado` por objeto, ligados por `prev`) e `blobs/<sha256>` (o MHTML, nomeado pelo hash). Lido só por nomes esperados e com limites de tamanho; nunca extraído para o disco.
+- **Envelope:** `{v, id, space, actor, author, type, prev, at, must_understand, payload, sig}`; `id` = sha256 dos bytes canônicos sem `id`/`sig`; assinatura Ed25519 da instância. Bytes canônicos = JSON ordenado e compacto (subconjunto do JCS; **números de ponto flutuante viajam como texto**). `must_understand` não vazio **falha fechado**.
+- **Exportar:** cada artefato passa pelo motor (sentido *enviar*, com o espaço e a concessão em lote); o que o motor nega não vai. O que viaja são **resultados**: texto extraído, dados estruturados e alegações ativas com as evidências; a localização interna do blob (bucket/caminho) não vai e `allow_external_llm` não é herdado.
+- **Importar:** confere o pacote **inteiro antes de aplicar qualquer coisa** (assinaturas, ids, cadeia `prev`, blobs contra os hashes do manifesto, destino, emissor = par **confirmado**) e então passa cada objeto pelo motor do receptor (sentido *receber*); o recusado é contado, não explicado. Objeto novo mantém o UUID de origem e o nível (rótulo desconhecido vale `confidencial`), entra no espaço local — par **próprio**: na organização do par; **terceiro**: numa organização dedicada "Federado: <espaço>" (P7) — e é criado sem disparar a extração (nada é reprocessado). Objeto que já existe aqui só ganha o espaço. Idempotente por `evento_id`.
+- **Rastro:** `EventoFederado` (append-only, envelope guardado como veio), `PipelineEvent` `federacao.pacote_*` e `federacao.decisao`, `AuditLog` para `restrito`/`confidencial`.
+- **Limites desta etapa:** testado com **uma instância simulando as duas pontas** (nunca entre duas máquinas reais); a confiança do par (ignorar/quarentena/alegação/repassar, P1) **ainda não é aplicada** — todo par confirmado é aceito; alegações importadas recebem UUID local novo; o conteúdo é JSON simples, sem JSON-LD; a cadeia `prev` é conferida dentro do pacote e uma lacuna em relação a pacotes anteriores é só avisada; o embedding não é recalculado automaticamente após a importação.
+
 ## 15. Fora de escopo deste documento
 
 Replicação de infraestrutura (Cenário A), roteamento de LLM entre nós (já em `apps/cluster/` e ADR 009), e qualquer implementação. Nenhuma alteração de código foi feita junto com esta análise.

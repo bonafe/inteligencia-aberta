@@ -355,7 +355,7 @@
         <div class="quote">Federação é um tipo de escalabilidade horizontal de alta latência.</div>
         <p>Cada máquina roda uma instância completa. Em vez de replicar bancos de dados, as instâncias trocam <strong>eventos assinados</strong> e <strong>arquivos identificados pelo próprio conteúdo</strong> (hash). Isso aceita uma troca: a informação pode demorar a chegar. Para muita coisa, tudo bem — fotos podem sincronizar por horas, desde que as principais nunca se percam.</p>
         <p>O que não pode ceder é <strong>o controle</strong>: cada dado carrega o seu nível de classificação, e quem decide o que sai, e para quem, é um conjunto de regras determinísticas (sem IA) que cada instância aplica do seu lado.</p>
-        <div class="caso"><strong>Honestidade primeiro.</strong> Hoje existem as bases: identidade de cada instância, pares, espaços, alegações com evidência e o motor de regras. <span class="st nao">Ainda não existe</span> a troca de dados entre instâncias — nem por pacote, nem por rede. O motor de regras ainda não está ligado a nenhum envio.</div>
+        <div class="caso"><strong>Honestidade primeiro.</strong> Hoje existem as bases: identidade de cada instância, pares, espaços, alegações com evidência e o motor de regras. Já existe a troca <strong>por pacote offline</strong> — um arquivo assinado, exportado e importado passando pelo motor de regras dos dois lados — <span class="st wip">testada só numa instância simulando as duas pontas</span>. <span class="st nao">Ainda não existe</span> a troca por rede, nem fotos.</div>
     </div>
 </section>
 
@@ -390,7 +390,7 @@
         </ol>
         <p>As <strong>regras padrão</strong> são todas de permitir: uma <em>máquina própria</em> (mesmo dono) recebe todos os níveis; um <em>terceiro</em> recebe só <code>público</code>. Tudo o que você acrescentar (“não mande confidencial para o notebook de trabalho”) vence porque nega.</p>
         <p>E vale <strong>nos dois lados</strong>: quem envia aplica as suas regras; quem recebe aplica as dele. Um notebook pode dizer “não aceito confidencial” e se proteger mesmo que o emissor envie. Quem recusa não explica o motivo, para não vazar informação sobre as suas regras.</p>
-        <p><span class="st ok">Funciona hoje</span> O motor, as regras, as concessões, o simulador (<code>regras_replicacao --decidir</code> e a tela <em>Regras de replicação</em> do portal). <span class="st wip">Falta</span> ligá-lo a um envio de verdade.</p>
+        <p><span class="st ok">Funciona hoje</span> O motor, as regras, as concessões, o simulador (<code>regras_replicacao --decidir</code> e a tela <em>Regras de replicação</em> do portal). Está ligado ao pacote offline (exportar e importar). <span class="st wip">Falta</span> ligá-lo à sincronização por rede.</p>
     </div>
 </section>
 
@@ -402,8 +402,8 @@
         <div class="caso"><h4>1. Minhas máquinas de casa <span class="st ok">motor pronto</span></h4>
             <p>Uma instância nova nasce com você como dono da organização. Outra máquina sua entra como <strong>par próprio</strong> (convite + conferência da impressão digital dos dois lados). Par próprio recebe tudo, inclusive <code>confidencial</code>. “Próprio” é um rótulo que você atribui — o sistema não prova que é a mesma pessoa; por isso marcar exige confirmação.</p></div>
 
-        <div class="caso"><h4>2. Meu irmão: fotos da família <span class="st plan">falta desenho</span></h4>
-            <p>Quero que ele receba fotos <code>restrito</code> com a tag <em>família</em>. Hoje: não há tag como condição, e o piso exige concessão <em>objeto a objeto</em> com validade — uma regra permanente “tudo do espaço família” não basta. Precisa de uma decisão nova (concessão em lote por espaço e par?). Um <strong>espaço</strong> “família” já agrupa objetos e pode ser a base.</p></div>
+        <div class="caso"><h4>2. Meu irmão: fotos da família <span class="st wip">regra pronta; falta o tipo foto</span></h4>
+            <p>Quero que ele receba fotos <code>restrito</code> com a tag <em>família</em>. O espaço “família” faz o papel da tag, e a <strong>concessão em lote por espaço</strong> já existe: uma regra para aquele par, naquele espaço, com validade de até um ano (renovável) e revogável. O piso continua valendo: o espaço padrão (“tudo”) nunca serve de concessão em lote. Falta só o tipo <em>foto</em>.</p></div>
 
         <div class="caso"><h4>3. Meu tio: só certas pessoas, exceto a tia <span class="st plan">falta desenho</span></h4>
             <p>Hoje dá para modelar com um espaço curado (a foto da tia simplesmente não entra) ou uma regra “negar” por objeto. Falta uma condição por <em>pessoa/tag</em> para isso ser uma regra só.</p></div>
@@ -477,6 +477,15 @@ erDiagram
         char did
         char estado
     }
+    EventoFederado {
+        uuid id PK
+        char direcao
+        char tipo
+        char espaco_urn
+        char autor_did
+        char prev
+        char objeto_urn
+    }
     Maquina {
         uuid id PK
         char apelido
@@ -495,22 +504,15 @@ erDiagram
     Artifact ||--o{ EspacoArtefato : &quot;está em&quot;
     Claim |o--o{ Claim : &quot;revisa&quot;
     Claim ||--o{ Evidence : &quot;tem prova&quot;
+    Maquina |o--o{ EventoFederado : &quot;trocou com&quot;
     Organization ||--o{ Artifact : &quot;é dono de&quot;
     Organization ||--o{ Claim : &quot;é dono de&quot;
     Organization ||--o{ ConviteEnrolamento : &quot;convida&quot;
+    Organization ||--o{ EventoFederado : &quot;registra&quot;
     Organization ||--o{ Maquina : &quot;tem pares&quot;
     Organization ||--o{ RegraReplicacao : &quot;tem regras&quot;
     Organization ||--o{ Space : &quot;tem espaços&quot;
     Space ||--o{ EspacoArtefato : &quot;lista&quot;
-    FederationEvent[&quot;FederationEvent (planejado)&quot;] {
-        string space
-        string author
-        string type
-        string prev
-        string payload
-        string sig
-    }
-    Space ||--o{ FederationEvent : &quot;contém&quot;
     Foto[&quot;Foto (planejado)&quot;] {
         string blob_hash
         string exif
@@ -535,7 +537,7 @@ flowchart TD
     D -- não --> N3["NEGA (padrão)"]
 </pre></div>
         <h3>O que ainda não existe: o protocolo</h3>
-        <p>O intercâmbio será um <strong>evento assinado</strong> (autor, espaço, tipo, ligação ao evento anterior, conteúdo em JSON-LD, assinatura Ed25519). Isto é <strong>desenho</strong> (ADR 010), sem tabela ainda.</p>
+        <p>O intercâmbio é um <strong>evento assinado</strong> (autor, espaço, tipo, ligação ao evento anterior, conteúdo, assinatura Ed25519) dentro de um pacote com os arquivos nomeados pelo próprio hash. Já existe no pacote offline (tabela <code>EventoFederado</code>, só de acréscimo). O conteúdo ainda é JSON simples, <strong>não</strong> JSON-LD — isso é desenho futuro (ADR 010).</p>
         <div class="diagrama"><pre class="mermaid">
 flowchart LR
     I1["Instância A; regras de envio"] -- "evento assinado + blobs por hash" --> M["pacote ou rede"]
@@ -554,7 +556,7 @@ flowchart LR
             <tr><td>F0</td><td>Hash de conteúdo, IDs globais, chave da instância, alegações com evidência</td><td><span class="st ok">feito</span></td></tr>
             <tr><td>F1</td><td>Espaços, motor de regras, pares com convite e impressão digital</td><td><span class="st ok">feito</span> (testado com simulações, não entre máquinas reais)</td></tr>
             <tr><td>Agora</td><td>Esta página, a tela de regras no portal e a ADR das decisões que os casos expõem (tags, concessão em lote, réplicas, fotos)</td><td><span class="st wip">em andamento</span></td></tr>
-            <tr><td>F1b</td><td>Pacote offline assinado do MHTML e dos dados estruturados — duas instâncias trocam um espaço por arquivo</td><td><span class="st plan">próximo</span></td></tr>
+            <tr><td>F1b</td><td>Pacote offline assinado do MHTML, do texto extraído, dos dados estruturados e das alegações — duas instâncias trocam um espaço por arquivo</td><td><span class="st wip">código pronto</span> (falta provar entre duas máquinas reais)</td></tr>
             <tr><td>F2</td><td>Sincronização por rede (pull assinado), blobs por hash, espelho entre máquinas próprias</td><td><span class="st plan">planejado</span></td></tr>
             <tr><td>Depois</td><td>Fotos (tipo novo), tags, política de réplicas por disco, organização comum entre instâncias</td><td><span class="st plan">planejado</span></td></tr>
         </table></div>

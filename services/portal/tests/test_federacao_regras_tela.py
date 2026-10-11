@@ -91,5 +91,5 @@ def test_mer_mermaid_rotula_o_planejado():
     texto = mer.mermaid()
     assert texto.startswith("erDiagram")
     assert "Space ||--o{ EspacoArtefato" in texto
-    for nome in ("FederationEvent", "Foto", "Tag"):
+    for nome in ("Foto", "Tag"):
         assert f'"{nome} (planejado)"' in texto

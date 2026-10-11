@@ -61,6 +61,9 @@ class Contexto:
     tipo_objeto: str | None = None
     espaco_urn: str | None = None
     objeto_urn: str | None = None
+    #: `espaco_urn` é um espaço **explícito** (com linha no banco) em que o objeto está.
+    #: O espaço padrão ("tudo da organização") nunca vale como concessão em lote (ADR 018, item 2).
+    espaco_explicito: bool = False
 
 
 @dataclass(frozen=True)
@@ -98,13 +101,23 @@ def casa(regra: RegraDados, ctx: Contexto, nivel: str, agora: datetime) -> bool:
 
 
 def _eh_concessao(regra: RegraDados, ctx: Contexto, agora: datetime) -> bool:
-    """Concessão: *permitir* para ESTE objeto e ESTE par, com validade ainda vigente."""
-    return (
+    """Concessão: *permitir* para este par, com validade ainda vigente, por **objeto** ou por **espaço**.
+
+    - por objeto: `objeto_urn` é o deste objeto;
+    - em lote por espaço (ADR 018): `espaco_urn` é o de um espaço **explícito** em que o
+      objeto está (`ctx.espaco_explicito`) e a regra não é por objeto.
+
+    Nos dois casos o par é nomeado e a validade é obrigatória.
+    """
+    if not (
         regra.efeito == PERMITIR
-        and regra.objeto_urn is not None and regra.objeto_urn == ctx.objeto_urn
         and regra.par_ref is not None and regra.par_ref == ctx.par_ref
         and regra.valida_ate is not None
-    )
+    ):
+        return False
+    if regra.objeto_urn is not None:
+        return regra.objeto_urn == ctx.objeto_urn
+    return regra.espaco_urn is not None and regra.espaco_urn == ctx.espaco_urn and ctx.espaco_explicito
 
 
 def avaliar(regras, ctx: Contexto, agora: datetime) -> Decisao:
@@ -123,7 +136,7 @@ def avaliar(regras, ctx: Contexto, agora: datetime) -> Decisao:
                 return Decisao(
                     False,
                     f"piso: o nível {nivel} só sai para terceiro por concessão explícita "
-                    "(permitir para este objeto e este par, com validade)",
+                    "(permitir para este objeto ou este espaço e este par, com validade)",
                     "piso", nivel, casaram=ids,
                 )
 

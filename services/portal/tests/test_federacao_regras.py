@@ -456,3 +456,95 @@ class TestComando:
             _cmd("--listar", "--organizacao", "nao-existe")
         with pytest.raises(CommandError):
             _cmd("--decidir", "--organizacao", org.slug)
+
+
+# ── concessão em lote por espaço (ADR 018, item 2) ───────────────────────────
+
+def lote(**kw):
+    base = dict(id="l1", efeito="permitir", sentido="enviar", par_ref="irmao", espaco_urn=ESP, valida_ate=FUTURO)
+    base.update(kw)
+    return RegraDados(**base)
+
+
+@pytest.mark.parametrize("nivel", ["restrito", "confidencial"])
+def test_lote_por_espaco_explicito_libera_restrito_e_confidencial(nivel):
+    c = ctx(nivel=nivel, par_ref="irmao", espaco_urn=ESP, espaco_explicito=True, objeto_urn=OBJ)
+    d = decidir(PADROES + [lote()], c)
+    assert d.permitido and d.regra_id == "l1"
+
+
+def test_lote_nao_vale_no_espaco_padrao():
+    c = ctx(nivel="restrito", par_ref="irmao", espaco_urn=ESP, espaco_explicito=False, objeto_urn=OBJ)
+    d = decidir(PADROES + [lote()], c)
+    assert not d.permitido and d.origem == "piso"
+
+
+def test_lote_exige_par_nomeado_e_validade():
+    c = ctx(nivel="restrito", par_ref="irmao", espaco_urn=ESP, espaco_explicito=True, objeto_urn=OBJ)
+    assert not decidir(PADROES + [lote(par_ref=None)], c).permitido
+    assert not decidir(PADROES + [lote(valida_ate=None)], c).permitido
+    assert not decidir(PADROES + [lote(valida_ate=PASSADO)], c).permitido
+
+
+def test_lote_nao_vale_para_outro_par_nem_outro_espaco():
+    outro_esp = f"urn:uuid:{uuid.uuid4()}"
+    c = ctx(nivel="restrito", par_ref="tio", espaco_urn=ESP, espaco_explicito=True, objeto_urn=OBJ)
+    assert not decidir(PADROES + [lote()], c).permitido
+    c = ctx(nivel="restrito", par_ref="irmao", espaco_urn=outro_esp, espaco_explicito=True, objeto_urn=OBJ)
+    assert not decidir(PADROES + [lote()], c).permitido
+
+
+def test_lote_nao_libera_interno_e_negar_vence():
+    c = ctx(nivel="interno", par_ref="irmao", espaco_urn=ESP, espaco_explicito=True, objeto_urn=OBJ)
+    assert decidir(PADROES + [lote()], c).origem == "piso"
+    c = ctx(nivel="restrito", par_ref="irmao", espaco_urn=ESP, espaco_explicito=True, objeto_urn=OBJ)
+    negar_obj = RegraDados("n1", "negar", "enviar", objeto_urn=OBJ)  # "sem a foto da tia"
+    d = decidir(PADROES + [lote(), negar_obj], c)
+    assert not d.permitido and d.regra_id == "n1"
+
+
+@pytest.mark.django_db
+class TestConcederEspaco:
+    @pytest.fixture
+    def org(self):
+        dono = User.objects.create_user(username="d", password="x")
+        return Organization.objects.create(name="O", slug="o", org_type="individual", owner=dono)
+
+    def test_cria_a_regra_e_vale_para_o_artefato_do_espaco(self, org):
+        from apps.federacao import espacos
+
+        esp = espacos.criar_espaco(organizacao=org, nome="familia")
+        art = Artifact.objects.create(
+            artifact_type="documento", content={}, tenant=org, classification_level="restrito", info_type="fato",
+        )
+        espacos.incluir_artefato(esp, art)
+        antes = politica.decidir_artefato(art, sentido="enviar", par_tipo="terceiro", par_ref="irmao",
+                                          espaco_urn=esp.urn, espaco_explicito=True)
+        assert not antes.permitido
+        politica.conceder_espaco(org, esp, par_ref="irmao", valida_ate=timezone.now() + timedelta(days=30))
+        depois = politica.decidir_artefato(art, sentido="enviar", par_tipo="terceiro", par_ref="irmao",
+                                           espaco_urn=esp.urn, espaco_explicito=True)
+        assert depois.permitido
+
+    def test_recusa_espaco_padrao_validade_longa_e_par_vazio(self, org):
+        from apps.federacao import espacos
+
+        esp = espacos.criar_espaco(organizacao=org, nome="familia")
+        futuro = timezone.now() + timedelta(days=30)
+        with pytest.raises(ValueError):
+            politica.conceder_espaco(org, espacos.espaco_padrao(org), par_ref="x", valida_ate=futuro)
+        with pytest.raises(ValueError):
+            politica.conceder_espaco(org, esp, par_ref="x", valida_ate=timezone.now() + timedelta(days=400))
+        with pytest.raises(ValueError):
+            politica.conceder_espaco(org, esp, par_ref=" ", valida_ate=futuro)
+        with pytest.raises(ValueError):
+            politica.conceder_espaco(org, esp, par_ref="x", valida_ate=timezone.now() - timedelta(days=1))
+
+    def test_revogar_desfaz(self, org):
+        from apps.federacao import espacos
+
+        esp = espacos.criar_espaco(organizacao=org, nome="familia")
+        regra = politica.conceder_espaco(org, esp, par_ref="irmao", valida_ate=timezone.now() + timedelta(days=30))
+        politica.revogar(regra)
+        regra.refresh_from_db()
+        assert not regra.ativa

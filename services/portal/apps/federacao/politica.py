@@ -64,20 +64,29 @@ def decidir(organizacao, ctx: regras.Contexto, *, agora=None) -> regras.Decisao:
 
 
 def contexto_do_artefato(artefato, *, sentido: str, par_tipo: str, par_ref: str | None = None,
-                         espaco_urn: str | None = None) -> regras.Contexto:
+                         espaco_urn: str | None = None, espaco_explicito: bool = False) -> regras.Contexto:
     return regras.Contexto(
         sentido=sentido, par_tipo=par_tipo, par_ref=par_ref, nivel=artefato.classification_level,
         tipo_objeto=artefato.artifact_type, espaco_urn=espaco_urn, objeto_urn=artefato.urn,
+        espaco_explicito=espaco_explicito,
     )
 
 
 def decidir_artefato(artefato, *, sentido: str, par_tipo: str, par_ref: str | None = None,
-                     espaco_urn: str | None = None, agora=None) -> regras.Decisao:
-    """Decisão para um `Artifact`, usando as regras da organização dona dele."""
+                     espaco_urn: str | None = None, espaco_explicito: bool = False,
+                     agora=None) -> regras.Decisao:
+    """Decisão para um `Artifact`, usando as regras da organização dona dele.
+
+    `espaco_explicito` só deve ser `True` se `espaco_urn` for um `Space` com linha no
+    banco **em que o artefato está**: é o que habilita a concessão em lote por espaço.
+    """
     from apps.accounts.models import Organization
 
     organizacao = Organization.objects.get(pk=artefato.tenant_id)
-    ctx = contexto_do_artefato(artefato, sentido=sentido, par_tipo=par_tipo, par_ref=par_ref, espaco_urn=espaco_urn)
+    ctx = contexto_do_artefato(
+        artefato, sentido=sentido, par_tipo=par_tipo, par_ref=par_ref, espaco_urn=espaco_urn,
+        espaco_explicito=espaco_explicito,
+    )
     return decidir(organizacao, ctx, agora=agora)
 
 
@@ -128,6 +137,45 @@ def conceder(organizacao, artefato, *, par_ref: str, valida_ate, criada_por=None
         return RegraReplicacao.objects.create(
             organizacao=organizacao, efeito=regras.PERMITIR, sentido=regras.ENVIAR, par_ref=par_ref,
             objeto_urn=artefato.urn, valida_ate=valida_ate, criada_por=criada_por, observacao=observacao,
+        )
+    except ValidationError as exc:
+        raise ValueError("; ".join(m for msgs in exc.message_dict.values() for m in msgs)) from None
+
+
+#: Teto da validade de uma concessão em lote (ADR 018): renovável, mas nunca "para sempre".
+VALIDADE_MAXIMA_LOTE_DIAS = 366
+
+
+def conceder_espaco(organizacao, espaco, *, par_ref: str, valida_ate, criada_por=None,
+                    observacao: str = "") -> RegraReplicacao:
+    """Concessão **em lote**: tudo o que estiver no `espaco` pode sair para `par_ref` até `valida_ate`.
+
+    Só vale para um espaço **explícito** da própria organização (nunca o padrão, que
+    contém tudo), com par nomeado e validade futura de no máximo
+    `VALIDADE_MAXIMA_LOTE_DIAS`. Continua sendo um ato humano, revogável (`revogar`).
+    Vale para o que estiver no espaço **no momento do envio**. `ValueError` se faltar algo.
+    """
+    from datetime import timedelta
+
+    from django.core.exceptions import ValidationError
+
+    from .models import Space
+
+    if not isinstance(espaco, Space):
+        raise ValueError("só um espaço explícito pode receber uma concessão em lote (o padrão contém tudo)")
+    if espaco.organizacao_id != organizacao.id:
+        raise ValueError("o espaço é de outra organização")
+    if not (par_ref or "").strip():
+        raise ValueError("a concessão em lote precisa dizer para qual par")
+    agora = timezone.now()
+    if valida_ate is None or valida_ate <= agora:
+        raise ValueError("a concessão exige uma validade no futuro")
+    if valida_ate > agora + timedelta(days=VALIDADE_MAXIMA_LOTE_DIAS):
+        raise ValueError(f"a validade de uma concessão em lote é de no máximo {VALIDADE_MAXIMA_LOTE_DIAS} dias")
+    try:
+        return RegraReplicacao.objects.create(
+            organizacao=organizacao, efeito=regras.PERMITIR, sentido=regras.ENVIAR, par_ref=par_ref.strip(),
+            espaco_urn=espaco.urn, valida_ate=valida_ate, criada_por=criada_por, observacao=observacao,
         )
     except ValidationError as exc:
         raise ValueError("; ".join(m for msgs in exc.message_dict.values() for m in msgs)) from None

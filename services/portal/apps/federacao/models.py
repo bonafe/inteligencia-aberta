@@ -221,3 +221,49 @@ class RegraReplicacao(models.Model):
             espaco_urn=self.espaco_urn, objeto_urn=self.objeto_urn, valida_ate=self.valida_ate,
             ativa=self.ativa, padrao=self.padrao,
         )
+
+
+class EventoFederado(models.Model):
+    """Um evento assinado que **saiu** desta instância (em pacote) ou **chegou** nela — ADR 010.
+
+    Append-only como o `AuditLog`: nenhum processo atualiza ou apaga (o modelo recusa
+    `save` de linha existente e `delete`). O envelope é guardado **exatamente como veio**
+    (`envelope_bruto`), porque a assinatura é sobre esses bytes; os demais campos são
+    cópias para consulta. Um `evento_id` aparece uma vez por direção, o que torna a
+    importação idempotente.
+    """
+
+    class Direcao(models.TextChoices):
+        EMITIDO = "emitido", "Emitido"
+        RECEBIDO = "recebido", "Recebido"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    organizacao = models.ForeignKey("accounts.Organization", on_delete=models.PROTECT, related_name="eventos_federados")
+    direcao = models.CharField(max_length=10, choices=Direcao.choices)
+    evento_id = models.CharField(max_length=80, help_text="`sha256:…` do envelope sem a assinatura.")
+    tipo = models.CharField(max_length=60)
+    espaco_urn = models.CharField(max_length=60)
+    autor_did = models.CharField(max_length=100)
+    prev = models.CharField(max_length=80, null=True, blank=True)
+    objeto_urn = models.CharField(max_length=60, null=True, blank=True)
+    par = models.ForeignKey("cluster.Maquina", null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    envelope_bruto = models.TextField()
+    criado_em = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "federacao_evento"
+        constraints = [
+            models.UniqueConstraint(fields=["organizacao", "direcao", "evento_id"], name="uniq_evento_federado"),
+        ]
+        indexes = [models.Index(fields=["organizacao", "direcao", "autor_did", "espaco_urn", "criado_em"])]
+
+    def save(self, *args, **kwargs):
+        if not self._state.adding:
+            raise ValueError("EventoFederado é append-only: não se altera")
+        super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValueError("EventoFederado é append-only: não se apaga")
+
+    def __str__(self):
+        return f"{self.direcao} {self.tipo} {self.evento_id[:16]}"

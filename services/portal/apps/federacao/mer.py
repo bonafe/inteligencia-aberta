@@ -23,6 +23,7 @@ CAMPOS: dict[str, tuple[str, ...]] = {
         "espaco_urn", "objeto_urn", "valida_ate", "padrao",
     ),
     "federacao.ChaveInstancia": ("did", "estado"),
+    "federacao.EventoFederado": ("direcao", "tipo", "espaco_urn", "autor_did", "prev", "objeto_urn"),
     "cluster.Maquina": ("apelido", "did", "tipo", "estado", "eh_local"),
     "cluster.ConviteEnrolamento": ("tipo", "expira_em", "usado_em"),
 }
@@ -32,8 +33,6 @@ MODELOS = tuple(CAMPOS)
 
 #: Ainda sem tabela: (nome, campos, relações "Origem ||--o{ Destino : rótulo").
 PLANEJADAS = (
-    ("FederationEvent", ("space", "author", "type", "prev", "payload", "sig"),
-     ("Space ||--o{ FederationEvent : contém",)),
     ("Foto", ("blob_hash", "exif", "capturada_em"), ("Artifact ||--o| Foto : é",)),
     ("Tag", ("nome",), ("Tag }o--o{ Artifact : etiqueta",)),
 )
@@ -47,6 +46,8 @@ _ROTULO = {
     ("Claim", "artefato"): "origina",
     ("Claim", "tenant"): "é dono de",
     ("Evidence", "claim"): "tem prova",
+    ("EventoFederado", "organizacao"): "registra",
+    ("EventoFederado", "par"): "trocou com",
     ("EspacoArtefato", "espaco"): "lista",
     ("EspacoArtefato", "artefato"): "está em",
     ("ConviteEnrolamento", "organizacao"): "convida",
