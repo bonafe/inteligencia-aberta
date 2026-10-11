@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+{% block title %}Regras de replicação — Inteligência Aberta{% endblock %}
+
+{% block content %}
+<style>
+  .bloco { background:#fff; border:1px solid #e5e7eb; border-radius:8px; padding:1.25rem 1.5rem; margin-top:1.25rem; box-shadow:0 1px 3px rgba(0,0,0,.05); }
+  .bloco h2 { font-size:1.05rem; margin-bottom:.5rem; }
+  table.t { width:100%; border-collapse:collapse; font-size:.86rem; }
+  table.t th, table.t td { text-align:left; padding:.35rem .5rem; border-top:1px solid #f1f5f9; vertical-align:top; }
+  .tag { display:inline-block; font-size:.72rem; padding:.1rem .5rem; border-radius:999px; background:#eef2ff; color:#4338ca; font-weight:500; }
+  .tag.permitir { background:#ecfdf5; color:#047857; }
+  .tag.negar { background:#fee2e2; color:#b91c1c; }
+  .mono { font-family: ui-monospace, monospace; }
+  .erro { background:#fef2f2; border:1px solid #fca5a5; color:#991b1b; border-radius:6px; padding:.7rem .9rem; margin-top:1rem; }
+  .ok { background:#f0fdf4; border:1px solid #86efac; color:#166534; border-radius:6px; padding:.7rem .9rem; margin-top:1rem; }
+  .nao { background:#fef2f2; border:1px solid #fca5a5; color:#991b1b; border-radius:6px; padding:.7rem .9rem; margin-top:1rem; }
+  .sem-dado { color:#9ca3af; font-size:.9rem; }
+  .ajuda { font-size:.88rem; color:#475569; margin:.4rem 0; }
+  details.ent { margin:.3rem 0; } details.ent summary { cursor:pointer; font-weight:600; }
+</style>
+
+<h1>Regras de replicação</h1>
+<p class="ajuda">
+  Quem recebe o quê. Para cada (objeto, par): primeiro os <strong>pisos</strong> (<code>interno</code> nunca sai para terceiro;
+  <code>restrito</code>/<code>confidencial</code> só por concessão), depois as regras — <strong>negar vence</strong>; sem regra que permita, <strong>nega</strong>.
+  Hoje <strong>nenhum envio entre instâncias usa o motor ainda</strong>: esta tela mostra e simula as regras. Edição: no admin.
+</p>
+
+{% if organizacoes|length > 1 %}
+<form method="get" class="bloco">
+  Organização:
+  <select name="organizacao" onchange="this.form.submit()">
+    {% for o in organizacoes %}<option value="{{ o.pk }}" {% if o.pk == org.pk %}selected{% endif %}>{{ o.name }}</option>{% endfor %}
+  </select>
+</form>
+{% endif %}
+
+{% if erro %}<div class="erro">{{ erro }}</div>{% endif %}
+
+<div class="bloco">
+  <h2>Simular uma decisão — “por que isto não vai para o par X?”</h2>
+  {% if sou_admin %}
+  <form method="post">{% csrf_token %}
+    <input type="hidden" name="organizacao" value="{{ org.pk }}">
+    <select name="sentido"><option value="enviar" {% if sim.sentido == 'enviar' %}selected{% endif %}>Enviar</option><option value="receber" {% if sim.sentido == 'receber' %}selected{% endif %}>Receber</option></select>
+    <select name="par_tipo"><option value="proprio" {% if sim.par_tipo == 'proprio' %}selected{% endif %}>par próprio</option><option value="terceiro" {% if sim.par_tipo == 'terceiro' %}selected{% endif %}>par terceiro</option></select>
+    <input name="par_ref" placeholder="nome do par (opcional)" value="{{ sim.par_ref|default:'' }}">
+    <select name="nivel">{% for n in niveis %}<option value="{{ n }}" {% if sim.nivel == n %}selected{% endif %}>{{ n }}</option>{% endfor %}</select>
+    <input name="tipo_objeto" placeholder="tipo do objeto (opcional)" value="{{ sim.tipo_objeto|default:'' }}">
+    <button type="submit">Simular</button>
+  </form>
+  <p class="ajuda">A simulação não registra nada (nem evento nem auditoria).</p>
+  {% else %}
+  <p class="sem-dado">Só dono ou administrador da organização simula.</p>
+  {% endif %}
+  {% if decisao %}
+  <div class="{% if decisao.permitido %}ok{% else %}nao{% endif %}">
+    <strong>{% if decisao.permitido %}Permitido{% else %}Negado{% endif %}</strong> — {{ decisao.motivo }}
+    <div class="ajuda">decidido por: {{ decisao.origem }}{% if decisao.regra_id %} · regra <span class="mono">{{ decisao.regra_id }}</span>{% if decisao.regra_padrao %} (padrão){% endif %}{% endif %} · nível efetivo: {{ decisao.nivel_efetivo }}</div>
+  </div>
+  {% endif %}
+</div>
+
+
+<div class="bloco">
+  <h2>Regras padrão</h2>
+  {% include "federacao/_tabela_regras.html" with lista=regras_padrao %}
+</div>
+<div class="bloco">
+  <h2>Regras da organização</h2>
+  {% include "federacao/_tabela_regras.html" with lista=regras_usuario %}
+</div>
+<div class="bloco">
+  <h2>Concessões (objeto + par + validade)</h2>
+  {% include "federacao/_tabela_regras.html" with lista=concessoes %}
+</div>
+
+<div class="bloco">
+  <h2>Pares</h2>
+  {% for p in pares %}
+    <div>{{ p.apelido }} <span class="tag">{{ p.get_tipo_display }}</span> <span class="tag">{{ p.get_estado_display }}</span></div>
+  {% empty %}<p class="sem-dado">Nenhum par. <a href="{% url 'cluster:pares' %}">Cadastrar</a>.</p>{% endfor %}
+</div>
+<div class="bloco">
+  <h2>Espaços</h2>
+  <p class="ajuda">Além do espaço padrão implícito (“tudo da organização”).</p>
+  {% for s in espacos %}<div>{{ s.nome }} <span class="mono">{{ s.urn }}</span>{% if s.arquivado %} <span class="tag">arquivado</span>{% endif %}</div>
+  {% empty %}<p class="sem-dado">Nenhum espaço explícito.</p>{% endfor %}
+</div>
+
+<div class="bloco">
+  <h2>Modelo de dados (lido dos models)</h2>
+  <p class="ajuda">O desenho gráfico está no site (<code>federacao.html</code>); gerar o Mermaid: <code>manage.py mer_federacao</code>.</p>
+  {% for e in entidades %}
+    <details class="ent"><summary>{{ e.nome }} <span class="mono">{{ e.tabela }}</span></summary>
+      <table class="t">{% for c in e.campos %}<tr><td class="mono">{{ c.nome }}</td><td>{{ c.tipo }}</td><td>{{ c.chave }}</td></tr>{% endfor %}</table>
+    </details>
+  {% endfor %}
+  <p class="ajuda"><strong>Relações:</strong></p>
+  <ul class="ajuda">{% for o, d, card, rot in relacoes %}<li>{{ o }} → {{ d }} <em>({{ rot }})</em></li>{% endfor %}</ul>
+</div>
+{% endblock %}

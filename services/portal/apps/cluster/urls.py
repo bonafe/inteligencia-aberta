@@ -1,5 +1,7 @@
 from django.urls import path
 
+from apps.federacao import views_regras
+
 from . import views, views_modelos, views_pares
 
 app_name = "cluster"
@@ -11,6 +13,7 @@ urlpatterns = [
     path("maquinas/<uuid:maquina_id>/modelos/remover/", views_modelos.RemoverView.as_view(), name="modelos_remover"),
     path("operacoes/<uuid:operacao_id>/", views_modelos.OperacaoView.as_view(), name="operacao"),
     path("operacoes/<uuid:operacao_id>/cancelar/", views_modelos.CancelarOperacaoView.as_view(), name="operacao_cancelar"),
+    path("regras/", views_regras.RegrasView.as_view(), name="regras"),
     path("pares/", views_pares.ParesView.as_view(), name="pares"),
     path("pares/convite/", views_pares.CriarConviteView.as_view(), name="pares_convite"),
     path("pares/convite/previsualizar/", views_pares.PreverConviteView.as_view(), name="pares_previsualizar"),

@@ -1,0 +1,17 @@
+{% if lista %}
+<table class="t">
+  <tr><th>Efeito</th><th>Sentido</th><th>Par</th><th>Nível</th><th>Tipo</th><th>Espaço/objeto</th><th>Validade</th><th></th></tr>
+  {% for r in lista %}
+  <tr>
+    <td><span class="tag {{ r.efeito }}">{{ r.get_efeito_display }}</span></td>
+    <td>{{ r.get_sentido_display }}</td>
+    <td>{{ r.par_ref|default:r.par_tipo|default:"qualquer" }}</td>
+    <td>{{ r.nivel|default:"qualquer" }}</td>
+    <td>{{ r.tipo_objeto|default:"qualquer" }}</td>
+    <td class="mono">{{ r.objeto_urn|default:r.espaco_urn|default:"—" }}</td>
+    <td>{{ r.valida_ate|date:"d/m/Y H:i"|default:"—" }}</td>
+    <td>{% if not r.ativa %}<span class="tag">desativada</span>{% endif %}{% if r.revogada_em %} <span class="tag">revogada</span>{% endif %}</td>
+  </tr>
+  {% endfor %}
+</table>
+{% else %}<p class="sem-dado">Nenhuma.</p>{% endif %}

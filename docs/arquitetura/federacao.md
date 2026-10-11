@@ -542,6 +542,10 @@ Decisões e limites na [ADR 012](decisoes/012-controle-de-instancias-pares.md). 
 - **Operações de modelo** (`apps/cluster/operacoes.py`): local (task em fila própria) ou em par (máquina offline falha na hora; online, espelho com progresso por pull). Uma operação ativa por (máquina, modelo), teto de 3 por máquina.
 - **Tela** (`/cluster/`, `views_modelos.py`): inventário, instalar, remover, cancelar; offline desabilita as ações com o motivo.
 
+### Casos de uso pessoais e a vitrine (2026-10-11)
+
+O que os casos reais (família, tio, órgãos, fotos) pedem além do motor atual está na **proposta** [ADR 018](decisoes/018-federacao-casos-de-uso-pessoais.md). Resumo para leigos, com o modelo de dados gerado dos models (`manage.py mer_federacao`): `federacao.html` no site; regras e simulador no portal: `/cluster/regras/`.
+
 ## 15. Fora de escopo deste documento
 
 Replicação de infraestrutura (Cenário A), roteamento de LLM entre nós (já em `apps/cluster/` e ADR 009), e qualquer implementação. Nenhuma alteração de código foi feita junto com esta análise.
