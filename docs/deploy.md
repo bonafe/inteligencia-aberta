@@ -180,6 +180,16 @@ Regras de decisão para a automação:
 - O autorregistro local coloca a máquina na organização do **administrador da instância** (o superusuário mais antigo); sem superusuário e com várias organizações, defina `CLUSTER_MACHINE_ID` (ver `docs/operacao/escala-multimaquina.md`).
 - Validação: `curl -fsS -X POST -H 'Authorization: Bearer <token>' -H 'Content-Type: application/json' -d '{"model":"<modelo>","messages":[{"role":"user","content":"oi"}]}' http://<ip-vpn>:8000/v1/chat/completions` deve devolver JSON no formato OpenAI; sem o header, `401`; sem `LLM_GATEWAY_TOKEN` no nó, `404`. Este comando **não foi testado entre máquinas reais**.
 
+## IPED (processamento forense, opcional)
+
+Perfil `iped` do compose (ADR 019): `docker compose ... --profile iped up -d --build`. Sobem o `iped` (sem rede, entrada somente leitura) e o `worker-iped` (fila `iped`, concorrência 1). **Nenhum dos dois toca o Docker**: o portal escreve um pedido no volume `/trabalho` e o `iped` lê, executa e grava o estado.
+
+- `IPED_ENTRADA_HOST`: pasta do host com as evidências (montada em `/entrada:ro`). Só o que está dentro dela pode ser processado; o caminho do pedido é **relativo** a ela, e `..`, caminhos absolutos e links que fogem são recusados.
+- Pedir: `docker compose exec portal python manage.py processar_iped --organizacao <slug> --relativo caso1 --perfil fastmode`; acompanhar com `--status <id>`; cancelar com `--cancelar <id>`. O caso fica em `${DATA_DIR}/iped/saida/<id>`.
+- A imagem do IPED é a da **comunidade** (`ipeddocker/iped:processor`, não é do projeto IPED; na validação trazia a 4.4.0-SNAPSHOT); **fixe por digest** antes de produção. É grande (~6,6 GB em disco) e **cada caso gerado carrega a própria instalação do IPED (~750 MB)**. O contêiner roda sem rede, sem root, com raiz somente leitura e `/tmp` com `exec`.
+- **Dado forense nasce sensível**; a importação para o IA (ainda não existe) o classificará como `confidencial`/`restrito`.
+- Um IPED **nativo** no host funciona igual: rode `infra/iped/runner.sh` lá com `IPED_TRABALHO`, `IPED_ENTRADA`, `IPED_SAIDA` e `IPED_DIR` apontando para as mesmas pastas.
+
 ## Ultima Agora (colaboração em tempo real)
 
 O Agora (`/agora/`, ADR 013) é parte do portal e **não exige nada além do que o portal já tem**: abre, cria workspaces e funciona **offline** (service worker, ADR 015). O `agora-sync` (ADR 014 e 016) é o serviço **opcional** que acrescenta edição simultânea, presença, mudança de papel valendo na hora e o **chat** dos workspaces. Ele é um contêiner Node próprio (profile `agora`); o portal continua dono de autenticação e autorização — o `agora-sync` só valida o token curto que o portal emite e não conhece usuários nem organizações.

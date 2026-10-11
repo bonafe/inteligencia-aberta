@@ -60,6 +60,15 @@ services:
       bootstrap:
         condition: service_completed_successfully
 
+  worker-iped:
+    <<: *restart
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
+
+  iped:
+    <<: *restart
+
   beat:
     <<: *restart
     depends_on:

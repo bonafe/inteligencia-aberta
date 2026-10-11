@@ -119,6 +119,58 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
+  # IPED (processamento forense de pastas/arquivos): opcional, só com `--profile iped` (ADR 019).
+  # `iped` roda o IPED SEM REDE, lendo /entrada somente leitura e gravando o caso em /saida; o
+  # `worker-iped` (fila `iped`) só escreve pedidos em /trabalho e lê o estado — nenhum dos dois toca o
+  # Docker. IPED_ENTRADA_HOST é a pasta do host com as evidências (ex.: o disco da Antares).
+  iped:
+    build: ./infra/iped
+    profiles: ["iped"]
+    network_mode: none
+    # Sem rede, o Java não resolve o próprio nome (o log4j do IPED falha ao subir): fixa o nome em 127.0.0.1.
+    hostname: iped
+    extra_hosts:
+      - "iped:127.0.0.1"
+    # Sem root: o mesmo uid do dono das pastas do host (evita depender de CAP_DAC_OVERRIDE).
+    user: "${IPED_UID:-1000}:${IPED_GID:-1000}"
+    read_only: true
+    tmpfs:
+      # `exec` é necessário: o Java extrai bibliotecas nativas (zstd-jni) para /tmp e as carrega de lá.
+      - /tmp:exec,size=${IPED_TMP_GB:-8}g
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    mem_limit: ${IPED_MEM_LIMIT:-12g}
+    environment:
+      IPED_TIMEOUT_S: ${IPED_TIMEOUT_S:-86400}
+      HOME: /home/iped
+    volumes:
+      - ${IPED_ENTRADA_HOST:-${DATA_DIR:-./data}/iped/entrada}:/entrada:ro
+      - ${DATA_DIR:-./data}/iped/trabalho:/trabalho
+      - ${DATA_DIR:-./data}/iped/saida:/saida
+      - ${DATA_DIR:-./data}/iped/home:/home/iped
+
+  worker-iped:
+    build: ./services/portal
+    profiles: ["iped"]
+    command: celery -A config worker -l info -Q iped -c 1 -n iped@%h
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      IPED_RAIZES_PERMITIDAS: /entrada
+      IPED_ENTRADA_RAIZ: /entrada
+      IPED_TRABALHO_DIR: /trabalho
+      IPED_SAIDA_DIR: /saida
+    volumes:
+      - ${IPED_ENTRADA_HOST:-${DATA_DIR:-./data}/iped/entrada}:/entrada:ro
+      - ${DATA_DIR:-./data}/iped/trabalho:/trabalho
+      - ${DATA_DIR:-./data}/iped/saida:/saida:ro
+
   beat:
     build: ./services/portal
     command: celery -A config beat -l info

@@ -43,6 +43,7 @@ INSTALLED_APPS = [
     "apps.events.apps.EventsConfig",
     "apps.cluster.apps.ClusterConfig",
     "apps.federacao.apps.FederacaoConfig",
+    "apps.forense.apps.ForenseConfig",
     "apps.agora.apps.AgoraConfig",
 ]
 
@@ -316,7 +317,11 @@ OLLAMA_PERMITE_REGISTRY_EXTERNO = os.environ.get("OLLAMA_PERMITE_REGISTRY_EXTERN
 OLLAMA_DATA_DIR_NA_PORTAL = os.environ.get("OLLAMA_DATA_DIR_NA_PORTAL", "")
 # A instalação de modelos (horas, às vezes) roda numa fila própria, com um worker dedicado de concorrência baixa
 # (serviço `worker-ollama`), para não disputar com as extrações.
-CELERY_TASK_ROUTES = {"apps.cluster.tasks.executar_operacao_modelo": {"queue": "ollama_admin"}}
+CELERY_TASK_ROUTES = {
+    "apps.cluster.tasks.executar_operacao_modelo": {"queue": "ollama_admin"},
+    # O IPED é pesado em CPU/memória: fila própria, atendida só pelo `worker-iped` (ADR 019).
+    "apps.forense.tasks.executar_processamento_iped": {"queue": "iped"},
+}
 # Espaço mínimo que deve sobrar no volume do Ollama depois de instalar (GB).
 OLLAMA_RESERVA_DISCO_GB = float(os.environ.get("OLLAMA_RESERVA_DISCO_GB", "10"))
 
@@ -338,3 +343,18 @@ AGORA_SYNC_ADMIN_TOKEN = os.environ.get("AGORA_SYNC_ADMIN_TOKEN", "")
 AGORA_OFFLINE_CACHE_NIVEL = os.environ.get("AGORA_OFFLINE_CACHE_NIVEL", "restrito").strip().lower() or "restrito"
 if AGORA_OFFLINE_CACHE_NIVEL not in ("nenhum", "publico", "interno", "restrito", "confidencial"):
     raise RuntimeError(f"AGORA_OFFLINE_CACHE_NIVEL inválido: {AGORA_OFFLINE_CACHE_NIVEL!r} (nenhum, publico, interno, restrito ou confidencial)")
+
+
+# --- Processamento forense com o IPED (apps.forense, ADR 019) ---
+# Raízes do servidor de onde o IPED pode LER (separadas por ":"). Vazio = nada pode ser processado.
+# Quem escolhe o que processar escolhe DENTRO delas; nunca digita um caminho livre do host.
+IPED_RAIZES_PERMITIDAS = [r for r in os.environ.get("IPED_RAIZES_PERMITIDAS", "").split(":") if r]
+# Onde o IPED está instalado e onde grava os casos (no container do `worker-iped`).
+IPED_HOME = os.environ.get("IPED_HOME", "/opt/iped")
+IPED_SAIDA_DIR = os.environ.get("IPED_SAIDA_DIR", "/iped-saida")
+# Teto de tempo de um processamento (segundos). 0 = sem teto.
+IPED_TIMEOUT_S = int(os.environ.get("IPED_TIMEOUT_S", str(24 * 3600)))
+# Diretório de trabalho compartilhado com o contêiner `iped` (pedidos/estado/logs por arquivo) e a raiz de
+# entrada somente leitura que ele enxerga. O portal só escreve pedidos; quem roda o IPED é o `iped-runner`.
+IPED_TRABALHO_DIR = os.environ.get("IPED_TRABALHO_DIR", "/trabalho")
+IPED_ENTRADA_RAIZ = os.environ.get("IPED_ENTRADA_RAIZ", "/entrada")

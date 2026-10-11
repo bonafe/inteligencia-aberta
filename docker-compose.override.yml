@@ -45,6 +45,13 @@ services:
       - ./services/portal:/app
     command: celery -A config worker -l info -Q ollama_admin -c 2 -n ollama@%h
 
+  worker-iped:
+    volumes:
+      - ./services/portal:/app
+      - ${IPED_ENTRADA_HOST:-${DATA_DIR:-./data}/iped/entrada}:/entrada:ro
+      - ${DATA_DIR:-./data}/iped/trabalho:/trabalho
+      - ${DATA_DIR:-./data}/iped/saida:/saida:ro
+
   beat:
     volumes:
       - ./services/portal:/app
