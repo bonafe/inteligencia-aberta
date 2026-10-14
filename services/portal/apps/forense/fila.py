@@ -32,6 +32,21 @@ def enviar(pedido_id, *, perfil: str, relativo: str) -> None:
     _escrever(trabalho() / "pedidos" / f"{pedido_id}.pedido", f"perfil={perfil}\nentrada={relativo}\n")
 
 
+def enviar_exportacao(pedido_id, *, caso, bookmark: str = "", consulta: str = "") -> None:
+    """Pede ao runner a lista dos itens de um caso já processado: um bookmark OU uma consulta (nunca o caso inteiro)."""
+    if bool(bookmark) == bool(consulta):
+        raise ValueError("informe um bookmark ou uma consulta (e só um)")
+    for valor in (bookmark, consulta):
+        if "\n" in valor or "\r" in valor or "\x00" in valor:
+            raise ValueError("bookmark/consulta não podem ter quebra de linha")
+    linhas = f"acao=exportar\ncaso={caso}\n" + (f"bookmark={bookmark}\n" if bookmark else f"consulta={consulta}\n")
+    _escrever(trabalho() / "pedidos" / f"{pedido_id}.pedido", linhas)
+
+
+def resultado(pedido_id) -> Path:
+    return trabalho() / "resultados" / f"{pedido_id}.jsonl"
+
+
 def estado(pedido_id) -> str | None:
     """`executando`/`concluido`/`falhou`/`cancelado`, ou `None` se o runner ainda não pegou o pedido."""
     arq = trabalho() / "estado" / str(pedido_id)

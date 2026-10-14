@@ -185,9 +185,11 @@ Regras de decisão para a automação:
 Perfil `iped` do compose (ADR 019): `docker compose ... --profile iped up -d --build`. Sobem o `iped` (sem rede, entrada somente leitura) e o `worker-iped` (fila `iped`, concorrência 1). **Nenhum dos dois toca o Docker**: o portal escreve um pedido no volume `/trabalho` e o `iped` lê, executa e grava o estado.
 
 - `IPED_ENTRADA_HOST`: pasta do host com as evidências (montada em `/entrada:ro`). Só o que está dentro dela pode ser processado; o caminho do pedido é **relativo** a ela, e `..`, caminhos absolutos e links que fogem são recusados.
-- Pedir: `docker compose exec portal python manage.py processar_iped --organizacao <slug> --relativo caso1 --perfil fastmode`; acompanhar com `--status <id>`; cancelar com `--cancelar <id>`. O caso fica em `${DATA_DIR}/iped/saida/<id>`.
-- A imagem do IPED é a da **comunidade** (`ipeddocker/iped:processor`, não é do projeto IPED; na validação trazia a 4.4.0-SNAPSHOT); **fixe por digest** antes de produção. É grande (~6,6 GB em disco) e **cada caso gerado carrega a própria instalação do IPED (~750 MB)**. O contêiner roda sem rede, sem root, com raiz somente leitura e `/tmp` com `exec`.
-- **Dado forense nasce sensível**; a importação para o IA (ainda não existe) o classificará como `confidencial`/`restrito`.
+- Pedir (dentro do `worker-iped`, que é quem enxerga `/entrada`; no `portal` dá "raiz não permitida"): `docker compose exec worker-iped python manage.py processar_iped --organizacao <slug> --relativo caso1 --perfil fastmode`; acompanhar com `--status <id>`; cancelar com `--cancelar <id>`. O caso fica em `${DATA_DIR}/iped/saida/<id>`.
+- A imagem do IPED é a da **comunidade** (`ipeddocker/iped:processor`, não é do projeto IPED; na validação trazia a 4.4.0-SNAPSHOT); **fixe por digest** antes de produção. É grande (~6,6 GB em disco) e **cada caso gerado carrega a própria instalação do IPED (~750 MB)**. O contêiner roda sem rede, sem root e com raiz somente leitura; o `/tmp` dele é uma pasta **em disco** (`dados/iped/tmp`, não RAM) e precisa permitir execução (o Java carrega bibliotecas nativas de lá). Limite de memória padrão: 8 GB (`IPED_MEM_LIMIT`).
+- **Crie as pastas antes de subir** (`mkdir -p ${DATA_DIR}/iped/{trabalho,saida,tmp,home}`): se o Docker as criar, nascem do `root` e o `iped` (uid 1000) não consegue gravar o pedido (`mkdir: Permission denied`).
+- **Importar o que interessa para o acervo** (Fluxo B, ADR 019): com o caso concluído, escolha **um bookmark ou uma consulta** (não existe "o caso inteiro") e rode no `worker-iped`: `python manage.py importar_caso_iped <id> --consulta 'category:"Other Images"' --simular` (tire o `--simular` para gravar). O IA lê o arquivo **original** em `/entrada`, calcula o próprio SHA-256, guarda no Garage e registra a proveniência do IPED. Itens dentro de zips/e-mails e apagados/recuperados ainda não entram.
+- **Dado forense nasce sensível**: o nível padrão da importação é `restrito` (`--nivel` para mudar).
 - Um IPED **nativo** no host funciona igual: rode `infra/iped/runner.sh` lá com `IPED_TRABALHO`, `IPED_ENTRADA`, `IPED_SAIDA` e `IPED_DIR` apontando para as mesmas pastas.
 
 ## Ultima Agora (colaboração em tempo real)
@@ -201,6 +203,11 @@ O Agora (`/agora/`, ADR 013) é parte do portal e **não exige nada além do que
 #   AGORA_SYNC_SECRET=$(python3 -c "import secrets; print(secrets.token_urlsafe(48))")
 #   AGORA_SYNC_ADMIN_TOKEN=$(python3 -c "import secrets; print(secrets.token_urlsafe(32))")
 #   AGORA_SYNC_ADMIN_URL=http://agora-sync:8787
+## Acervo pessoal (guardar e catalogar arquivos)
+
+Fluxo A: `docker compose run --rm -v /meus/dados:/acervo:ro portal python manage.py importar_acervo /acervo --organizacao <slug> [--simular] [--nivel restrito] [--sem-projetos]`.
+Cada arquivo vai para o bucket `inteligencia-aberta-acervo` do Garage, nomeado pelo SHA-256 (`sha256/ab/cd/<hash>`), e vira um artefato `arquivo` (um por conteúdo; o mesmo conteúdo em vários lugares ganha uma origem por lugar). **Retomável**: o que já foi importado e não mudou (tamanho e mtime) é pulado sem reler. Pasta com `.git` vira **um** artefato (tar do projeto inteiro). Links simbólicos não são seguidos. O bucket é criado pelo `bootstrap_instancia`. **Planeje o disco e a réplica do Garage**: ele passa a ser o cofre dos originais.
+
 #   AGORA_SYNC_URL=wss://ia.exemplo.com.br/agora-sync        # com Caddy (ver abaixo)
 docker compose -f docker-compose.yml -f docker-compose.prod.yml --profile agora up -d --build
 ```

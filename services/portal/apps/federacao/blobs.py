@@ -31,3 +31,35 @@ def ler_blob(bucket: str, caminho: str) -> bytes:
 
 def gravar_blob(bucket: str, caminho: str, dados: bytes, tipo: str = "multipart/related") -> None:
     _cliente().put_object(bucket, caminho, io.BytesIO(dados), length=len(dados), content_type=tipo)
+
+
+# ── acervo pessoal (arquivos grandes: nunca inteiros em memória) ─────────────
+
+BUCKET_ACERVO = "inteligencia-aberta-acervo"
+#: Tamanho das partes do envio multipart (o mínimo do S3 é 5 MiB).
+PARTE_ENVIO = 64 * 1024 * 1024
+
+
+def garantir_bucket(bucket: str) -> None:
+    cliente = _cliente()
+    if not cliente.bucket_exists(bucket):
+        cliente.make_bucket(bucket)
+
+
+def existe_blob(bucket: str, caminho: str) -> bool:
+    from minio.error import S3Error
+
+    try:
+        _cliente().stat_object(bucket, caminho)
+        return True
+    except S3Error as exc:
+        if exc.code in ("NoSuchKey", "NoSuchObject", "NoSuchBucket"):
+            return False
+        raise
+
+
+def gravar_arquivo(bucket: str, caminho: str, origem, tipo: str = "application/octet-stream") -> None:
+    """Envia o arquivo `origem` (caminho local) por streaming, em partes."""
+    tamanho = os.path.getsize(origem)
+    with open(origem, "rb") as fh:
+        _cliente().put_object(bucket, caminho, fh, length=tamanho, part_size=PARTE_ENVIO, content_type=tipo)

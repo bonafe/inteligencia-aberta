@@ -29,7 +29,7 @@ from minio import Minio
 from apps.accounts.services import criar_organizacao_individual
 
 # Mesmo nome que o orchestrator cria ao subir e que o portal usa como padrão.
-BUCKETS = ["inteligencia-aberta-mhtml"]
+BUCKETS = ["inteligencia-aberta-mhtml", "inteligencia-aberta-acervo"]
 
 
 class Command(BaseCommand):

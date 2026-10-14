@@ -15,6 +15,8 @@ class Artifact(models.Model):
         PROCESS = "processo", "Processo"
         ADDRESS = "endereco", "Endereço"
         EVENT = "evento", "Evento"
+        #: Arquivo do acervo pessoal (foto, vídeo, texto, livro, PDF, código...): `content.categoria` diz qual.
+        FILE = "arquivo", "Arquivo"
     class ClassificationLevel(models.TextChoices):
         PUBLIC = "publico", "Público"
         INTERNAL = "interno", "Interno"
@@ -65,6 +67,33 @@ class Artifact(models.Model):
     def urn(self) -> str:
         """Identificador global (`urn:uuid:`), o próprio PK — ADR 010."""
         return urn_de(self.id)
+
+
+class OrigemArquivo(models.Model):
+    """De onde um artefato `arquivo` veio: raiz + caminho relativo, com tamanho e mtime.
+
+    Dois papéis: (1) um mesmo conteúdo (mesmo `blob_hash`) pode existir em vários lugares do
+    acervo — há um só artefato e uma origem por lugar; (2) retomar uma importação sem recalcular
+    o hash de terabytes: se raiz+caminho+tamanho+mtime não mudaram, o arquivo é pulado.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    artefato = models.ForeignKey(Artifact, on_delete=models.CASCADE, related_name="origens")
+    tenant = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="+")
+    raiz = models.CharField(max_length=500)
+    relativo = models.CharField(max_length=2000)
+    tamanho = models.BigIntegerField()
+    mtime_ns = models.BigIntegerField()
+    visto_em = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "artifacts_origem_arquivo"
+        constraints = [
+            models.UniqueConstraint(fields=["tenant", "raiz", "relativo"], name="origem_arquivo_unica"),
+        ]
+
+    def __str__(self):
+        return f"{self.raiz}/{self.relativo}"
 
 
 class ArtifactLineage(models.Model):

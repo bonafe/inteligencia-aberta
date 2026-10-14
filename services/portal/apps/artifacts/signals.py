@@ -22,6 +22,10 @@ def dispatch_extraction_pipeline(sender, instance, created, **kwargs):
     """
     if not created:
         return
+    if instance.artifact_type == Artifact.Type.FILE:
+        # Acervo pessoal: milhares de artefatos por importação. Um evento por arquivo afogaria o diário;
+        # `apps.artifacts.acervo` emite o resumo da importação.
+        return
 
     from .tasks import correlacao_do_artefato
 

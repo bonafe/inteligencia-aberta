@@ -1,6 +1,6 @@
 # ADR 019 — IPED como capacidade opcional do nó: runner isolado, entrada somente leitura
 
-**Status:** **proposta**, com a **prova de conceito implementada e exercitada em 2026-10-11** (pedido → worker → runner → IPED → estado, numa pasta local, em contêiner). Falta a **importação** do resultado para o IA (próxima etapa) e o upload de arquivos avulsos.
+**Status:** **proposta**, com a **prova de conceito implementada e exercitada em 2026-10-11** (pedido → worker → runner → IPED → estado, numa pasta local, em contêiner). A **importação** (arquivos de pasta, por bookmark/consulta) foi implementada e exercitada em 2026-10-14 (ver "Importação implementada"); faltam os itens dentro de contêineres, as alegações e o upload de arquivos avulsos.
 
 ## Contexto
 
@@ -41,6 +41,15 @@ Restrições que moldam a decisão:
 2. **Upload** de arquivos avulsos para a raiz de entrada (limites de tamanho, proteção a zip bomb, só dono/administrador), e tela no portal.
 3. **Descartar a instalação embutida** no caso, ou usar um IPED compartilhado, para não custar ~750 MB por caso.
 4. **Fixar o digest** da imagem e documentar o procedimento de atualização.
+
+## Importação implementada (2026-10-14)
+
+Inspecionado o Web API real (`iped-webapi.jar`, `iped.engine.webapi.Main --sources=<json> --host --port`; Jersey/Grizzly, sem autenticação): `GET /search?q=<lucene>&sourceID=` e `GET /bookmarks/{nome}` devolvem `{"data":[{"source","ids":[...]}]}`; `GET /sources/{id}/docs/{n}` devolve `properties` (cada valor é uma **lista** de strings). Dois achados que mudaram o desenho:
+
+- **O perfil `fastmode` não calcula hash** (`enableHash = false`): a chave de junção não pode ser o SHA-256 do IPED. **O IA calcula o próprio hash do arquivo original** (e, se o IPED trouxe `sha-256`, confere: divergência é erro e o item não entra).
+- O Web API sobe numa porta, e o contêiner `iped` não tem rede. Solução: o **runner** ganhou a ação `exportar` — sobe o Web API só em `127.0.0.1` dentro do contêiner, lista os itens do bookmark/consulta em `/trabalho/resultados/<id>.jsonl` (só metadados) e o derruba. Nada escuta fora do contêiner.
+
+`apps/forense/importacao.py` + comando `importar_caso_iped`: exige bookmark **ou** consulta; lê o original em `/entrada` (somente leitura), grava no Garage como o Fluxo A (`apps/artifacts/acervo.py`) e guarda a proveniência em `content["externo"]["iped:<caso>"]`. **Ainda não:** itens dentro de contêineres (`subitem`), apagados e recuperados; `Claim` com `produtor="iped"`; `DocumentText`/texto extraído pelo IPED.
 
 ## Alternativas consideradas
 

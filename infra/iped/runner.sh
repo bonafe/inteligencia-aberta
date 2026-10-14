@@ -21,18 +21,44 @@ TIMEOUT_S="${IPED_TIMEOUT_S:-86400}"
 PERFIS=" forensic triage fastmode pedo blind "
 RE_ID='^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
 
-mkdir -p "$TRABALHO"/{pedidos,estado,codigo,logs,cancelar} "$SAIDA"
+mkdir -p "$TRABALHO"/{pedidos,estado,codigo,logs,cancelar,resultados} "$SAIDA"
 
 estado() { printf '%s\n' "$2" > "$TRABALHO/estado/$1.tmp" && mv "$TRABALHO/estado/$1.tmp" "$TRABALHO/estado/$1"; }
 
+# Lista os itens de um caso já processado (bookmark OU consulta) em /trabalho/resultados/<id>.jsonl.
+# Só metadados; o Web API do IPED sobe em 127.0.0.1 dentro deste contêiner e é derrubado ao fim.
+exportar() {
+    local id="$1" caso="$2" bookmark="$3" consulta="$4" arg
+    local re_id='^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+    if [[ ! "$caso" =~ $re_id ]] || [[ ! -d "$SAIDA/$caso/iped/lib" ]] \
+       || { [[ -n "$bookmark" ]] && [[ -n "$consulta" ]]; } || { [[ -z "$bookmark" ]] && [[ -z "$consulta" ]]; }; then
+        echo "pedido de exportação inválido (caso inexistente, ou falta/sobra bookmark ou consulta)" > "$TRABALHO/logs/$id.log"
+        echo 2 > "$TRABALHO/codigo/$id"; estado "$id" falhou; return
+    fi
+    if [[ -n "$bookmark" ]]; then arg="--bookmark=$bookmark"; else arg="--consulta=$consulta"; fi
+    estado "$id" executando
+    timeout --signal=TERM --kill-after=30 "$TIMEOUT_S" \
+        python3 /usr/local/bin/iped-exportar-itens.py "$SAIDA/$caso" "$TRABALHO/resultados/$id.jsonl" "$arg" \
+        > "$TRABALHO/logs/$id.log" 2>&1
+    local cod=$?
+    echo "$cod" > "$TRABALHO/codigo/$id"
+    if [[ "$cod" -eq 0 ]]; then estado "$id" concluido; else estado "$id" falhou; fi
+}
+
 processar() {
-    local id="$1" perfil="" entrada="" k v
+    local id="$1" perfil="" entrada="" acao="processar" caso="" bookmark="" consulta="" k v
     while IFS='=' read -r k v; do
         case "$k" in
             perfil) perfil="$v" ;;
             entrada) entrada="$v" ;;
+            acao) acao="$v" ;;
+            caso) caso="$v" ;;
+            bookmark) bookmark="$v" ;;
+            consulta) consulta="$v" ;;
         esac
     done < "$TRABALHO/pedidos/$id.pedido"
+
+    if [[ "$acao" == "exportar" ]]; then exportar "$id" "$caso" "$bookmark" "$consulta"; return; fi
 
     # Validação: perfil de uma lista fechada; entrada relativa, sem `..`, sem começar por `-` ou `/`.
     if [[ "$PERFIS" != *" $perfil "* ]] || [[ -z "$entrada" ]] || [[ "$entrada" == /* ]] || [[ "$entrada" == -* ]] \

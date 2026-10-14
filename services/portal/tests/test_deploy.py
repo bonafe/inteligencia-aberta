@@ -73,7 +73,8 @@ def test_bootstrap_cria_superusuario_com_organizacao(monkeypatch, s3_falso):
     user = User.objects.get(username="dono")
     assert user.is_superuser and user.is_staff
     assert Membership.objects.filter(user=user, role=Membership.Role.OWNER).exists()
-    s3_falso.make_bucket.assert_called_once_with("inteligencia-aberta-mhtml")
+    criados = [c.args[0] for c in s3_falso.make_bucket.call_args_list]
+    assert criados == ["inteligencia-aberta-mhtml", "inteligencia-aberta-acervo"]
 
 
 def test_bootstrap_e_idempotente(monkeypatch, s3_falso):
@@ -87,7 +88,7 @@ def test_bootstrap_e_idempotente(monkeypatch, s3_falso):
 
     assert User.objects.count() == 1
     assert User.objects.get(username="dono").password == senha_antes
-    assert s3_falso.make_bucket.call_count == 1
+    assert s3_falso.make_bucket.call_count == 2   # os dois da primeira rodada; a segunda não cria nada
 
 
 def test_bootstrap_nao_cria_superusuario_se_ja_ha_usuarios(monkeypatch, s3_falso):

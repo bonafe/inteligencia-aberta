@@ -8,6 +8,7 @@ ARG IPED_IMAGE=ipeddocker/iped:processor
 FROM ${IPED_IMAGE}
 
 COPY runner.sh /usr/local/bin/iped-runner.sh
+COPY exportar_itens.py /usr/local/bin/iped-exportar-itens.py
 RUN chmod +x /usr/local/bin/iped-runner.sh
 
 # O runner só lê pedidos do volume /trabalho; não escuta porta nenhuma.
