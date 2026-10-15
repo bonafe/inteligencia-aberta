@@ -1,6 +1,6 @@
 from django.urls import path
 
-from . import views, views_dominio
+from . import views, views_dominio, views_llm
 
 app_name = "agora"
 
@@ -16,4 +16,7 @@ urlpatterns = [
     path("api/v1/dominio/artefatos/", views_dominio.ArtefatosView.as_view(), name="dominio_artefatos"),
     path("api/v1/dominio/artefatos/<uuid:artifact_id>/", views_dominio.ArtefatoView.as_view(), name="dominio_artefato"),
     path("api/v1/dominio/artefatos/<uuid:artifact_id>/relacoes/", views_dominio.RelacoesView.as_view(), name="dominio_relacoes"),
+    # Chat com os modelos do cluster (componente ia-llm-chat)
+    path("api/v1/dominio/llm/modelos/", views_llm.ModelosView.as_view(), name="llm_modelos"),
+    path("api/v1/dominio/llm/chat/", views_llm.ChatView.as_view(), name="llm_chat"),
 ]

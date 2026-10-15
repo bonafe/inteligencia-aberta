@@ -1,5 +1,5 @@
 {
- "version": "04bab764a90547a0",
+ "version": "fe29c7b5d71c512d",
  "files": [
   "/static/agora/collaboration/document/memory_state_store.js",
   "/static/agora/collaboration/document/yjs_state_store.js",
@@ -70,6 +70,10 @@
   "/static/agora-ia/pack/ia-entity/ia-entity.html",
   "/static/agora-ia/pack/ia-entity/ia-entity.js",
   "/static/agora-ia/pack/ia-entity/ia-entity.manifest.json",
+  "/static/agora-ia/pack/ia-llm-chat/ia-llm-chat.css",
+  "/static/agora-ia/pack/ia-llm-chat/ia-llm-chat.html",
+  "/static/agora-ia/pack/ia-llm-chat/ia-llm-chat.js",
+  "/static/agora-ia/pack/ia-llm-chat/ia-llm-chat.manifest.json",
   "/static/agora-ia/pack/ia-news/ia-news.css",
   "/static/agora-ia/pack/ia-news/ia-news.html",
   "/static/agora-ia/pack/ia-news/ia-news.js",

@@ -1,0 +1,13 @@
+<link rel="stylesheet" href="ia-llm-chat.css">
+<header>
+    <label>Modelo <select id="model"></select></label>
+    <label>Máquina <select id="machine"></select></label>
+    <button id="clear" type="button" title="Apaga a conversa deste navegador">Limpar</button>
+</header>
+<p id="status" role="status"></p>
+<ol id="log" aria-live="polite"></ol>
+<form id="form">
+    <textarea id="input" rows="2" placeholder="Escreva uma mensagem (Ctrl+Enter envia)" aria-label="Mensagem"></textarea>
+    <button id="send" type="submit">Enviar</button>
+</form>
+<p id="note">A conversa fica só neste navegador (some ao fechar a aba) e vai ao Ollama de uma máquina do cluster. Nenhum documento é enviado junto.</p>

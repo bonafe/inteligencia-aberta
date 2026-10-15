@@ -1,0 +1,15 @@
+{
+  "name": "ia-llm-chat",
+  "tag": "ia-llm-chat",
+  "title": "Conversar com um modelo",
+  "version": "1.0.0",
+  "category": "intelligence",
+  "description": "Conversa com os modelos de linguagem das máquinas do cluster. A conversa fica só neste navegador.",
+  "module": "./ia-llm-chat.js",
+  "inputs": {},
+  "outputs": {},
+  "config": {
+    "model": { "type": "string", "default": "", "title": "Modelo preferido" }
+  },
+  "capabilities": ["domain-data", "resizable"]
+}

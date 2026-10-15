@@ -169,7 +169,7 @@ Para os peers usarem o LLM deste nó **sem** expor o Ollama na VPN, cada nó anu
 
 | Variável | Escopo | Valor |
 |---|---|---|
-| `LLM_GATEWAY_TOKEN` | **por cluster** — idêntico em todos os nós | Segredo aleatório (`token_urlsafe(32)`), gerado **uma vez** pela automação e distribuído. É a exceção à regra "um segredo distinto por host". Vazio = gateway desligado (404) e este nó não usa o gateway dos peers |
+| `LLM_GATEWAY_TOKEN` | **por cluster** — idêntico em todos os nós | Segredo aleatório, gerado **uma vez** pela automação e distribuído (a role Ansible o cria num arquivo do controlador, fora do git, e o reutiliza em todo deploy e em todo host; um valor definido pelo operador vence). É a exceção à regra "um segredo distinto por host". Vazio = gateway desligado (404) e este nó não usa o gateway dos peers. Para trocá-lo, grave o novo valor em **todos** os hosts e recrie portal, worker e beat |
 | `LLM_GATEWAY_ENDPOINT_ANUNCIADO` | **por host** | Base sem `/v1`, alcançável pelos peers na VPN: `http://<ip-vpn-do-host>:8000`. Vazio = não anuncia |
 | `BIND_ADDR` | **por host** | Tem de ser o **IP da VPN** (ou uma interface que os peers alcancem) para a porta 8000 ser acessível; com o padrão `127.0.0.1` o gateway só responde localmente |
 | `OLLAMA_ENDPOINT_ANUNCIADO` | por host | Só necessário enquanto algum peer ainda chamar o Ollama direto (sem gateway/token). Alcançável pela VPN; vazio = usa `OLLAMA_HOST` |

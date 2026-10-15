@@ -106,7 +106,16 @@ def escolher_execucao(nome_modelo: str, *, permitir_gateway: bool = True) -> Exe
 
     melhores.sort(key=lambda t: t[0], reverse=True)
     _, maquina, cpu_count = melhores[0]
+    return execucao_para(maquina, cpu_count, permitir_gateway=permitir_gateway)
+
+
+def execucao_para(maquina, num_thread: int | None = None, *, permitir_gateway: bool = True) -> ExecucaoOllama:
+    """Como falar com `maquina` (host direto ou gateway do peer). Quem já escolheu a máquina
+    (o roteador acima, ou o chat do Agora quando a pessoa fixa uma) usa isto em vez de remontar."""
+    if num_thread is None:
+        status = getattr(maquina, "status", None)
+        num_thread = status.cpu_count if status else None
     return ExecucaoOllama(
-        maquina_id=str(maquina.id), host=maquina.ollama_endpoint, num_thread=cpu_count,
+        maquina_id=str(maquina.id), host=maquina.ollama_endpoint, num_thread=num_thread,
         gateway=_gateway_para(maquina) if permitir_gateway else "",
     )

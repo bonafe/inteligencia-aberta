@@ -108,7 +108,7 @@ const newRegistry = async () => {
 
 test('pack: installs its types, converters and components', async () => {
     const registry = await newRegistry();
-    assert(registry.has('ia-search') && registry.has('ia-entity') && registry.has('ia-news') && registry.types.has('Entity'));
+    assert(registry.has('ia-search') && registry.has('ia-entity') && registry.has('ia-news') && registry.has('ia-llm-chat') && registry.types.has('Entity'));
     const t = registry.types;
     assert(t.validate('Entity', { id: 'a' }) === null && t.validate('Entity', { label: 'x' }) !== null);
     assert(t.compatibility('Entity', 'String').ok && t.compatibility('Entity[]', 'Table').ok && t.compatibility('Row', 'Entity').ok && t.compatibility('Node', 'Entity').ok);
@@ -121,7 +121,7 @@ test('pack: installs its types, converters and components', async () => {
 
 test('pack: components that ask for the domain capability declare it, and the generic core stays domain-free', async () => {
     const registry = await newRegistry();
-    for (const name of ['ia-search', 'ia-entity']) assert(registry.getManifest(name).capabilities.includes('domain-data'), name);
+    for (const name of ['ia-search', 'ia-entity', 'ia-llm-chat']) assert(registry.getManifest(name).capabilities.includes('domain-data'), name);
     for (const manifest of registry.list().filter(m => m.name.startsWith('ultima-'))) {
         assert(!JSON.stringify(manifest).includes('Entity'), `${manifest.name} mentions a domain type`);
     }
@@ -659,6 +659,70 @@ test('precache: the list covers the app, the pack and the offline page, and is s
 });
 
 // ---- runner ----
+
+// ---- ia-llm-chat ----
+
+const LLM = {
+    '/agora/api/v1/dominio/llm/modelos/': [200, { modelos: [
+        { modelo: 'qwen3.5:9b', maquinas: [{ id: 'm1', apelido: 'celtas', tokens_por_segundo: 12.3 }, { id: 'm2', apelido: 'persas', tokens_por_segundo: null }] },
+        { modelo: 'llama3:8b', maquinas: [{ id: 'm2', apelido: 'persas', tokens_por_segundo: null }] },
+    ] }],
+    '/agora/api/v1/dominio/llm/chat/': (path, init) => {
+        const body = JSON.parse(init.body);
+        if (body.mensagens.at(-1).content === 'quebra') return [424, { error: 'a máquina não respondeu' }];
+        const maquina = body.maquina === 'm2' ? 'persas' : 'celtas';
+        return [200, { conteudo: `eco: ${body.mensagens.at(-1).content}`, modelo: body.modelo, maquina: { id: body.maquina ?? 'm1', apelido: maquina }, tokens: { entrada: 3, saida: 9 }, tokens_por_segundo: 7.5 }];
+    },
+};
+
+const typeAndSend = (root, text) => {
+    root.querySelector('#input').value = text;
+    root.querySelector('#form').dispatchEvent(new Event('submit', { cancelable: true }));
+};
+
+test('ia-llm-chat: lists the models, sends the whole history with the chosen machine and shows who answered', guard(async () => {
+    const { calls, workspace, view } = await mountWorkspace(LLM);
+    const id = workspace.addInstance('ia-llm-chat');
+    await wait(700);
+    const root = el(view, id).rootNode;
+    assert([...root.querySelectorAll('#model option')].map(o => o.value).join() === 'qwen3.5:9b,llama3:8b', 'models listed');
+    assert([...root.querySelectorAll('#machine option')].length === 3, 'automatic + the two machines that have the model');
+    root.querySelector('#machine').value = 'm2';
+    typeAndSend(root, 'olá');
+    await wait(500);
+    const sent = JSON.parse(calls.find(c => c.method === 'POST').body);
+    assert(sent.modelo === 'qwen3.5:9b' && sent.maquina === 'm2' && sent.mensagens.length === 1, JSON.stringify(sent));
+    assert(calls.find(c => c.method === 'POST').headers['X-CSRFToken'] !== undefined, 'POST carries the CSRF header');
+    typeAndSend(root, 'segunda');
+    await wait(500);
+    const second = JSON.parse(calls.filter(c => c.method === 'POST')[1].body);
+    assert(second.mensagens.map(m => m.role).join() === 'user,assistant,user', 'the whole history travels each round');
+    const items = [...root.querySelectorAll('#log li')];
+    assert(items.length === 4 && items[1].textContent.includes('eco: olá') && items[1].textContent.includes('persas'), items.map(i => i.textContent).join(' | '));
+    assert(sessionStorage.getItem(`ia-llm-chat:${id}`).includes('eco: olá'), 'history kept for the tab');
+}));
+
+test('ia-llm-chat: a failed round gives the question back and says why; messages are text, never HTML', guard(async () => {
+    const { workspace, view } = await mountWorkspace(LLM);
+    const id = workspace.addInstance('ia-llm-chat');
+    await wait(700);
+    const root = el(view, id).rootNode;
+    typeAndSend(root, 'quebra');
+    await wait(500);
+    assert(root.querySelector('#status').className === 'error' && root.querySelector('#status').textContent.includes('a máquina não respondeu'));
+    assert(root.querySelectorAll('#log li').length === 0 && root.querySelector('#input').value === 'quebra', 'the question is back in the box');
+    typeAndSend(root, '<img src=x onerror=alert(1)>');
+    await wait(500);
+    assert(root.querySelector('#log img') === null, 'no markup from messages is rendered');
+}));
+
+test('ia-llm-chat: with no model available it says so and does not allow sending', guard(async () => {
+    const { workspace, view } = await mountWorkspace({ '/agora/api/v1/dominio/llm/modelos/': [200, { modelos: [] }] });
+    const id = workspace.addInstance('ia-llm-chat');
+    await wait(700);
+    const root = el(view, id).rootNode;
+    assert(root.querySelector('#send').disabled && root.querySelector('#status').textContent.includes('Nenhum modelo'));
+}));
 
 const originalConsoleLog = console.log;
 const originalConsoleError = console.error;

@@ -29,6 +29,8 @@ Em `/agora/` (menu "Investigação (Agora)"). Especificação do produto: projet
 | `GET /agora/api/v1/dominio/artefatos/?q=&limite=&workspace=` | busca (≤ 50) |
 | `GET .../dominio/artefatos/<id>/` | detalhe com alegações e fontes |
 | `GET .../dominio/artefatos/<id>/relacoes/` | vizinhança como `Graph` (linhagem + `vinculos`/`enderecos`) |
+| `GET .../dominio/llm/modelos/` | modelos usáveis agora, com as máquinas que os têm (só das organizações da pessoa) |
+| `POST .../dominio/llm/chat/` | uma rodada de conversa: `{modelo, mensagens, maquina?}` → `{conteudo, modelo, maquina, tokens, tokens_por_segundo}`; `404` sem máquina com o modelo, `400` entrada inválida, `424` a máquina não respondeu |
 
 Workspace ou objeto sem acesso é **404** (não revela que existe).
 
@@ -41,6 +43,18 @@ O botão 💬 do topo abre o chat do workspace (o mesmo componente `Chat`, que t
 ## Componentes de domínio (`ia-*`)
 
 | `ia-news` | `entity: Entity` | `selected: Entity`, `results: Entity[]` | Documentos capturados que **mencionam o nome** da entidade (busca textual, `?tipo=documento`). O assunto fica gravado no componente. Escolher o nó de um grafo alimenta este componente (conversão `Node → Entity`). |
+
+## Conversar com os modelos (`ia-llm-chat`, ADR 020)
+
+O componente **`ia-llm-chat`** ("Conversar com um modelo", paleta `intelligence`) deixa a pessoa escolher um modelo instalado no cluster e conversar. É também o jeito de **testar pelo próprio sistema** os modelos instalados em `/cluster/`.
+
+- Lista os modelos de máquinas **das organizações da pessoa** que estão ativas, confirmadas, online (heartbeat recente) e com o modelo visto há ≤ 180 s. Para cada modelo mostra as máquinas e, quando já medido, os tokens/s.
+- A máquina é **Automático** (o roteador de LLM escolhe a mais rápida, ou a nunca testada) ou **fixada** pela pessoa, para comparar uma máquina com outra. Cada resposta mostra `modelo em máquina · tokens/s`.
+- O prompt é **só o que a pessoa digita**: nenhum artefato nem conteúdo do workspace é enviado. Fala **só** com o Ollama de máquinas do cluster, nunca com provedor externo.
+- **O histórico fica só no navegador** (`sessionStorage`, só nesta aba; some ao fechar) e viaja inteiro a cada rodada. Nada é gravado no servidor nem no documento compartilhado. O servidor audita apenas `llm.chat` (quem, qual modelo e máquina), **sem conteúdo**, e a telemetria de LLM registra a chamada com a finalidade `chat`.
+- Sem streaming: a resposta chega inteira (limite `OLLAMA_TIMEOUT_S`, 120 s). Limites de entrada: 50 mensagens, 8 000 caracteres por mensagem, 40 000 no total.
+- Sem rede, o componente avisa e devolve a pergunta à caixa; não enfileira nem guarda cópia offline.
+- É um componente do **pacote IA**, não o `ultima-chat` (o chat entre pessoas, ADR 016): aquele guarda a autoria vinda do token da pessoa e não tem noção de assistente.
 
 ## Offline (ADR 015)
 

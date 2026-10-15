@@ -51,6 +51,10 @@ Agem como o dono da organização da instância (`--usuario` troca). `par_aceita
 
 **Para a automação (Ansible):** rode o pareamento com **todos** os hosts do cluster no mesmo play (um `--limit` com um host só não pareia nada, e um host novo só se pareia com quem está no play). A role pula o pareamento com menos de 2 hosts e pode ser desligada com `-e inteligencia_aberta_parear=false`. Se só um lado conhece o outro (por exemplo, um host foi zerado), a role **para** e pede para revogar o lado que sobrou, em vez de adivinhar. Códigos de saída: `0` ok (inclui "sem mudança"); diferente de `0` com a mensagem em stderr (impressão divergente, sem administrador, sem `FEDERACAO_ENDPOINT_ANUNCIADO`, convite expirado ou já usado). Ainda não foi exercitado entre máquinas reais.
 
+## Testar os modelos pelo chat do Agora
+
+Em `/agora/`, adicione o componente **"Conversar com um modelo"** (`ia-llm-chat`, categoria Inteligência). Ele lista os modelos que estão instalados nas máquinas pareadas e **online**, deixa escolher a máquina (ou "Automático") e mostra quem respondeu e a velocidade. Detalhes, limites e privacidade em [`agora.md`](../componentes/interfaces/agora.md) e na ADR 020. Para um modelo recém-instalado aparecer, espere o heartbeat (até 30 s). O chat só chama o Ollama de máquinas do cluster; com o `LLM_GATEWAY_TOKEN` (a automação o gera), chamadas a máquinas de **outros hosts** passam pelo gateway autenticado do par em vez de falar direto com o Ollama dele.
+
 ## Ver e controlar os modelos do Ollama (`/cluster/`)
 
 Cada máquina da tela tem a seção **Modelos do Ollama**: o que está instalado (tamanho, família, quantização, o que está **carregado na memória**, tokens/s), um campo para **instalar** (com sugestões de um catálogo curado e qualquer `nome:tag`), **remover**, e as **operações** em andamento com barra de progresso, **cancelar** e **tentar de novo**. Funciona igual com o Ollama **nativo** (Macs) ou em **container**: o portal só fala HTTP com o Ollama de **dentro da própria instância**; para uma máquina remota o comando vai pelo canal assinado.

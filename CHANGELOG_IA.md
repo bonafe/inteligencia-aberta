@@ -2,6 +2,21 @@
 
 Este arquivo documenta as alterações, configurações e implementações feitas por IAs (agentes) neste repositório. O objetivo é manter um histórico unificado e transparente sobre o estado do desenvolvimento, facilitando o onboarding de novas IAs e humanos na base de código.
 
+## [15-10-2026] - Chat com os modelos do cluster no Ultima Agora (ADR 020) e token do gateway automático
+
+**Motivação:** não havia como testar pelo próprio sistema os modelos instalados nas máquinas (o gateway `/v1/chat/completions` é só Bearer), e o `LLM_GATEWAY_TOKEN`, que tem de ser igual em todos os hosts, era um passo manual no vault.
+
+**O que foi implementado:**
+- **`ia-llm-chat`** (`static/agora-ia/pack/ia-llm-chat/`): escolhe o modelo e a máquina (ou Automático), conversa, mostra quem respondeu e tokens/s. Histórico só no navegador (`sessionStorage`); prompt só com o que a pessoa digita.
+- **Backend** (`apps/agora/views_llm.py`): `GET dominio/llm/modelos/` e `POST dominio/llm/chat/`, por sessão e organização; só máquinas ativas, confirmadas, com heartbeat recente e o modelo visto há ≤ 180 s. `execucao_para()` em `cluster/llm_router.py` (extraído do roteador). `Finalidade.CHAT` (migration `events/0005`) e `AuditLog` `llm.chat` sem conteúdo.
+- **`django_host.js`:** `domainClient.post` (CSRF, sem cache de leitura). `precache.json` regenerado.
+- **Token do gateway (repo `rede_papagaio`):** a role gera o `LLM_GATEWAY_TOKEN` uma vez, num arquivo do controlador fora do git (`ansible/.segredos/`), e o grava igual em todos os hosts; um valor no vault/inventário vence; `inteligencia_aberta_llm_gateway_auto: false` volta ao comportamento antigo.
+- Testes: `tests/test_agora_llm.py` (19) e 3 do front em `tests/tests.js` (43/43 no `scripts/testar_agora_ia.sh`); com `test_canal_controle` e `test_pares_enrolamento`, 141 passando no backend.
+
+**Documentação atualizada:** ADR 020, `docs/componentes/interfaces/agora.md`, `docs/operacao/escala-multimaquina.md`, `docs/deploy.md`, `CLAUDE.md`, `AGENTS.md` e o `ansible/README.md` do `rede_papagaio`.
+
+**Limites:** sem streaming (resposta inteira, até 120 s); sem contexto de artefatos (se vier, tem de passar pelo `policy_engine`); o chat entre pessoas (`ultima-chat`) não ganhou assistente. Não abri a tela no navegador contra um portal real nem rodei a role em hosts reais. Quem não é da organização que administra as máquinas não vê modelo algum. Já existente: o primeiro deploy com a role nova **regrava `LLM_GATEWAY_TOKEN` e liga o gateway** em todos os hosts (portal, worker e beat precisam ser recriados). Não invalida dados.
+
 ## [15-10-2026] - Pareamento de instâncias por linha de comando (para o Ansible)
 
 **Motivação:** a role `inteligencia_aberta` (repo `rede_papagaio`) sobe o `.env`, o compose e confere o `/health`, mas ninguém criava, aceitava ou confirmava convites: o pareamento só existia pela tela `/cluster/pares/`, com uma pessoa conferindo a impressão digital.

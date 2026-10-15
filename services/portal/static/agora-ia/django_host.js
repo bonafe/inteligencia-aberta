@@ -64,6 +64,8 @@ export function domainClient(base, workspaceId = null, cache = null) {
                 return { ...copy.value, offline: true, cached_at: copy.at, omitted: copy.omitted };
             }
         },
+        //Escrita (hoje, o chat com os modelos): nunca passa pelo cache de leitura e, sem conexão, falha na hora
+        post: (path, body) => api(`${base}/dominio`, path, { method: 'POST', body }),
         forWorkspace: id => domainClient(base, id, cache),
     };
 }

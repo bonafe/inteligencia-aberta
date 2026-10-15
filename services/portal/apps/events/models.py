@@ -251,6 +251,7 @@ class Finalidade(models.TextChoices):
     ESTRUTURACAO_MANUAL = "estruturacao_manual", "Estruturação manual"
     COMPARACAO_JUIZ = "comparacao_juiz", "Comparação (juiz)"
     GATEWAY_EXTERNO = "gateway_externo", "Gateway OpenAI-compatível"
+    CHAT = "chat", "Chat do Ultima Agora"
 
 
 class ChamadaLLM(models.Model):
