@@ -2,6 +2,20 @@
 
 Este arquivo documenta as alterações, configurações e implementações feitas por IAs (agentes) neste repositório. O objetivo é manter um histórico unificado e transparente sobre o estado do desenvolvimento, facilitando o onboarding de novas IAs e humanos na base de código.
 
+## [15-10-2026] - Pareamento de instâncias por linha de comando (para o Ansible)
+
+**Motivação:** a role `inteligencia_aberta` (repo `rede_papagaio`) sobe o `.env`, o compose e confere o `/health`, mas ninguém criava, aceitava ou confirmava convites: o pareamento só existia pela tela `/cluster/pares/`, com uma pessoa conferindo a impressão digital.
+
+**O que foi implementado:**
+- **Cinco comandos `manage.py`** em `apps/cluster/management/commands/` (apoio em `_pares_cli.py`): `par_identidade` (DID, impressão digital, endereço), `par_convite`, `par_aceitar`, `par_confirmar`, `par_listar`. Reusam `pares.py` (`criar_convite`, `aceitar_convite`, `confirmar`) sem duplicar regra; agem como o dono da organização da instância (`--usuario` troca).
+- **A conferência continua obrigatória:** `par_aceitar` e `par_confirmar` exigem `--impressao-esperada` e recusam se o DID não tiver essa impressão. Quem a fornece é o Ansible, que a lê de cada host pelo SSH (canal já confiável). `proprio` exige `--confirmo-proprio` e segue auditado. `par_aceitar`/`par_confirmar` são idempotentes.
+- **Role (repo `rede_papagaio`):** `tasks/pareamento.yml` e `pareamento_par.yml`, segundo play em `deploy_inteligencia_aberta.yml`, variáveis `inteligencia_aberta_parear` e `inteligencia_aberta_pareamento_tipo` (padrão `proprio`). Malha completa; para e avisa se só um lado conhece o outro.
+- Testes: `tests/test_pares_cli.py` (7); com `test_pares_enrolamento`, 100 passando num Postgres descartável.
+
+**Documentação atualizada:** `docs/deploy.md` (contrato para automação, passo 5, e seção Pares), `docs/operacao/escala-multimaquina.md`, `README.md`, `CLAUDE.md`, `AGENTS.md` e o `ansible/README.md` do `rede_papagaio`.
+
+**Limites:** a role só passou em `--syntax-check`; não rodei o playbook em hosts reais nem o pareamento entre duas instâncias de verdade. `LLM_GATEWAY_TOKEN` segue vazio por padrão (os pares se conhecem, sem gateway). Instância zerada ganha DID novo: revogue o par antigo antes de repareá-la. Não invalida dados existentes.
+
 ## [05-10-2026] - Tela `/membros/`: adicionar pessoa à organização e a um workspace
 
 **Motivação:** para dois usuários entrarem no mesmo workspace do Agora eles precisam ser membros da mesma organização, e não havia tela para isso (só o `/admin/`; `Membership.invited_by` existia sem uso).

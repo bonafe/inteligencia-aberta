@@ -35,6 +35,22 @@ Cada instância precisa de `FEDERACAO_ENDPOINT_ANUNCIADO` no `.env` (o IP da VPN
 
 O endereço de um par é validado (anti-SSRF): só `http`/`https`, sem usuário/senha, nunca link-local (`169.254.0.0/16`, onde ficam os metadados de nuvem); HTTP só em rede privada/VPN (RFC 1918, loopback, CGNAT `100.64.0.0/10` do Tailscale, `*.ts.net`, `.local` etc.), e HTTPS fora delas. Limite conhecido: o nome é checado no cadastro, não na hora de conectar (DNS rebinding não é pego).
 
+### Enrolamento por linha de comando (automação)
+
+Os mesmos serviços da tela têm comandos `manage.py` (`docker compose exec -T portal python manage.py …`), usados pelo Ansible (`tasks/pareamento.yml` da role `inteligencia_aberta`, em `rede_papagaio`):
+
+| Comando | O que faz |
+|---|---|
+| `par_identidade [--json]` | DID, **impressão digital** e endereço anunciado desta instância |
+| `par_convite [--tipo proprio --confirmo-proprio] [--json]` | cria o convite; o código sai em stdout, uma vez |
+| `par_aceitar <código> --impressao-esperada … [--tipo …]` | aceita **só se** o DID do código tiver a impressão esperada |
+| `par_confirmar --did … --impressao-esperada …` | confirma o par **só se** a impressão bater |
+| `par_listar [--json]` | pares e estados |
+
+Agem como o dono da organização da instância (`--usuario` troca). `par_aceitar` e `par_confirmar` são idempotentes (`mudou: false`). A conferência que a pessoa faria por voz é feita pelo **SSH do Ansible**, que lê a impressão de cada host; sem `--impressao-esperada` não há aceite nem confirmação. `proprio` exige `--confirmo-proprio` e continua auditado. Se uma instância for zerada (chave nova), revogue o par antigo em `/cluster/pares/` antes de repareá-la.
+
+**Para a automação (Ansible):** rode o pareamento com **todos** os hosts do cluster no mesmo play (um `--limit` com um host só não pareia nada, e um host novo só se pareia com quem está no play). A role pula o pareamento com menos de 2 hosts e pode ser desligada com `-e inteligencia_aberta_parear=false`. Se só um lado conhece o outro (por exemplo, um host foi zerado), a role **para** e pede para revogar o lado que sobrou, em vez de adivinhar. Códigos de saída: `0` ok (inclui "sem mudança"); diferente de `0` com a mensagem em stderr (impressão divergente, sem administrador, sem `FEDERACAO_ENDPOINT_ANUNCIADO`, convite expirado ou já usado). Ainda não foi exercitado entre máquinas reais.
+
 ## Ver e controlar os modelos do Ollama (`/cluster/`)
 
 Cada máquina da tela tem a seção **Modelos do Ollama**: o que está instalado (tamanho, família, quantização, o que está **carregado na memória**, tokens/s), um campo para **instalar** (com sugestões de um catálogo curado e qualquer `nome:tag`), **remover**, e as **operações** em andamento com barra de progresso, **cancelar** e **tentar de novo**. Funciona igual com o Ollama **nativo** (Macs) ou em **container**: o portal só fala HTTP com o Ollama de **dentro da própria instância**; para uma máquina remota o comando vai pelo canal assinado.

@@ -215,6 +215,7 @@ Isso não é acessibilidade como concessão. É o design correto para uma ferram
 Cada máquina roda uma instância **completa** (banco, arquivos e fila próprios). Instâncias se conhecem como **pares**, por **convite**, e só viram confiáveis depois que os administradores dos dois lados conferem a **impressão digital** uma da outra por fora do canal. O que já funciona:
 
 - **`/cluster/pares/`** — convidar, aceitar, confirmar, mudar o tipo (`próprio` ou `terceiro`) e revogar pares. **Marcar um par como próprio dá poder** sobre os modelos do Ollama dele: só marque instâncias que você mesmo administra.
+- **Linha de comando** — `par_identidade`, `par_convite`, `par_aceitar`, `par_confirmar` e `par_listar` fazem o mesmo enrolamento sem tela, para a automação (o Ansible confere a impressão digital pelo SSH e a passa em `--impressao-esperada`). Ver [`docs/operacao/escala-multimaquina.md`](docs/operacao/escala-multimaquina.md).
 - **`/cluster/`** — ver as máquinas (recursos, selo **Offline**) e **instalar, remover e cancelar** modelos do Ollama, nativo ou em container, da própria máquina e dos pares próprios. Só dono e administrador agem; máquina offline tem as ações desabilitadas.
 - **Classificação por domínio** — no admin do Django (app Artefatos), o modelo `RegraClassificacaoDominio` faz tudo o que vem de um site (ex.: `bancodobrasil.com.br`) nascer, no mínimo, `confidencial`.
 
