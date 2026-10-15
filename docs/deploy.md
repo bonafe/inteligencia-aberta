@@ -180,6 +180,17 @@ Regras de decisão para a automação:
 - O autorregistro local coloca a máquina na organização do **administrador da instância** (o superusuário mais antigo); sem superusuário e com várias organizações, defina `CLUSTER_MACHINE_ID` (ver `docs/operacao/escala-multimaquina.md`).
 - Validação: `curl -fsS -X POST -H 'Authorization: Bearer <token>' -H 'Content-Type: application/json' -d '{"model":"<modelo>","messages":[{"role":"user","content":"oi"}]}' http://<ip-vpn>:8000/v1/chat/completions` deve devolver JSON no formato OpenAI; sem o header, `401`; sem `LLM_GATEWAY_TOKEN` no nó, `404`. Este comando **não foi testado entre máquinas reais**.
 
+## Pasta da instância (tudo num lugar só, copiável)
+
+`scripts/instancia.sh <pasta> <comando>` mantém **segredos e dados de uma instância numa pasta**: `.env`, `dados/` (Postgres, Garage, Qdrant, Redis, IPED...) e `backups/`. Pensado para o disco grande: `scripts/instancia.sh "/media/…/ia-instancia" criar --entrada "/media/…/dados"`, depois `subir`.
+
+- `criar [--entrada <pasta>] [--migrar-de ./data] [--env-de <.env>]`: cria a pasta e a marca `.ia-instancia`, copia o `.env` (permissão 600) e fixa `DATA_DIR`; `--migrar-de` leva os dados antigos preservando os donos (uid do Postgres etc.).
+- `subir`/`parar`/`estado`: o compose com `--env-file <pasta>/.env`; `--prod` usa o `docker-compose.prod.yml`. `COMPOSE_PROFILES=iped` no `.env` liga o IPED.
+- `backup [--completo]`: **para os serviços**, copia `dados/` preservando donos (via contêiner root descartável) e o `.env` para `backups/<data>/`, e religa o que estava rodando. Sem `--completo` ficam de fora o que se refaz: Ollama, caches, Redis e os casos/temporários do IPED.
+- `restaurar <backup> [--forcar]`: refaz a pasta a partir de um backup; **copiar a pasta inteira com os serviços parados e rodar `subir` apontando para a cópia** também restaura (o `subir` reescreve `DATA_DIR` com o caminho novo).
+- **Salvaguardas:** recusa uma pasta no disco do sistema (`/`) e uma pasta sem a marca — se o disco grande não estiver montado, o Docker não cria os dados no disco errado.
+- **A pasta carrega a identidade da instância** (a chave `did:key` está no banco) e os segredos, inclusive `FIELD_ENCRYPTION_KEY`. Não suba a mesma pasta em duas máquinas ao mesmo tempo: para outra máquina, crie uma instância nova e enrole-a como par. O backup contém segredos: guarde-o como tal.
+
 ## IPED (processamento forense, opcional)
 
 Perfil `iped` do compose (ADR 019): `docker compose ... --profile iped up -d --build`. Sobem o `iped` (sem rede, entrada somente leitura) e o `worker-iped` (fila `iped`, concorrência 1). **Nenhum dos dois toca o Docker**: o portal escreve um pedido no volume `/trabalho` e o `iped` lê, executa e grava o estado.
@@ -192,6 +203,11 @@ Perfil `iped` do compose (ADR 019): `docker compose ... --profile iped up -d --b
 - **Dado forense nasce sensível**: o nível padrão da importação é `restrito` (`--nivel` para mudar).
 - Um IPED **nativo** no host funciona igual: rode `infra/iped/runner.sh` lá com `IPED_TRABALHO`, `IPED_ENTRADA`, `IPED_SAIDA` e `IPED_DIR` apontando para as mesmas pastas.
 
+## Acervo pessoal (guardar e catalogar arquivos)
+
+Fluxo A: `docker compose run --rm -v /meus/dados:/acervo:ro portal python manage.py importar_acervo /acervo --organizacao <slug> [--simular] [--nivel restrito] [--sem-projetos]`.
+Cada arquivo vai para o bucket `inteligencia-aberta-acervo` do Garage, nomeado pelo SHA-256 (`sha256/ab/cd/<hash>`), e vira um artefato `arquivo` (um por conteúdo; o mesmo conteúdo em vários lugares ganha uma origem por lugar). **Retomável**: o que já foi importado e não mudou (tamanho e mtime) é pulado sem reler. Pasta com `.git` vira **um** artefato (tar do projeto inteiro). Links simbólicos não são seguidos. O bucket é criado pelo `bootstrap_instancia`. **Planeje o disco e a réplica do Garage**: ele passa a ser o cofre dos originais.
+
 ## Ultima Agora (colaboração em tempo real)
 
 O Agora (`/agora/`, ADR 013) é parte do portal e **não exige nada além do que o portal já tem**: abre, cria workspaces e funciona **offline** (service worker, ADR 015). O `agora-sync` (ADR 014 e 016) é o serviço **opcional** que acrescenta edição simultânea, presença, mudança de papel valendo na hora e o **chat** dos workspaces. Ele é um contêiner Node próprio (profile `agora`); o portal continua dono de autenticação e autorização — o `agora-sync` só valida o token curto que o portal emite e não conhece usuários nem organizações.
@@ -203,11 +219,6 @@ O Agora (`/agora/`, ADR 013) é parte do portal e **não exige nada além do que
 #   AGORA_SYNC_SECRET=$(python3 -c "import secrets; print(secrets.token_urlsafe(48))")
 #   AGORA_SYNC_ADMIN_TOKEN=$(python3 -c "import secrets; print(secrets.token_urlsafe(32))")
 #   AGORA_SYNC_ADMIN_URL=http://agora-sync:8787
-## Acervo pessoal (guardar e catalogar arquivos)
-
-Fluxo A: `docker compose run --rm -v /meus/dados:/acervo:ro portal python manage.py importar_acervo /acervo --organizacao <slug> [--simular] [--nivel restrito] [--sem-projetos]`.
-Cada arquivo vai para o bucket `inteligencia-aberta-acervo` do Garage, nomeado pelo SHA-256 (`sha256/ab/cd/<hash>`), e vira um artefato `arquivo` (um por conteúdo; o mesmo conteúdo em vários lugares ganha uma origem por lugar). **Retomável**: o que já foi importado e não mudou (tamanho e mtime) é pulado sem reler. Pasta com `.git` vira **um** artefato (tar do projeto inteiro). Links simbólicos não são seguidos. O bucket é criado pelo `bootstrap_instancia`. **Planeje o disco e a réplica do Garage**: ele passa a ser o cofre dos originais.
-
 #   AGORA_SYNC_URL=wss://ia.exemplo.com.br/agora-sync        # com Caddy (ver abaixo)
 docker compose -f docker-compose.yml -f docker-compose.prod.yml --profile agora up -d --build
 ```
