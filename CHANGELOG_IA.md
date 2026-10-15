@@ -484,7 +484,7 @@ Este arquivo documenta as alterações, configurações e implementações feita
 - **`docs/componentes/interfaces/web.md` §6:** reescrito para o modelo implementado.
 
 ### Correções de UX encontradas testando o fluxo de sessão (mesma sessão)
-- **`templates/base.html`:** o link "Sair" era um `<a href="/sair/">` (GET) — desde o Django 4.1, `LogoutView` só aceita POST (proteção contra logout forjado via link/CSRF), então o botão sempre retornou 405, silenciosamente, mesmo antes desta rodada. Trocado por `<form method="post">` com `{% csrf_token %}`, estilizado para se comportar como link.
+- **`templates/base.html`:** o link "Sair" era um `<a href="/sair/">` (GET) — desde o Django 4.1, `LogoutView` só aceita POST (proteção contra logout forjado via link/CSRF), então o botão sempre retornou 405, silenciosamente, mesmo antes desta rodada. Trocado por `<form method="post">` com `{% raw %}{% csrf_token %}{% endraw %}`, estilizado para se comportar como link.
 - **`templates/artifacts/gallery.html`:** página standalone (tema escuro próprio) que não estende `base.html`, logo não herdava a navbar/link "Painel" — não havia como voltar ao dashboard a partir do visualizador. Adicionado botão "← Painel" no cabeçalho.
 - Achado ao investigar por que a sessão sobrevivia a fechar o navegador: comportamento esperado do Django (`SESSION_EXPIRE_AT_BROWSER_CLOSE=False` por padrão, cookie válido por 14 dias) — mantido assim por decisão consciente, documentado, não é bug.
 
