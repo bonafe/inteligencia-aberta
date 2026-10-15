@@ -190,6 +190,34 @@ def test_limite_por_minuto_de_cada_par(org, local, remota, settings):
     assert _chamar(outro, local)[0].status_code == 200            # o limite é por par
 
 
+def test_chave_do_limite_sem_ttl_so_trava_o_minuto_corrente(org, local, remota, settings):
+    """Regressão: contador sem TTL (recriado por um INCR após a expiração) bloqueava o par para sempre."""
+    from unittest import mock
+
+    from django.core.cache import cache
+
+    from apps.federacao import views_controle
+
+    settings.FEDERACAO_LIMITE_POR_MINUTO = 3
+    with mock.patch.object(views_controle.time, "time", return_value=6000.0):
+        chave = f"ia-rate:{remota.did}:{6000 // 60}"
+        cache.set(chave, 999, timeout=None)                       # estourada e sem expiração
+        assert views_controle._dentro_do_limite(remota.did) is False
+    with mock.patch.object(views_controle.time, "time", return_value=6060.0):   # minuto seguinte
+        assert views_controle._dentro_do_limite(remota.did) is True
+
+
+def test_chave_do_limite_nasce_com_ttl(remota):
+    from unittest import mock
+
+    from apps.federacao import views_controle
+
+    with mock.patch.object(views_controle, "cache") as cache:
+        cache.incr.return_value = 1
+        views_controle._dentro_do_limite(remota.did)
+    assert cache.add.call_args.kwargs["timeout"] == views_controle.JANELA_LIMITE_TTL_S
+
+
 OPERACOES = "/federacao/controle/v1/ollama/operacoes/"
 
 

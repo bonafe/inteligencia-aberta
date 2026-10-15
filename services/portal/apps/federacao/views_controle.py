@@ -16,6 +16,7 @@ Toda resposta de sucesso é **assinada** e presa ao nonce da requisição.
 
 import json
 import logging
+import time
 from functools import wraps
 
 from django.conf import settings
@@ -33,6 +34,8 @@ from .chaves import chave_ativa
 logger = logging.getLogger(__name__)
 
 TAMANHO_MAXIMO_CORPO = 16384
+#: TTL da chave de cada janela de um minuto (folga para a virada do minuto).
+JANELA_LIMITE_TTL_S = 120
 NAO_ENCONTRADO = {"erro": "não encontrado"}
 #: Tipos que cada rota aceita.
 QUALQUER_PAR = (Maquina.Tipo.PROPRIO, Maquina.Tipo.TERCEIRO)
@@ -48,13 +51,20 @@ def _recusar(rota: str, codigo: str, status: int = 404, **extra) -> JsonResponse
 
 
 def _dentro_do_limite(did: str) -> bool:
+    """Conta as requisições do par na janela do minuto corrente.
+
+    A chave leva o número do minuto (`epoch // 60`) e **sempre** nasce com TTL (`add`), então
+    uma chave que perca o TTL (o `incr` do RedisCache recria sem expiração se a chave expira
+    entre a checagem e o INCR) só afeta aquele minuto: no seguinte a chave é outra. Com a
+    chave fixa, esse caso bloqueava o par com 429 para sempre.
+    """
     limite = int(getattr(settings, "FEDERACAO_LIMITE_POR_MINUTO", 120))
-    chave = f"ia-rate:{did}"
-    cache.add(chave, 0, timeout=60)
+    chave = f"ia-rate:{did}:{int(time.time()) // 60}"
+    cache.add(chave, 0, timeout=JANELA_LIMITE_TTL_S)
     try:
         return cache.incr(chave) <= limite
     except ValueError:  # a chave expirou entre o add e o incr
-        cache.add(chave, 1, timeout=60)
+        cache.add(chave, 1, timeout=JANELA_LIMITE_TTL_S)
         return True
 
 
