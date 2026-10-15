@@ -18,7 +18,7 @@ Restrições que moldam a decisão:
 
 - O `-d` do IPED **aceita pasta** (`-d`: "…folder or *.iped file"), então pasta local e arquivos avulsos (numa pasta) entram pelo mesmo caminho. Flags usadas: `--nogui -d <entrada> -o <saida> -profile <perfil>`. Perfis existentes: `forensic`, `triage`, `fastmode`, `pedo`, `blind`.
 - **No Linux o IPED não roda só com o zip do release** (4.3.1, 749 MB): exige o fork do Sleuthkit compilado (`tskJarPath`). A saída prática é a imagem da **comunidade** `ipeddocker/iped:processor` (não é do projeto IPED; ~6,6 GB em disco), que na data trazia a **4.4.0-SNAPSHOT** — por isso **fixar por digest** é obrigatório antes de produção.
-- Rodando **sem rede, sem root, com raiz somente leitura e sem capacidades**, o IPED só funcionou depois de três ajustes, todos no compose: nome do host fixado em `127.0.0.1` (sem rede o log4j não resolve o próprio nome); `/tmp` como `tmpfs` **com `exec`** (o Java extrai `zstd-jni` para lá e o `tmpfs` padrão é `noexec`); e `HOME` num volume (o `user.home` do usuário 1000 da imagem não é gravável).
+- Rodando **sem rede, sem root, com raiz somente leitura e sem capacidades**, o IPED só funcionou depois de três ajustes, todos no compose: nome do host fixado em `127.0.0.1` (sem rede o log4j não resolve o próprio nome); `/tmp` com **execução permitida** (o Java extrai `zstd-jni` para lá; o `tmpfs` padrão é `noexec`). Para casos grandes o `/tmp` virou uma **pasta em disco** (`dados/iped/tmp`), não RAM; e `HOME` num volume (o `user.home` do usuário 1000 da imagem não é gravável).
 - Uma pasta de **7 arquivos** processou em ~20 s. A saída tem o índice **Lucene** em `iped/index`, `iped/data` e o relatório; mas **cada caso carrega a própria instalação do IPED** (jre, lib, tools): **~750 MB para 7 arquivos**. O custo de disco por caso é fixo e alto — a importação deve ler o que precisa e o caso poder ser descartado.
 
 ## Decisão
@@ -27,7 +27,7 @@ Restrições que moldam a decisão:
 
 **2. O IPED roda em um contêiner `iped` isolado e ninguém do IA fala com o Docker.** Protocolo **por arquivos** num volume `/trabalho`: o `worker-iped` (fila `iped`, concorrência 1, mesma imagem do portal) escreve `pedidos/<id>.pedido` (`perfil=`, `entrada=`) e lê `estado/<id>`, `codigo/<id>`, `logs/<id>.log`; cancelar é criar `cancelar/<id>`. O `iped-runner` (`infra/iped/runner.sh`) é o único que executa o IPED. **O mesmo script serve a um IPED nativo no host**, e o conector da importação só precisa dos arquivos do caso — não de quem rodou o IPED.
 
-**3. Endurecimento do contêiner do IPED:** `network_mode: none`, usuário sem privilégio (uid do dono das pastas do host), raiz somente leitura, `cap_drop: ALL`, `no-new-privileges`, `/entrada` **somente leitura**, memória limitada, `/tmp` em `tmpfs`. O runner **não usa `eval`**: valida o perfil contra lista fechada e a entrada (relativa, sem `..`, sem `-` inicial, `realpath` dentro de `/entrada`) **de novo**, mesmo que o portal já tenha validado — quem escreve no volume `/trabalho` não ganha execução arbitrária.
+**3. Endurecimento do contêiner do IPED:** `network_mode: none`, usuário sem privilégio (uid do dono das pastas do host), raiz somente leitura, `cap_drop: ALL`, `no-new-privileges`, `/entrada` **somente leitura**, memória limitada (8 GB por padrão), `/tmp` em pasta de disco. O runner **não usa `eval`**: valida o perfil contra lista fechada e a entrada (relativa, sem `..`, sem `-` inicial, `realpath` dentro de `/entrada`) **de novo**, mesmo que o portal já tenha validado — quem escreve no volume `/trabalho` não ganha execução arbitrária.
 
 **4. Entrada: só relativa a uma raiz permitida.** O administrador define a raiz (`IPED_ENTRADA_HOST` → `/entrada`, `IPED_RAIZES_PERMITIDAS`); o pedido traz um caminho **relativo**. `apps/forense/caminhos.py` recusa absoluto, `..`, link simbólico que foge, NUL e raízes que expõem o host (`/`, `/etc`, `/proc`...). Ninguém digita um caminho livre do host.
 
@@ -64,6 +64,6 @@ Inspecionado o Web API real (`iped-webapi.jar`, `iped.engine.webapi.Main --sourc
 
 - Quem liga o perfil `iped` baixa uma imagem de vários GB e reserva CPU/memória (`IPED_MEM_LIMIT`); um processamento por vez.
 - **Dependência de uma imagem da comunidade** que acompanha o `master` do IPED: sem fixar o digest, uma atualização pode quebrar o pipeline.
-- O isolamento exigiu `exec` no `/tmp` do contêiner (necessário para o Java), o que enfraquece um pouco a barreira; o contêiner continua sem rede, sem root e sem escrita na entrada.
+- O isolamento exigiu um `/tmp` executável no contêiner (necessário para o Java), o que enfraquece um pouco a barreira; o contêiner continua sem rede, sem root e sem escrita na entrada.
 - Quem tem acesso de escrita ao volume `/trabalho` pode **pedir** processamentos de qualquer pasta dentro de `/entrada`; por isso a raiz deve conter só o que se aceita processar.
 - Dado importado do IPED **não** pode ser tratado como "fato" do sistema: é o que o dispositivo continha, com a cadeia de custódia (hash, versão do IPED, caso de origem) preservada.

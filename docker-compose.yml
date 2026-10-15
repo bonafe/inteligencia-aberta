@@ -134,14 +134,11 @@ services:
     # Sem root: o mesmo uid do dono das pastas do host (evita depender de CAP_DAC_OVERRIDE).
     user: "${IPED_UID:-1000}:${IPED_GID:-1000}"
     read_only: true
-    tmpfs:
-      # `exec` é necessário: o Java extrai bibliotecas nativas (zstd-jni) para /tmp e as carrega de lá.
-      - /tmp:exec,size=${IPED_TMP_GB:-8}g
     security_opt:
       - no-new-privileges:true
     cap_drop:
       - ALL
-    mem_limit: ${IPED_MEM_LIMIT:-12g}
+    mem_limit: ${IPED_MEM_LIMIT:-8g}
     environment:
       IPED_TIMEOUT_S: ${IPED_TIMEOUT_S:-86400}
       HOME: /home/iped
@@ -150,6 +147,9 @@ services:
       - ${DATA_DIR:-./data}/iped/trabalho:/trabalho
       - ${DATA_DIR:-./data}/iped/saida:/saida
       - ${DATA_DIR:-./data}/iped/home:/home/iped
+      # Temporário do IPED EM DISCO (não em RAM): abrir zips/ISOs grandes precisa de muito espaço, e o Java extrai
+      # bibliotecas nativas (zstd-jni) para cá e as carrega — o disco não pode estar montado `noexec`.
+      - ${DATA_DIR:-./data}/iped/tmp:/tmp
 
   worker-iped:
     build: ./services/portal
