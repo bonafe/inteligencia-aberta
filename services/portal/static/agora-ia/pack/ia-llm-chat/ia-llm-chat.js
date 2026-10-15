@@ -21,7 +21,8 @@ export default class IaLlmChat extends AgoraComponent {
         super.onLoad();
         const root = this.rootNode;
         this.#restore();
-        root.querySelector('#model').addEventListener('change', () => this.#fillMachines());
+        root.querySelector('#machine').addEventListener('change', () => this.#fillModels());
+        root.querySelector('#refresh').addEventListener('click', () => this.#loadModels());
         root.querySelector('#clear').addEventListener('click', () => { this.#messages = []; this.#persist(); this.#paint(); });
         root.querySelector('#form').addEventListener('submit', event => { event.preventDefault(); this.#send(); });
         root.querySelector('#input').addEventListener('keydown', event => {
@@ -56,29 +57,46 @@ export default class IaLlmChat extends AgoraComponent {
         } catch (error) {
             this.#models = [];
             this.#status(error.status === 401 || error.status === 0 ? error.message : `Não foi possível listar os modelos: ${error.message}`, true);
-            this.#fillModels();
+            this.#fillMachines();
             return;
         }
-        this.#fillModels();
+        this.#fillMachines();
         this.#status(this.#models.length ? '' : 'Nenhum modelo disponível agora: instale um em /cluster/ e espere o heartbeat (até 30 s).', !this.#models.length);
     }
 
-    #fillModels() {
-        const select = this.rootNode.querySelector('#model');
-        const previous = select.value || this.config.model;
-        select.replaceChildren(...this.#models.map(item => h('option', { value: item.modelo, selected: item.modelo === previous }, item.modelo)));
-        this.#fillMachines();
-        this.#refreshControls();
+    //A máquina vem primeiro, porque é ela que tem os modelos: ao trocá-la, a lista de modelos é refeita só com os dela.
+    //"Automático" mostra todos os modelos do cluster e deixa o roteador escolher a máquina mais rápida.
+    #machines() {
+        const byId = new Map();
+        for (const item of this.#models) for (const machine of item.maquinas) byId.set(machine.id, machine.apelido);
+        return [...byId].map(([id, apelido]) => ({ id, apelido })).sort((a, b) => a.apelido.localeCompare(b.apelido));
     }
 
     #fillMachines() {
-        const model = this.#models.find(item => item.modelo === this.rootNode.querySelector('#model').value);
         const select = this.rootNode.querySelector('#machine');
-        const options = [h('option', { value: AUTO }, 'Automático (a mais rápida)')];
-        for (const machine of model?.maquinas ?? []) {
-            options.push(h('option', { value: machine.id }, machine.tokens_por_segundo ? `${machine.apelido} · ${machine.tokens_por_segundo} tok/s` : machine.apelido));
-        }
-        select.replaceChildren(...options);
+        const previous = select.value;
+        const machines = this.#machines();
+        select.replaceChildren(
+            h('option', { value: AUTO }, 'Automático (a mais rápida)'),
+            ...machines.map(machine => h('option', { value: machine.id, selected: machine.id === previous }, machine.apelido)),
+        );
+        this.#fillModels();
+    }
+
+    #fillModels() {
+        const root = this.rootNode;
+        const machine = root.querySelector('#machine').value;
+        const select = root.querySelector('#model');
+        const previous = select.value || this.config.model;
+        const available = this.#models
+            .map(item => ({ modelo: item.modelo, on: item.maquinas.filter(m => machine === AUTO || m.id === machine) }))
+            .filter(item => item.on.length);
+        const label = item => {
+            if (machine === AUTO) return item.on.length > 1 ? `${item.modelo} (em ${item.on.length} máquinas)` : `${item.modelo} (${item.on[0].apelido})`;
+            return item.on[0].tokens_por_segundo ? `${item.modelo} · ${item.on[0].tokens_por_segundo} tok/s` : item.modelo;
+        };
+        select.replaceChildren(...available.map(item => h('option', { value: item.modelo, selected: item.modelo === previous }, label(item))));
+        this.#refreshControls();
     }
 
     #refreshControls() {
@@ -87,6 +105,7 @@ export default class IaLlmChat extends AgoraComponent {
         root.querySelector('#send').disabled = unavailable;
         root.querySelector('#model').disabled = this.#busy;
         root.querySelector('#machine').disabled = this.#busy;
+        root.querySelector('#refresh').disabled = this.#busy;
     }
 
     #paint() {

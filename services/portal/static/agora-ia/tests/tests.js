@@ -685,9 +685,15 @@ test('ia-llm-chat: lists the models, sends the whole history with the chosen mac
     const id = workspace.addInstance('ia-llm-chat');
     await wait(700);
     const root = el(view, id).rootNode;
-    assert([...root.querySelectorAll('#model option')].map(o => o.value).join() === 'qwen3.5:9b,llama3:8b', 'models listed');
-    assert([...root.querySelectorAll('#machine option')].length === 3, 'automatic + the two machines that have the model');
+    const options = selector => [...root.querySelectorAll(selector)].map(o => o.value).join();
+    assert(options('#machine option') === ',m1,m2', 'automatic + the two machines (sorted by name)');
+    assert(options('#model option') === 'qwen3.5:9b,llama3:8b', 'automatic lists every model of the cluster');
+    root.querySelector('#machine').value = 'm1';
+    root.querySelector('#machine').dispatchEvent(new Event('change'));
+    assert(options('#model option') === 'qwen3.5:9b', 'choosing a machine lists only the models that machine has');
     root.querySelector('#machine').value = 'm2';
+    root.querySelector('#machine').dispatchEvent(new Event('change'));
+    assert(options('#model option') === 'qwen3.5:9b,llama3:8b', 'the other machine has both');
     typeAndSend(root, 'olá');
     await wait(500);
     const sent = JSON.parse(calls.find(c => c.method === 'POST').body);
