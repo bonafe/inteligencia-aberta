@@ -120,8 +120,14 @@ async function captureAndUpload(config = {}) {
           method: 'POST',
           headers: { Authorization: `Bearer ${token}` },
           body: formData,
+          // Sem seguir redirect: se a URL de captura apontar para o portal, ele
+          // responde 302 para /entrar/ (HTML 200) e isso parecia sucesso.
+          redirect: 'manual',
         });
 
+        if (response.type === 'opaqueredirect') {
+          return reject(new Error('A URL de captura aponta para o portal, não para o orchestrator. Saia e entre de novo preenchendo "Captura" (ex.: http://IP:8001).'));
+        }
         if (response.status === 401) {
           return reject(new NeedsLoginError('Sessão expirada. Entre novamente na extensão.'));
         }
