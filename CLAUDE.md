@@ -33,6 +33,8 @@ docker compose exec portal python manage.py reprocessar_incompletos --criterio d
 docker compose exec portal python manage.py reconstruir_projecoes
 ```
 
+Nó que também é do cluster (ex.: antares): `scripts/dev.sh up -d --build` (override de dev + `docker-compose.dev.local.yml`, portas só em `BIND_ADDR`), sobre os dados da instância — sem deploy a cada mudança. Migração a partir de `/opt` em `docs/deploy.md`.
+
 O painel ao vivo do pipeline fica em `http://localhost:8000/eventos/`.
 
 Não existe Makefile, CI/CD, linting ou pre-commit configurados. Ao adicionar linting, usar ruff. Os testes usam pytest + pytest-django (`services/portal/pytest.ini`, suíte em `services/portal/tests/`).

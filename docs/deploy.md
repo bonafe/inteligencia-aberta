@@ -293,3 +293,41 @@ O `bootstrap` reaplica as migrations. Os serviços cujas imagens mudaram são re
 ## Ainda não coberto
 
 Backup/restore automatizado, imagens publicadas em registry (hoje cada host faz `build`), storage S3 e Postgres externos, reserva de GPU, rate limit na borda.
+
+## Desenvolvimento na mesma máquina do cluster
+
+Para desenvolver num nó que **já é do cluster** (as máquinas e os pares vivem no banco da instância), não se faz deploy a cada mudança: o nó roda **do checkout**, com o código montado por volume (`runserver`/`--reload`), sobre os mesmos dados. Quem roda de verdade (os outros nós) segue pelo Ansible.
+
+```bash
+scripts/dev.sh up -d --build          # sobe (perfis agora e ollama por padrão)
+scripts/dev.sh logs -f portal
+scripts/dev.sh restart worker         # só ao mudar uma task do Celery
+scripts/dev.sh exec portal python manage.py migrate
+```
+
+`scripts/dev.sh` junta `docker-compose.yml`, o override de dev e `docker-compose.dev.local.yml` (portas só em `BIND_ADDR`, nunca em todas as interfaces; settings de desenvolvimento). **Nunca** misture com `docker-compose.prod.yml` no mesmo projeto: dois conjuntos de segredos recriando serviços do mesmo projeto é o que quebra a instância.
+
+### Migrar um nó que roda de `/opt/inteligencia-aberta` para o checkout
+
+Os dados ficam onde estão (`DATA_DIR=/opt/inteligencia-aberta/data`); só muda de onde o compose sobe.
+
+```bash
+# 1. parar a stack atual (pelo nome do projeto; não precisa ler os arquivos de /opt)
+docker compose -p inteligencia-aberta down --remove-orphans
+
+# 2. no checkout: guardar o .env de dev e usar o da instância (mesmos segredos do banco, JWT, S3…)
+cd ~/git/inteligencia-aberta
+cp .env .env.dev-antigo
+sudo install -m 600 -o "$USER" -g "$USER" /opt/inteligencia-aberta/.env .env
+sed -i '/^DATA_DIR=/d' .env && echo 'DATA_DIR=/opt/inteligencia-aberta/data' >> .env
+grep -q '^BIND_ADDR=' .env || echo 'BIND_ADDR=100.64.0.6' >> .env   # IP da tailnet deste nó
+
+# 3. subir do checkout e conferir
+scripts/dev.sh up -d --build
+scripts/dev.sh exec portal python manage.py migrate
+scripts/dev.sh ps
+curl -s http://100.64.0.6:8000/health http://100.64.0.6:8001/health
+```
+
+- Tirar o nó do inventário do Ansible (ou não rodar o play nele): senão o próximo deploy sobe a stack de `/opt` de novo, na mesma porta e nos mesmos dados.
+- Para voltar atrás: `scripts/dev.sh down` e subir a stack de `/opt` como antes (com `sudo`, no diretório dela).

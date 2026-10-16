@@ -1,0 +1,50 @@
+# Desenvolvimento NUMA máquina que também é nó do cluster (ex.: antares). Camada em cima do
+# docker-compose.override.yml (volumes de código, runserver, --reload), usada por scripts/dev.sh:
+#   - portas só em BIND_ADDR (IP da tailnet), nunca em todas as interfaces: o override de dev
+#     publica 8000/8001/8787 em 0.0.0.0 e o Postgres/Garage sem restrição;
+#   - settings de desenvolvimento no portal e nos workers (DEBUG, estáticos sem collectstatic),
+#     mesmo que o .env, copiado de uma instância, diga production.
+# O banco, o Garage e o Qdrant são os da instância (DATA_DIR no .env): as máquinas e os pares do
+# cluster continuam lá. Ver docs/deploy.md, "Desenvolvimento na mesma máquina do cluster".
+services:
+  portal:
+    ports: !override
+      - "${BIND_ADDR:-127.0.0.1}:8000:8000"
+    environment:
+      DJANGO_SETTINGS_MODULE: config.settings.development
+
+  orchestrator:
+    ports: !override
+      - "${BIND_ADDR:-127.0.0.1}:8001:8001"
+
+  mcp:
+    ports: !override
+      - "127.0.0.1:8002:8002"
+
+  agora-sync:
+    ports: !override
+      - "${BIND_ADDR:-127.0.0.1}:8787:8787"
+
+  db:
+    ports: !override
+      - "127.0.0.1:5432:5432"
+
+  garage:
+    ports: !override
+      - "127.0.0.1:3900:3900"
+
+  garage-webui:
+    ports: !override
+      - "127.0.0.1:3909:3909"
+
+  worker:
+    environment:
+      DJANGO_SETTINGS_MODULE: config.settings.development
+
+  worker-ollama:
+    environment:
+      DJANGO_SETTINGS_MODULE: config.settings.development
+
+  beat:
+    environment:
+      DJANGO_SETTINGS_MODULE: config.settings.development
