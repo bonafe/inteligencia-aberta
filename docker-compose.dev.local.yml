@@ -24,6 +24,9 @@ services:
   agora-sync:
     ports: !override
       - "${BIND_ADDR:-127.0.0.1}:8787:8787"
+    environment:
+      # o env_file traz o BIND_ADDR do HOST (IP da tailnet), que não existe dentro do container
+      BIND_ADDR: 0.0.0.0
 
   db:
     ports: !override
