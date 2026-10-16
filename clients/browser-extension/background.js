@@ -3,7 +3,9 @@
 const LOCAL_API_URL = 'http://localhost:8001/api/v1/capture/mhtml';
 
 async function getApiUrl() {
-  const { instance_url: instance } = await chrome.storage.local.get('instance_url');
+  const { instance_url: instance, capture_url: capture } =
+    await chrome.storage.local.get(['instance_url', 'capture_url']);
+  if (capture) return `${capture}/api/v1/capture/mhtml`;
   return instance ? `${instance}/api/v1/capture/mhtml` : LOCAL_API_URL;
 }
 

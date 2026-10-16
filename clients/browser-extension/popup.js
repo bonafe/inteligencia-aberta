@@ -6,6 +6,7 @@ const DEFAULTS = {
 };
 
 const INSTANCE_KEY = 'instance_url';  // base da instância; vazio = ambiente local de desenvolvimento
+const CAPTURE_KEY = 'capture_url';  // orchestrator em outro host/porta; vazio = mesma origem da instância
 const LOCAL_TOKEN_URL = 'http://localhost:8000/api/v1/token/';
 const AUTH_KEY = 'auth';  // chave global (a identidade é da conta, não do domínio)
 
@@ -61,6 +62,8 @@ function normalizeInstanceUrl(raw) {
 async function refreshAuthUI() {
   const { [INSTANCE_KEY]: instance } = await chrome.storage.local.get(INSTANCE_KEY);
   document.getElementById('instance_url').value = instance || '';
+  const { [CAPTURE_KEY]: capture } = await chrome.storage.local.get(CAPTURE_KEY);
+  document.getElementById('capture_url').value = capture || '';
   const auth = await getAuth();
   const loggedIn = !!(auth && auth.access);
 
@@ -91,6 +94,12 @@ async function doLogin() {
     return;
   }
 
+  const capture = normalizeInstanceUrl(document.getElementById('capture_url').value);
+  if (capture === null) {
+    showStatus('❌ URL de captura inválida', 'error');
+    return;
+  }
+
   const btn = document.getElementById('loginBtn');
   btn.disabled = true;
   btn.textContent = 'Entrando…';
@@ -98,8 +107,9 @@ async function doLogin() {
   try {
     // Instância remota: o Chrome só deixa a extensão falar com ela depois que o
     // usuário concede a permissão do host (pedida aqui, no clique de login).
-    if (instance) {
-      const granted = await chrome.permissions.request({ origins: [`${instance}/*`] });
+    const origens = [instance, capture].filter(Boolean).map((o) => `${o}/*`);
+    if (origens.length) {
+      const granted = await chrome.permissions.request({ origins: origens });
       if (!granted) {
         showStatus('❌ Permissão para acessar a instância negada', 'error');
         return;
@@ -124,6 +134,7 @@ async function doLogin() {
     const { access, refresh } = await resp.json();
     await chrome.storage.local.set({
       [INSTANCE_KEY]: instance,
+      [CAPTURE_KEY]: capture,
       [AUTH_KEY]: { access, refresh, username, saved_at: new Date().toISOString() },
     });
     document.getElementById('login_password').value = '';

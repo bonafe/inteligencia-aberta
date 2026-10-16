@@ -145,6 +145,8 @@ Usuário clica "Capturar e Enviar"
 
 O popup tem o campo **Instância (URL)** (ex.: `https://ia.exemplo.com.br`), salvo em `chrome.storage.local` (`instance_url`). A captura vai para `{URL}/api/v1/capture/mhtml` e o login para `{URL}/api/v1/token/` — o mesmo domínio, com o proxy (Caddy) roteando `/api/v1/capture/*` ao orchestrator e o resto ao portal. Vazio = ambiente local (`localhost:8000` e `localhost:8001`).
 
+Quando portal e orchestrator estão em portas diferentes (ex.: publicados no IP da tailnet por `BIND_ADDR`, sem proxy), preencha **Instância** com o portal (`http://100.64.0.6:8000`) e **Captura** com o orchestrator (`http://100.64.0.6:8001`); a permissão de host é pedida para os dois (`capture_url` em `chrome.storage.local`). Captura vazia = mesma origem da instância.
+
 O Chrome só deixa a extensão falar com um host depois da permissão do usuário: ela é pedida no clique de **Entrar** (`optional_host_permissions` no `manifest.json`). Trocar de instância descarta a sessão anterior, pois o token é de outra instância.
 
 **Identidade:** `user_id`/`tenant_id` vêm das claims do JWT validado pelo orchestrator; não há mais fallback para o "primeiro usuário" (ver `docs/seguranca/autenticacao.md`).
