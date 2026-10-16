@@ -896,6 +896,10 @@
     const MAQUINA_AUTO = '';
     let clusterModelosCache = null; // null = ainda não buscado; [] = buscado, vazio/indisponível
 
+    function classificacaoBloqueiaExterno() {
+        return currentClassificationLevel === 'restrito' || currentClassificationLevel === 'confidencial';
+    }
+
     function fetchClusterModelos(callback) {
         if (clusterModelosCache !== null) { callback(clusterModelosCache); return; }
         fetch('/agora/api/v1/dominio/llm/modelos/')
