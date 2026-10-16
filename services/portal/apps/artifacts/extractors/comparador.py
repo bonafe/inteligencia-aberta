@@ -27,7 +27,7 @@ RETORNE APENAS O JSON ABAIXO. Nada antes, nada depois, sem markdown.
 
 
 def julgar_comparacao(
-    provider: str, model_name: str, secoes: list[dict], *, subject_id=None, tenant_id=None,
+    provider: str, model_name: str, secoes: list[dict], *, subject_id=None, tenant_id=None, maquina_id=None,
 ) -> dict:
     """secoes: [{"label": str, "dados": Any}, ...]. Retorna o veredito (dict),
     com "maquina_id" incluído (ver gerar_texto).
@@ -42,10 +42,11 @@ def julgar_comparacao(
         partes.append(f"### {secao['label']}\n{dados_json}")
     prompt = "Seções a comparar:\n\n" + "\n\n".join(partes)
 
-    texto, maquina_id = gerar_texto(
+    texto, maquina_usada = gerar_texto(
         provider, model_name, _JUIZ_SYSTEM, prompt, max_tokens=2048,
         finalidade=Finalidade.COMPARACAO_JUIZ, subject_id=subject_id, tenant_id=tenant_id,
+        maquina_id=maquina_id,
     )
     veredito = _extract_json(texto)
-    veredito["maquina_id"] = maquina_id
+    veredito["maquina_id"] = maquina_usada
     return veredito

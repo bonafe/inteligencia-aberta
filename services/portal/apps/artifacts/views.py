@@ -3,6 +3,7 @@ import email
 import json
 import logging
 import os
+import uuid
 from email import policy
 
 from django.conf import settings
@@ -412,6 +413,25 @@ def _estruturacao_json(e: EstruturacaoLLM, chamada=None) -> dict:
     }
 
 
+def _maquina_escolhida(request, provider, model_name, bruto):
+    """Valida a máquina que a pessoa fixou na tela (só provider ollama; vazio = o roteador escolhe).
+    Mesma régua do chat do Agora: máquina das organizações dela, online e com o modelo visto há pouco.
+    Devolve `(id | None, mensagem_de_erro | None)`."""
+    if not bruto:
+        return None, None
+    if provider != EstruturacaoLLM.Provider.OLLAMA:
+        return None, "máquina só vale para modelo do cluster (ollama)"
+    from apps.agora.views_llm import _disponiveis
+
+    try:
+        maquina_id = str(uuid.UUID(str(bruto)))
+    except ValueError:
+        return None, "'maquina' deve ser o id da máquina"
+    if not _disponiveis(request).filter(maquina_id=maquina_id, nome_modelo=model_name).exists():
+        return None, "modelo indisponível nessa máquina"
+    return maquina_id, None
+
+
 class EstruturarLLMView(View):
     """Dispara manualmente uma estruturação via LLM (Claude ou Ollama) para um
     artefato já capturado. Estritamente aditivo: acumula uma execução por
@@ -442,6 +462,10 @@ class EstruturarLLMView(View):
                 status=403,
             )
 
+        maquina_id, erro = _maquina_escolhida(request, provider, model_name, data.get("maquina"))
+        if erro:
+            return JsonResponse({"error": erro}, status=400)
+
         execucao = EstruturacaoLLM.objects.create(
             document_text=doc_text,
             tenant=artifact.tenant,
@@ -464,7 +488,7 @@ class EstruturarLLMView(View):
         # de ReprocessarView (apps/events/views.py).
         set_correlation_id(correlation)
         set_tenant_id(artifact.tenant_id)
-        async_result = estruturar_llm_manual.delay(str(execucao.id))
+        async_result = estruturar_llm_manual.delay(str(execucao.id), maquina_id)
         # Guardado para permitir cancelamento (revoke) a partir da tela de execuções.
         execucao.celery_task_id = async_result.id
         execucao.save(update_fields=["celery_task_id"])
@@ -618,6 +642,10 @@ class CompararView(View):
                 status=403,
             )
 
+        maquina_id, erro = _maquina_escolhida(request, juiz_provider, juiz_model, modelo_juiz.get("maquina"))
+        if erro:
+            return JsonResponse({"error": erro}, status=400)
+
         comparacao = Comparacao.objects.create(
             artifact=artifact,
             tenant=artifact.tenant,
@@ -639,7 +667,7 @@ class CompararView(View):
         )
         set_correlation_id(correlation)
         set_tenant_id(artifact.tenant_id)
-        async_result = comparar_llm.delay(str(comparacao.id))
+        async_result = comparar_llm.delay(str(comparacao.id), maquina_id)
         comparacao.celery_task_id = async_result.id
         comparacao.save(update_fields=["celery_task_id"])
 

@@ -747,7 +747,7 @@ def _gravar_se_nao_cancelado(modelo, id_, status_cancelado, **campos):
 
 
 @shared_task(bind=True, max_retries=1)
-def estruturar_llm_manual(self, estruturacao_id: str):
+def estruturar_llm_manual(self, estruturacao_id: str, maquina_id: str | None = None):
     """Executa uma EstruturacaoLLM(status=pendente): chama o provider escolhido
     e grava o resultado.
 
@@ -811,7 +811,7 @@ def estruturar_llm_manual(self, estruturacao_id: str):
         resultado = estruturar_manual(
             execucao.provider, execucao.model_name,
             doc_text.dom_representation or "", url, page_type_hint=doc_text.page_type,
-            subject_id=artifact.id, tenant_id=execucao.tenant_id,
+            subject_id=artifact.id, tenant_id=execucao.tenant_id, maquina_id=maquina_id,
         )
     except Exception as exc:
         duration_ms = int((perf_counter() - t0) * 1000)
@@ -852,7 +852,7 @@ def estruturar_llm_manual(self, estruturacao_id: str):
 
 
 @shared_task(bind=True, max_retries=1)
-def comparar_llm(self, comparacao_id: str):
+def comparar_llm(self, comparacao_id: str, maquina_id: str | None = None):
     """Executa uma Comparacao(status=pendente): resolve as referências, monta o
     snapshot das seções e chama o LLM-juiz.
 
@@ -938,7 +938,7 @@ def comparar_llm(self, comparacao_id: str):
         veredito = julgar_comparacao(
             comparacao.modelo_juiz_provider, comparacao.modelo_juiz_model_name,
             [{"label": s["label"], "dados": s["dados"]} for s in secoes],
-            subject_id=artifact.id, tenant_id=comparacao.tenant_id,
+            subject_id=artifact.id, tenant_id=comparacao.tenant_id, maquina_id=maquina_id,
         )
     except Exception as exc:
         duration_ms = int((perf_counter() - t0) * 1000)

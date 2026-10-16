@@ -110,7 +110,7 @@ RETORNE APENAS O JSON ABAIXO. Nada antes, nada depois, sem markdown.
 
 def gerar_texto(
     provider: str, model_name: str, system: str, prompt: str, max_tokens: int = 4096,
-    *, finalidade: str, subject_id=None, tenant_id=None,
+    *, finalidade: str, subject_id=None, tenant_id=None, maquina_id: str | None = None,
 ) -> tuple[str, str | None]:
     """Ponto único de chamada a um LLM, Claude ou Ollama, para os usos manuais
     do sistema (estruturação manual e julgamento de comparação) — nenhuma
@@ -126,6 +126,9 @@ def gerar_texto(
     `apps.events.llm_telemetria.registrar_chamada_llm` — obrigatório indicar
     para quê a chamada é (`apps.events.models.Finalidade`), porque o mesmo
     par provider/modelo serve tarefas de custo muito diferente.
+
+    `maquina_id` fixa a máquina do cluster (provider ollama): a pessoa a escolheu na tela, como no
+    chat do Agora. Sem ele, o roteador pega a mais rápida. A view já validou o acesso.
 
     Levanta em caso de falha — quem chama decide status=falhou vs mensagem.
     """
@@ -185,7 +188,13 @@ def gerar_texto(
         # Telemetria desta chamada HTTP já acontece dentro de gerar()
         # (ollama_client._chamar) — registrar de novo aqui contaria a mesma
         # chamada duas vezes.
-        execucao = escolher_execucao(model_name)
+        if maquina_id:
+            from apps.cluster.llm_router import execucao_para
+            from apps.cluster.models import Maquina
+
+            execucao = execucao_para(Maquina.objects.select_related("status").get(id=maquina_id))
+        else:
+            execucao = escolher_execucao(model_name)
         if execucao:
             # Peer com gateway autenticado (ADR 009): vai por ele, não direto
             # no Ollama dele. `gateway` só entra nos kwargs quando preenchido.

@@ -638,8 +638,9 @@
                 <div class="llm-toolbar">
                     <select id="llm-provider-select" onchange="atualizarModelSelect()">
                         <option value="anthropic">Claude (externo)</option>
-                        <option value="ollama">Ollama (local)</option>
+                        <option value="ollama">Ollama (cluster)</option>
                     </select>
+                    <select id="llm-machine-select" onchange="atualizarModelSelect()" title="Máquina do cluster"></select>
                     <select id="llm-model-select"></select>
                     <button class="btn-primary" id="btn-estruturar" onclick="dispararEstruturacao()">Estruturar com LLM</button>
                     <span class="llm-status-msg" id="llm-status-msg"></span>
@@ -665,8 +666,9 @@
     <span id="selecao-count" style="font-size:.85rem"></span>
     <select id="juiz-provider-select" onchange="atualizarJuizModelSelect()">
         <option value="anthropic">Claude (externo)</option>
-        <option value="ollama">Ollama (local)</option>
+        <option value="ollama">Ollama (cluster)</option>
     </select>
+    <select id="juiz-machine-select" onchange="atualizarJuizModelSelect()" title="Máquina do cluster"></select>
     <select id="juiz-model-select"></select>
     <button class="btn-primary" onclick="dispararComparacao()">Comparar</button>
     <button class="btn-copy" onclick="limparSelecao()">Limpar seleção</button>
@@ -889,18 +891,17 @@
     // mesmo usado pelo painel de eventos para exibir o payload de cada etapa.
 
     // ─── Estruturação manual via LLM ───────────────────────────────────────────
-    let ollamaModelosCache = null; // null = ainda não buscado; [] = buscado, vazio/indisponível
+    // Mesma fonte do chat do Agora (/agora/api/v1/dominio/llm/modelos/): modelos do cluster agrupados
+    // por modelo, cada um com as máquinas que o têm. Escolhe-se a máquina (ou "Automática") e depois o modelo.
+    const MAQUINA_AUTO = '';
+    let clusterModelosCache = null; // null = ainda não buscado; [] = buscado, vazio/indisponível
 
-    function classificacaoBloqueiaExterno() {
-        return currentClassificationLevel === 'restrito' || currentClassificationLevel === 'confidencial';
-    }
-
-    function fetchOllamaModelos(callback) {
-        if (ollamaModelosCache !== null) { callback(ollamaModelosCache); return; }
-        fetch('/artifacts/api/v1/ollama/modelos/')
-            .then(r => r.ok ? r.json() : {disponivel: false, modelos: []})
-            .then(data => { ollamaModelosCache = data.modelos || []; callback(ollamaModelosCache); })
-            .catch(() => { ollamaModelosCache = []; callback(ollamaModelosCache); });
+    function fetchClusterModelos(callback) {
+        if (clusterModelosCache !== null) { callback(clusterModelosCache); return; }
+        fetch('/agora/api/v1/dominio/llm/modelos/')
+            .then(r => r.ok ? r.json() : {modelos: []})
+            .then(data => { clusterModelosCache = data.modelos || []; callback(clusterModelosCache); })
+            .catch(() => { clusterModelosCache = []; callback(clusterModelosCache); });
     }
 
     function _popularProviderSelect(providerSelectId) {
@@ -910,37 +911,55 @@
         if (classificacaoBloqueiaExterno() && select.value === 'anthropic') select.value = 'ollama';
     }
 
-    function _popularModelSelect(providerSelectId, modelSelectId) {
+    function _opcao(valor, texto, desabilitada = false) {
+        const opt = document.createElement('option');
+        opt.value = valor; opt.textContent = texto; opt.disabled = desabilitada;
+        return opt;
+    }
+
+    function _popularMaquinas(machineSelect, modelos) {
+        const anterior = machineSelect.value;
+        const maquinas = new Map();
+        modelos.forEach(m => m.maquinas.forEach(q => maquinas.set(q.id, q.apelido)));
+        machineSelect.innerHTML = '';
+        machineSelect.appendChild(_opcao(MAQUINA_AUTO, 'Máquina: automática'));
+        [...maquinas].sort((a, b) => a[1].localeCompare(b[1])).forEach(([id, apelido]) => machineSelect.appendChild(_opcao(id, apelido)));
+        if (maquinas.has(anterior)) machineSelect.value = anterior;
+    }
+
+    function _popularModelSelect(providerSelectId, modelSelectId, machineSelectId) {
         _popularProviderSelect(providerSelectId);
         const provider = document.getElementById(providerSelectId).value;
         const modelSelect = document.getElementById(modelSelectId);
+        const machineSelect = document.getElementById(machineSelectId);
         modelSelect.innerHTML = '';
+        machineSelect.style.display = provider === 'ollama' ? '' : 'none';
         if (provider === 'anthropic') {
-            const opt = document.createElement('option');
-            opt.value = LLM_EXTRACTOR_MODEL;
-            opt.textContent = LLM_EXTRACTOR_MODEL;
-            modelSelect.appendChild(opt);
+            modelSelect.appendChild(_opcao(LLM_EXTRACTOR_MODEL, LLM_EXTRACTOR_MODEL));
             return;
         }
-        fetchOllamaModelos(modelos => {
+        fetchClusterModelos(modelos => {
+            // a lista de máquinas só se refaz quando o provider muda; trocar a máquina só refiltra os modelos
+            if (!machineSelect.options.length || document.activeElement !== machineSelect) _popularMaquinas(machineSelect, modelos);
+            const maquina = machineSelect.value;
+            const doMenu = modelos.filter(m => maquina === MAQUINA_AUTO || m.maquinas.some(q => q.id === maquina));
             modelSelect.innerHTML = '';
-            if (!modelos.length) {
-                const opt = document.createElement('option');
-                opt.textContent = 'Ollama indisponível';
-                opt.disabled = true;
-                modelSelect.appendChild(opt);
+            if (!doMenu.length) {
+                modelSelect.appendChild(_opcao('', 'Nenhum modelo disponível no cluster', true));
                 return;
             }
-            modelos.forEach(m => {
-                const opt = document.createElement('option');
-                opt.value = m; opt.textContent = m;
-                modelSelect.appendChild(opt);
-            });
+            doMenu.forEach(m => modelSelect.appendChild(_opcao(m.modelo, m.modelo)));
         });
     }
 
-    function atualizarModelSelect() { _popularModelSelect('llm-provider-select', 'llm-model-select'); }
-    function atualizarJuizModelSelect() { _popularModelSelect('juiz-provider-select', 'juiz-model-select'); }
+    function atualizarModelSelect() { _popularModelSelect('llm-provider-select', 'llm-model-select', 'llm-machine-select'); }
+    function atualizarJuizModelSelect() { _popularModelSelect('juiz-provider-select', 'juiz-model-select', 'juiz-machine-select'); }
+
+    // Máquina a enviar: só vale para o cluster e quando a pessoa fixou uma; vazio = o roteador escolhe.
+    function maquinaEscolhida(providerSelectId, machineSelectId) {
+        if (document.getElementById(providerSelectId).value !== 'ollama') return null;
+        return document.getElementById(machineSelectId).value || null;
+    }
 
     // Não há corte automático por timeout — passado este limiar, a UI só avisa
     // que está demorando mais que o esperado; interromper é sempre uma decisão
@@ -976,7 +995,7 @@
         fetch(`/artifacts/${currentArtifactId}/estruturar-llm/`, {
             method: 'POST',
             headers: {'Content-Type': 'application/json', 'X-CSRFToken': CSRF_TOKEN},
-            body: JSON.stringify({provider, model_name: modelName}),
+            body: JSON.stringify({provider, model_name: modelName, maquina: maquinaEscolhida('llm-provider-select', 'llm-machine-select')}),
         })
             .then(r => r.json().then(data => ({ok: r.ok, data})))
             .then(({ok, data}) => {
@@ -1125,7 +1144,7 @@
             headers: {'Content-Type': 'application/json', 'X-CSRFToken': CSRF_TOKEN},
             body: JSON.stringify({
                 referencias: selecaoComparacao,
-                modelo_juiz: {provider, model_name: modelName},
+                modelo_juiz: {provider, model_name: modelName, maquina: maquinaEscolhida('juiz-provider-select', 'juiz-machine-select')},
             }),
         })
             .then(r => r.json().then(data => ({ok: r.ok, data})))
