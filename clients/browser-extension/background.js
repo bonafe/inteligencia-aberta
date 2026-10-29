@@ -116,14 +116,21 @@ async function captureAndUpload(config = {}) {
         formData.append('correlation_id', correlationId);
         // Identidade (user_id/tenant_id) vem das claims do JWT — não é mais enviada aqui.
 
-        const response = await fetch(await getApiUrl(), {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${token}` },
-          body: formData,
-          // Sem seguir redirect: se a URL de captura apontar para o portal, ele
-          // responde 302 para /entrar/ (HTML 200) e isso parecia sucesso.
-          redirect: 'manual',
-        });
+        const apiUrl = await getApiUrl();
+        let response;
+        try {
+          response = await fetch(apiUrl, {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${token}` },
+            body: formData,
+            // Sem seguir redirect: se a URL de captura apontar para o portal, ele
+            // responde 302 para /entrar/ (HTML 200) e isso parecia sucesso.
+            redirect: 'manual',
+          });
+        } catch (err) {
+          // "Failed to fetch" sozinho não diz para onde a extensão tentou mandar.
+          return reject(new Error(`Sem conexão com ${apiUrl} (${err.message}). Confira o campo "Captura" (ex.: http://IP:8001).`));
+        }
 
         if (response.type === 'opaqueredirect') {
           return reject(new Error('A URL de captura aponta para o portal, não para o orchestrator. Saia e entre de novo preenchendo "Captura" (ex.: http://IP:8001).'));

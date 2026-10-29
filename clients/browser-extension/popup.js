@@ -71,7 +71,9 @@ async function refreshAuthUI() {
   document.getElementById('account-info').style.display = loggedIn ? 'block' : 'none';
   if (loggedIn) {
     document.getElementById('account-username').textContent = auth.username || '—';
-    document.getElementById('account-sub').textContent = instance || 'localhost (desenvolvimento)';
+    const captura = capture || instance || 'http://localhost:8001';
+    document.getElementById('account-sub').textContent =
+      `${instance || 'localhost (desenvolvimento)'} · captura: ${captura}`;
   }
 
   // Sem login, não dá para capturar (o orchestrator exige Bearer).
