@@ -38,7 +38,7 @@ def test_ollama_sem_cluster_nao_tem_maquina_id():
     assert texto == "ok"
     assert maquina_id is None
     gerar_mock.assert_called_once_with(
-        "qwen3.5:9b", "sistema", "prompt",
+        "qwen3.5:9b", "sistema", "prompt", num_ctx=None,
         finalidade=Finalidade.ESTRUTURACAO_MANUAL, subject_id=None, tenant_id=None,
     )
 
@@ -58,7 +58,7 @@ def test_ollama_com_cluster_devolve_maquina_do_roteador():
     assert texto == "ok"
     assert maquina_id == "abc-123"
     gerar_mock.assert_called_once_with(
-        "qwen3.5:9b", "sistema", "prompt", host="http://antares:11434", num_thread=16, maquina_id="abc-123",
+        "qwen3.5:9b", "sistema", "prompt", host="http://antares:11434", num_thread=16, num_ctx=None, maquina_id="abc-123",
         finalidade=Finalidade.ESTRUTURACAO_MANUAL, subject_id=None, tenant_id=None,
     )
 

@@ -50,15 +50,23 @@ def listar_modelos(host: str | None = None, timeout: float = 3.0) -> list[str]:
 HEADER_ENCAMINHADO = "X-Cluster-Encaminhado"
 
 
-def _chamar_gateway(gateway: str, model: str, messages: list[dict], *, extra_options: dict | None, timeout: float) -> dict:
+def _chamar_gateway(
+    gateway: str, model: str, messages: list[dict], *,
+    extra_options: dict | None, timeout: float, num_ctx: int | None = None,
+) -> dict:
     """POST {gateway}/v1/chat/completions (apps.cluster.gateway de um peer) e
     devolve a resposta já no formato do Ollama, para `_chamar` tratar igual nos
     dois caminhos. Levanta requests.RequestException/ValueError/KeyError/
-    TypeError, como o caminho direto."""
+    TypeError, como o caminho direto.
+
+    `num_ctx` só vai quando quem chama o pediu (extensão nossa, fora da API
+    OpenAI): sem ele, vale o `OLLAMA_NUM_CTX` do peer."""
     corpo = {"model": model, "messages": messages, "stream": False}
     for chave in ("temperature", "top_p"):
         if chave in (extra_options or {}):
             corpo[chave] = extra_options[chave]
+    if num_ctx:
+        corpo["num_ctx"] = num_ctx
     resp = requests.post(
         f"{gateway.rstrip('/')}/v1/chat/completions",
         json=corpo, timeout=timeout,
@@ -121,6 +129,7 @@ def _chamar(
 
     alvo = gateway or _host(host)
     timeout = timeout or getattr(settings, "OLLAMA_TIMEOUT_S", 120)
+    num_ctx_pedido = num_ctx
     num_ctx = num_ctx or getattr(settings, "OLLAMA_NUM_CTX", 4096)
     # num_thread vai em toda chamada, para qualquer modelo — não depende de o
     # modelo escolhido ter sido criado com um Modelfile que já fixe isso (ver
@@ -134,7 +143,8 @@ def _chamar(
     t0 = perf_counter()
     try:
         if gateway:
-            data = _chamar_gateway(gateway, model, messages, extra_options=extra_options, timeout=timeout)
+            data = _chamar_gateway(gateway, model, messages, extra_options=extra_options,
+                                   timeout=timeout, num_ctx=num_ctx_pedido)
         else:
             resp = requests.post(
                 f"{alvo}/api/chat",
@@ -201,7 +211,7 @@ def gerar_chat(
 
 def gerar(
     model: str, system: str, prompt: str, *,
-    host: str | None = None, num_thread: int | None = None,
+    host: str | None = None, num_thread: int | None = None, num_ctx: int | None = None,
     maquina_id=None, timeout: float | None = None,
     finalidade: str | None = None, subject_id=None, tenant_id=None,
     gateway: str | None = None,
@@ -212,7 +222,7 @@ def gerar(
     data = _chamar(
         model,
         [{"role": "system", "content": system}, {"role": "user", "content": prompt}],
-        host=host, num_thread=num_thread, maquina_id=maquina_id, timeout=timeout,
+        host=host, num_thread=num_thread, num_ctx=num_ctx, maquina_id=maquina_id, timeout=timeout,
         finalidade=finalidade, subject_id=subject_id, tenant_id=tenant_id, gateway=gateway,
     )
     return data["message"]["content"]

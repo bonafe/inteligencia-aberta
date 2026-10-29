@@ -30,6 +30,9 @@ from .llm_router import escolher_execucao
 
 logger = logging.getLogger(__name__)
 
+#: Teto do `num_ctx` que um pedido pode exigir — protege a memória do nó.
+NUM_CTX_MAXIMO = 131072
+
 
 def _autorizado(request) -> bool:
     esperado = getattr(settings, "LLM_GATEWAY_TOKEN", "")
@@ -92,6 +95,11 @@ class ChatCompletionsView(View):
             extra_options["temperature"] = corpo["temperature"]
         if "top_p" in corpo:
             extra_options["top_p"] = corpo["top_p"]
+        # Extensão nossa (fora da API OpenAI): o nó que encaminha diz o contexto de
+        # que precisa — sem isto, uma página inteira seria cortada no OLLAMA_NUM_CTX daqui.
+        num_ctx = corpo.get("num_ctx")
+        if num_ctx is not None and (not isinstance(num_ctx, int) or not 0 < num_ctx <= NUM_CTX_MAXIMO):
+            return JsonResponse({"error": f"'num_ctx' deve ser inteiro entre 1 e {NUM_CTX_MAXIMO}"}, status=400)
 
         # Pedido já encaminhado por outro nó: executa aqui (Ollama local),
         # sem consultar o cluster — um salto só, sem laço entre gateways.
@@ -104,6 +112,8 @@ class ChatCompletionsView(View):
              **({"gateway": execucao.gateway} if execucao.gateway else {})}
             if execucao else {}
         )
+        if num_ctx:
+            kwargs["num_ctx"] = num_ctx
 
         try:
             resposta = gerar_chat(model, messages, extra_options=extra_options, **kwargs)

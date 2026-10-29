@@ -97,6 +97,35 @@ def _decode_html_bytes(payload: bytes, mime_charset: str | None) -> str:
     return payload.decode("latin-1", errors="replace")
 
 
+def _ler_mhtml(bucket: str, path: str) -> bytes:
+    """Lê o MHTML bruto do Garage (S3). Levanta em falha — quem chama decide retry ou fallback."""
+    client = Minio(
+        os.getenv("S3_ENDPOINT", "garage:3900"),
+        access_key=os.getenv("S3_ACCESS_KEY", ""),
+        secret_key=os.getenv("S3_SECRET_KEY", ""),
+        secure=False,
+    )
+    response = client.get_object(bucket, path)
+    try:
+        return response.read()
+    finally:
+        response.close()
+        response.release_conn()
+
+
+def _html_do_mhtml(mhtml_bytes: bytes) -> tuple[str | None, str | None]:
+    """Primeira parte text/html do MHTML, decodificada: (html, charset do MIME). (None, None) se não houver."""
+    msg = email_lib.message_from_bytes(mhtml_bytes, policy=email_policy.default)
+    for part in msg.walk():
+        if part.get_content_type() == "text/html":
+            payload = part.get_payload(decode=True)
+            if payload:
+                mime_charset = part.get_content_charset()
+                logger.debug("charset resolvido — mime=%s bytes=%d", mime_charset, len(payload))
+                return _decode_html_bytes(payload, mime_charset), mime_charset
+    return None, None
+
+
 def _split_text(text: str, chunk_size: int = 1000, overlap: int = 100) -> list[str]:
     """Divide texto em chunks com overlap, preferindo parágrafos e frases."""
     if len(text) <= chunk_size:
@@ -207,16 +236,7 @@ def extract_text_from_mhtml(self, artifact_id: str, forcar: bool = False):
     try:
         with etapa("extracao.minio", subject_type="artifact", subject_id=artifact.id,
                    tenant_id=tenant_id) as e:
-            client = Minio(
-                os.getenv("S3_ENDPOINT", "garage:3900"),
-                access_key=os.getenv("S3_ACCESS_KEY", ""),
-                secret_key=os.getenv("S3_SECRET_KEY", ""),
-                secure=False,
-            )
-            response = client.get_object(mhtml_bucket, mhtml_path)
-            mhtml_bytes = response.read()
-            response.close()
-            response.release_conn()
+            mhtml_bytes = _ler_mhtml(mhtml_bucket, mhtml_path)
             e.ok(f"MHTML lido ({len(mhtml_bytes)} bytes)",
                  bytes=len(mhtml_bytes), bucket=mhtml_bucket, path=mhtml_path)
     except Exception as exc:
@@ -225,18 +245,7 @@ def extract_text_from_mhtml(self, artifact_id: str, forcar: bool = False):
 
     logger.info("[%s] MHTML lido — %d bytes", artifact_id, len(mhtml_bytes))
 
-    msg = email_lib.message_from_bytes(mhtml_bytes, policy=email_policy.default)
-    html_content = None
-    charset_usado = None
-    for part in msg.walk():
-        if part.get_content_type() == "text/html" and html_content is None:
-            mime_charset = part.get_content_charset()
-            payload = part.get_payload(decode=True)
-            if payload:
-                html_content = _decode_html_bytes(payload, mime_charset)
-                charset_usado = mime_charset
-                logger.debug("[%s] charset resolvido — mime=%s bytes=%d", artifact_id, mime_charset, len(payload))
-                break
+    html_content, charset_usado = _html_do_mhtml(mhtml_bytes)
 
     if not html_content:
         logger.info("[%s] HTML não encontrado no MHTML — ignorado", artifact_id)
@@ -746,6 +755,24 @@ def _gravar_se_nao_cancelado(modelo, id_, status_cancelado, **campos):
     return modelo.objects.filter(id=id_).exclude(status=status_cancelado).update(**campos)
 
 
+def _entrada_da_estruturacao(artifact, doc_text) -> tuple[str, str]:
+    """(conteúdo, formato) para a estruturação por LLM: o HTML enxuto da captura,
+    relido do MHTML; se não der (sem MHTML, Garage fora, HTML vazio), o texto visível."""
+    from .extractors.html_enxuto import enxugar
+
+    content = artifact.content or {}
+    mhtml_path = content.get("mhtml_path")
+    if mhtml_path:
+        try:
+            html, _ = _html_do_mhtml(_ler_mhtml(content.get("mhtml_bucket", "inteligencia-aberta-mhtml"), mhtml_path))
+            enxuto = enxugar(html or "")
+            if enxuto:
+                return enxuto, "html"
+        except Exception:
+            logger.exception("[%s] HTML enxuto indisponível — estruturando pelo texto", artifact.id)
+    return doc_text.full_text or doc_text.text, "texto"
+
+
 @shared_task(bind=True, max_retries=1)
 def estruturar_llm_manual(self, estruturacao_id: str, maquina_id: str | None = None):
     """Executa uma EstruturacaoLLM(status=pendente): chama o provider escolhido
@@ -806,11 +833,18 @@ def estruturar_llm_manual(self, estruturacao_id: str, maquina_id: str | None = N
 
     doc_text = execucao.document_text
     url = doc_text.source_url or (artifact.content or {}).get("url", "")
+    # A página inteira, não o esqueleto do dom2parser: HTML enxuto, e o texto
+    # visível se o HTML não puder ser montado.
+    conteudo, formato = _entrada_da_estruturacao(artifact, doc_text)
+    evento("estruturacao_llm.html_enxuto", "ok" if formato == "html" else "vazio",
+           message=(f"HTML enxuto montado ({len(conteudo)} chars)" if formato == "html"
+                    else f"sem HTML enxuto — usando o texto visível ({len(conteudo)} chars)"),
+           payload={"formato": formato, "chars": len(conteudo)})
     t0 = perf_counter()
     try:
         resultado = estruturar_manual(
-            execucao.provider, execucao.model_name,
-            doc_text.dom_representation or "", url, page_type_hint=doc_text.page_type,
+            execucao.provider, execucao.model_name, conteudo, url,
+            page_type_hint=doc_text.page_type, formato=formato, titulo=doc_text.title,
             subject_id=artifact.id, tenant_id=execucao.tenant_id, maquina_id=maquina_id,
         )
     except Exception as exc:

@@ -69,32 +69,46 @@ def _get_client(tenant_id=None):
     return anthropic.Anthropic(api_key=api_key)
 
 
+#: Abertura do prompt de extração conforme a entrada (`estruturacao_manual.py`).
+_EXTRACT_ENTRADA = {
+    "html": (
+        "Você recebe o HTML COMPLETO de uma página capturada, já limpo: sem scripts, estilos, "
+        "menus nem atributos visuais. Ficaram as tags e as classes/ids que mostram a estrutura — "
+        "tabelas, linhas (tr), células (td/th), títulos de seção. Use essa estrutura (cabeçalhos "
+        "th, classes como 'titulo' ou 'total', a posição da célula na linha) para saber o que é "
+        "cada valor."
+    ),
+    "texto": (
+        "Você recebe o texto visível COMPLETO de uma página capturada, na ordem em que aparece, "
+        "uma linha por trecho de texto (em tabelas, cada célula costuma vir numa linha própria, "
+        "na ordem das colunas)."
+    ),
+}
+
 _EXTRACT_SYSTEM = """\
-Você é um extrator de dados inteligente para uma plataforma de jornalismo investigativo brasileiro.
+Você é um extrator de dados para uma plataforma de jornalismo investigativo brasileiro.
 
-Você recebe uma representação estrutural comprimida (via dom2parser) de uma página capturada. A página pode conter \
-qualquer tipo de informação: extrato bancário, ficha de empresa, processo judicial, notícia, \
-resultado médico, tabela de licitações, planilha de dados públicos — qualquer coisa.
-
-Quando a representação lista "REPEATED STRUCTURES", as linhas `selector:` e `fields:` são seletores \
-JÁ VERIFICADOS contra o documento original (matches/covers medidos) — é o que o dom2parser já \
-conseguiu extrair sozinho, sem você; reaproveite esses valores em vez de tentar adivinhá-los de novo. \
-As linhas de caminho (`div.x > ul > li`) NÃO são seletores: são truncadas e `*` marca partes variáveis \
-de id/classe. Concentre-se nos campos soltos (rótulo: valor) que a página exibe e que o dom2parser \
-não cobre.
+{entrada} A página pode ser qualquer coisa: fatura de cartão, extrato bancário, ficha de \
+empresa, processo judicial, notícia, resultado de exame, tabela de licitações, planilha de \
+dados públicos.
 
 Sua tarefa, em ordem:
 
-1. CATEGORIZAR — Descreva em UMA FRASE específica o que esta página contém.
-   Não "tabela financeira" mas "Extrato de conta corrente do Banco do Brasil, março 2025".
-   Não "página de empresa" mas "Ficha cadastral da empresa XYZ LTDA na Receita Federal".
+1. CATEGORIZAR — Descreva em UMA FRASE específica o que esta página contém, usando o que \
+   está escrito nela (emissor, tipo de documento, período). Não invente data, ano ou nome \
+   que não esteja no texto.
 
-2. EXTRAIR — Extraia todos os dados estruturados visíveis. Para listas longas, limite a 100 itens.
-   Use nomes de campo em português. Estruture conforme o conteúdo — não há formato fixo.
-
-Você NÃO precisa gerar texto narrativo para busca — o sistema sempre extrai o texto
-de busca da página com trafilatura, de forma independente da sua resposta. Foque
-inteiramente em extrair dados estruturados corretos.
+2. EXTRAIR — Extraia TODOS os dados estruturados da página, sem resumir e sem amostrar:
+   - campos soltos (rótulo: valor) em um objeto — ex.: números de documento, datas, totais, \
+     nomes, situação;
+   - listas e tabelas como LISTA DE OBJETOS, um objeto por linha, com as mesmas chaves em \
+     todas as linhas — nunca como listas paralelas por coluna;
+   - quando uma tabela é dividida em seções (títulos entre as linhas), registre a seção em \
+     cada linha, num campo próprio;
+   - linhas de subtotal/total ficam fora da lista de linhas, nos campos soltos;
+   - copie valores, datas e textos exatamente como aparecem (não converta, não arredonde);
+   - ignore menus, rodapés, avisos e textos de navegação do site.
+   Use nomes de campo em português, em snake_case.
 
 RETORNE APENAS O JSON ABAIXO. Nada antes, nada depois, sem markdown.
 
@@ -102,15 +116,22 @@ RETORNE APENAS O JSON ABAIXO. Nada antes, nada depois, sem markdown.
   "categoria": "<descrição específica em uma frase>",
   "page_type": "<artigo|tabular_financeiro|tabular_generico|processo_judicial|perfil_pessoa_juridica|documento_juridico|misto|desconhecido>",
   "structured_data": {
-    "<campo_em_portugues>": "<valor ou lista ou objeto aninhado conforme o conteúdo>"
+    "<campo_em_portugues>": "<valor, lista de objetos ou objeto aninhado conforme o conteúdo>"
   }
 }
 """
 
 
+def prompt_extracao(formato: str) -> str:
+    """System prompt de extração para a entrada `formato` ("html" ou "texto").
+    `replace`, não `format`: o JSON de exemplo tem chaves."""
+    return _EXTRACT_SYSTEM.replace("{entrada}", _EXTRACT_ENTRADA[formato])
+
+
 def gerar_texto(
     provider: str, model_name: str, system: str, prompt: str, max_tokens: int = 4096,
     *, finalidade: str, subject_id=None, tenant_id=None, maquina_id: str | None = None,
+    num_ctx: int | None = None,
 ) -> tuple[str, str | None]:
     """Ponto único de chamada a um LLM, Claude ou Ollama, para os usos manuais
     do sistema (estruturação manual e julgamento de comparação) — nenhuma
@@ -129,6 +150,10 @@ def gerar_texto(
 
     `maquina_id` fixa a máquina do cluster (provider ollama): a pessoa a escolheu na tela, como no
     chat do Agora. Sem ele, o roteador pega a mais rápida. A view já validou o acesso.
+
+    `num_ctx` (provider ollama) é a janela de contexto desta chamada; sem ele vale o
+    `OLLAMA_NUM_CTX` do nó que executa. Quem manda a página inteira tem de dizer o tamanho,
+    senão o Ollama corta a entrada sem avisar.
 
     Levanta em caso de falha — quem chama decide status=falhou vs mensagem.
     """
@@ -200,10 +225,10 @@ def gerar_texto(
             # no Ollama dele. `gateway` só entra nos kwargs quando preenchido.
             extra = {"gateway": execucao.gateway} if execucao.gateway else {}
             texto = gerar(model_name, system, prompt, host=execucao.host,
-                          num_thread=execucao.num_thread, maquina_id=execucao.maquina_id,
+                          num_thread=execucao.num_thread, num_ctx=num_ctx, maquina_id=execucao.maquina_id,
                           finalidade=finalidade, subject_id=subject_id, tenant_id=tenant_id, **extra)
             return texto, execucao.maquina_id
-        return gerar(model_name, system, prompt,
+        return gerar(model_name, system, prompt, num_ctx=num_ctx,
                       finalidade=finalidade, subject_id=subject_id, tenant_id=tenant_id), None
 
     raise ValueError(f"provider desconhecido: {provider}")

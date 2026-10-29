@@ -432,6 +432,46 @@ def test_gateway_sem_cabecalho_encaminha_ao_gateway_do_peer(settings, client):
     assert gerar_chat.call_args.kwargs["gateway"] == "http://10.0.0.2:8000"
 
 
+def test_ollama_client_via_gateway_repassa_num_ctx_pedido(settings):
+    from apps.artifacts.extractors.ollama_client import gerar_chat
+
+    settings.LLM_GATEWAY_TOKEN = "segredo"
+    openai = {"choices": [{"message": {"content": "oi"}}]}
+    with mock.patch("apps.artifacts.extractors.ollama_client.requests.post") as post, \
+         mock.patch("apps.events.llm_telemetria.registrar_chamada_llm"):
+        post.return_value.json.return_value = openai
+        gerar_chat("m", [{"role": "user", "content": "x"}], gateway="http://10.0.0.2:8000", num_ctx=16384)
+        assert post.call_args.kwargs["json"]["num_ctx"] == 16384
+        gerar_chat("m", [{"role": "user", "content": "x"}], gateway="http://10.0.0.2:8000")
+        assert "num_ctx" not in post.call_args.kwargs["json"]  # sem pedido, vale o do peer
+
+
+def test_gateway_usa_num_ctx_do_pedido(settings, client):
+    settings.LLM_GATEWAY_TOKEN = "segredo"
+    with mock.patch("apps.cluster.gateway.gerar_chat", return_value={"message": {"content": "ok"}}) as gerar_chat:
+        resp = client.post(
+            "/v1/chat/completions",
+            data='{"model": "m", "messages": [{"role": "user", "content": "oi"}], "num_ctx": 16384}',
+            content_type="application/json", HTTP_AUTHORIZATION="Bearer segredo",
+            HTTP_X_CLUSTER_ENCAMINHADO="1",
+        )
+    assert resp.status_code == 200
+    assert gerar_chat.call_args.kwargs["num_ctx"] == 16384
+
+
+@pytest.mark.parametrize("num_ctx", ["16384", 0, 10_000_000])
+def test_gateway_recusa_num_ctx_invalido(settings, client, num_ctx):
+    import json
+
+    settings.LLM_GATEWAY_TOKEN = "segredo"
+    corpo = {"model": "m", "messages": [{"role": "user", "content": "oi"}], "num_ctx": num_ctx}
+    with mock.patch("apps.cluster.gateway.gerar_chat") as gerar_chat:
+        resp = client.post("/v1/chat/completions", data=json.dumps(corpo),
+                           content_type="application/json", HTTP_AUTHORIZATION="Bearer segredo")
+    assert resp.status_code == 400
+    gerar_chat.assert_not_called()
+
+
 @pytest.mark.parametrize("estado", [Maquina.Estado.PENDENTE, Maquina.Estado.REVOGADO])
 def test_escolher_execucao_ignora_par_nao_confirmado(tenant, estado):
     """Um par pendente (ainda não conferido) ou revogado nunca recebe trabalho."""
