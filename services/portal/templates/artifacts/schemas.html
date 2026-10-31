@@ -30,7 +30,7 @@
   <h2>{{ f.dominio }}{{ f.caminho }} {% if varias_organizacoes %}<span class="sem-dado">· {{ f.organizacao }}</span>{% endif %}
     <span class="sem-dado">· {{ f.aprovados }} aprovado(s)</span></h2>
   <table class="t">
-    <tr><th>Versão</th><th>Descrição</th><th>Situação</th><th class="num">Validou</th><th class="num">Não validou</th><th>Gastos</th><th></th></tr>
+    <tr><th>Versão</th><th>Descrição</th><th>Situação</th><th class="num">Validou</th><th class="num">Não validou</th><th>Alimenta</th><th></th></tr>
     {% for s in f.schemas %}
     <tr>
       <td>v{{ s.versao }}</td>
@@ -39,7 +39,7 @@
         {% if s.aprovado_em %}<span class="sem-dado">{{ s.aprovado_em|date:"d/m/Y" }}</span>{% endif %}</td>
       <td class="num">{{ s.validas }}</td>
       <td class="num {% if s.nao_validaram %}alerta{% endif %}">{{ s.nao_validaram }}</td>
-      <td>{% if s.alimenta_gastos %}automático{% else %}<span class="sem-dado">—</span>{% endif %}</td>
+      <td>{% for r in s.rotulos_consumidores %}{{ r }}{% if not forloop.last %}, {% endif %}{% empty %}<span class="sem-dado">—</span>{% endfor %}</td>
       <td><a href="{% url 'artifacts:schema_revisar' s.pk %}">{% if s.status == "rascunho" or s.status == "vazio" %}revisar{% else %}abrir{% endif %} →</a></td>
     </tr>
     {% endfor %}

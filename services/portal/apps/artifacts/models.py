@@ -372,9 +372,10 @@ class SchemaPagina(models.Model):
     avisos = models.JSONField(default=list, blank=True)
     #: O parser montado na aprovação (`extractors/parser_pagina.py`): dado, nunca código.
     parser = models.JSONField(null=True, blank=True)
-    #: Extração válida deste parser registra os lançamentos nos Gastos sozinha (`apps.financeiro`).
-    #: Desligada por padrão: um tipo de página que não é fatura não pode poluir os Gastos.
-    alimenta_gastos = models.BooleanField(default=False)
+    #: Chaves dos consumidores de extensão (ADR 022) que recebem a extração válida deste parser
+    #: (`["fin.movimentos"]`). Vazia por padrão: um tipo de página não alimenta domínio nenhum
+    #: até a pessoa ligar. O núcleo só guarda a lista; quem consome é a extensão.
+    consumidores = models.JSONField(default=list, blank=True)
     #: A versão de que esta foi copiada para edição ("Nova versão a partir desta").
     derivado_de = models.ForeignKey("self", null=True, blank=True, on_delete=models.SET_NULL, related_name="derivados")
     aprovado_por = models.ForeignKey(

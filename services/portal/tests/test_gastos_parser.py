@@ -38,7 +38,8 @@ def _schema(org, padrao, alimenta=False, versao=1, status=SchemaPagina.Status.AP
     parser, _ = P.montar_parser(SCHEMA, AMOSTRA)
     return SchemaPagina.objects.create(
         tenant=org, padrao=padrao, dominio=padrao.domain, caminho=padrao.path_pattern, versao=versao, status=status, schema=SCHEMA, parser=parser,
-        classification_level="restrito", provider="ollama", model_name="qwen2.5:7b", alimenta_gastos=alimenta,
+        classification_level="restrito", provider="ollama", model_name="qwen2.5:7b",
+        consumidores=["fin.movimentos"] if alimenta else [],
     )
 
 
@@ -62,7 +63,7 @@ def test_extracao_valida_vira_lancamentos_com_secao_e_evidencia(org, padrao):
     assert {l.fonte for l in ls} == {"parser"} and {l.fonte_id for l in ls} == {s.id}
     assert [l.secao for l in ls] == ["Restaurantes"] * 3 + ["Supermercados"] * 2
     assert str(ls[0].data) == "2026-10-01"                     # ano pelo vencimento 28/11/2026
-    c = Claim.objects.filter(produtor="parser-pagina", predicado="ia:valor").first()
+    c = Claim.objects.filter(produtor="parser-pagina", predicado="fin:valor").first()
     assert c.produtor_versao == "v1" and c.modelo == "" and c.autor_ref == "dominio:banco.example"
     assert c.evidencias.get().localizador["extracao"] == str(e.id)
 
@@ -145,11 +146,14 @@ def test_chave_e_de_dono_ou_admin_e_a_nova_versao_herda(client, org, padrao):
     membro = User.objects.create_user(username="m", password="x")
     Membership.objects.create(user=membro, organization=org, role=Membership.Role.MEMBER)
     client.force_login(membro)
-    assert _post(client, f"/artifacts/schemas/{s.id}/gastos/", {"ativo": True}).status_code == 403
+    url = f"/artifacts/schemas/{s.id}/consumidores/"
+    assert _post(client, url, {"consumidor": "fin.movimentos", "ativo": True}).status_code == 403
     client.force_login(org.owner)
-    assert _post(client, f"/artifacts/schemas/{s.id}/gastos/", {"ativo": True}).json() == {"alimenta_gastos": True}
+    assert _post(client, url, {"consumidor": "fin.movimentos", "ativo": True}).json()["consumidores"] == ["fin.movimentos"]
+    assert _post(client, url, {"consumidor": "nao.existe", "ativo": True}).status_code == 400
     nova = SchemaPagina.objects.get(id=_post(client, f"/artifacts/schemas/{s.id}/nova-versao/").json()["id"])
-    assert nova.alimenta_gastos
+    assert nova.consumidores == ["fin.movimentos"]
+    assert _post(client, url, {"consumidor": "fin.movimentos", "ativo": False}).json()["consumidores"] == []
 
 
 def test_aprovar_versao_nova_herda_a_chave_da_substituida(client, org, padrao):
@@ -165,7 +169,7 @@ def test_aprovar_versao_nova_herda_a_chave_da_substituida(client, org, padrao):
         assert _post(client, f"/artifacts/schemas/{rascunho.id}/aprovar/",
                      {"substitui": str(anterior.id)}).status_code == 200
     rascunho.refresh_from_db()
-    assert rascunho.alimenta_gastos
+    assert rascunho.consumidores == ["fin.movimentos"]
 
 
 def test_botao_registrar_extracao(client, org, padrao):

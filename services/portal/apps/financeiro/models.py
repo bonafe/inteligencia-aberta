@@ -4,7 +4,7 @@ documentos **dizem** (ADR 021).
 A fonte é a alegação (`apps.artifacts.models.Claim`, produtor `estruturacao-llm` ou
 `parser-pagina`): cada movimento é um sujeito `mencao:<blob>#estruturacao/<id>/lancamento/<n>`
 (leitura por LLM) ou `mencao:<blob>#parser/<schema>/lancamento/<n>` (parser aprovado, sem LLM)
-com `ia:data`, `ia:valor` e `ia:descricao`, sempre com evidência. `Movimento` é a **projeção**
+com `fin:data`, `fin:valor` e `fin:descricao` (vocabulário da extensão, ADR 022), sempre com evidência. `Movimento` é a **projeção**
 dessas alegações — reconstruível a qualquer momento (`reconstruir_lancamentos`), como o
 `PipelineRun` é do log de eventos. `Conta`, `Estabelecimento`, `DescritorEstabelecimento` e
 `CategoriaGasto` são estado da pessoa (apelidos, fusões e categorias) e sobrevivem à reconstrução.

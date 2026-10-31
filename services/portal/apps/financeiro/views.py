@@ -180,6 +180,18 @@ class GastosView(View):
         return redirect(f"{request.path}?{volta}" if volta else request.path)
 
 
+def _resposta_registro(resultado) -> dict:
+    """O JSON da ação de leitura (ADR 022): os números e a `mensagem`/`link` que o visualizador mostra."""
+    return {
+        "lancamentos": resultado.lancamentos,
+        "alegacoes_criadas": resultado.alegacoes_criadas,
+        "substituiu": resultado.substituiu,
+        "mensagem": f"{resultado.lancamentos} lançamentos registrados"
+                    + (" (a leitura anterior deixou de alimentar os Gastos)" if resultado.substituiu else ""),
+        "link": {"rotulo": "ver gastos", "url": "/gastos/"},
+    }
+
+
 class RegistrarLancamentosView(View):
     """POST: a estruturação escolhida vira alegações e lançamentos (JSON para o visualizador)."""
 
@@ -195,11 +207,7 @@ class RegistrarLancamentosView(View):
         if not resultado.lancamentos:
             return JsonResponse({"error": "esta estruturação não tem lista de lançamentos (data e valor)"},
                                 status=400)
-        return JsonResponse({
-            "lancamentos": resultado.lancamentos,
-            "alegacoes_criadas": resultado.alegacoes_criadas,
-            "substituiu": resultado.substituiu,
-        })
+        return JsonResponse(_resposta_registro(resultado))
 
 
 class RegistrarExtracaoView(View):
@@ -216,11 +224,7 @@ class RegistrarExtracaoView(View):
             return JsonResponse({"error": str(exc)}, status=400)
         if not resultado.lancamentos:
             return JsonResponse({"error": "esta extração não tem lista de lançamentos (data e valor)"}, status=400)
-        return JsonResponse({
-            "lancamentos": resultado.lancamentos,
-            "alegacoes_criadas": resultado.alegacoes_criadas,
-            "substituiu": resultado.substituiu,
-        })
+        return JsonResponse(_resposta_registro(resultado))
 
 
 class CategorizarView(View):

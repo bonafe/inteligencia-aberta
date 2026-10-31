@@ -19,7 +19,15 @@ from config.conteudo_hash import formato_valido as hash_valido
 from .models import Claim, Evidence
 from .referencias import normalizar_referencia
 
-PREDICADO = re.compile(r"^(schema|ia|prov):[A-Za-z][A-Za-z0-9]*$")
+PREDICADO = re.compile(r"^([a-z][a-z0-9]*):[A-Za-z][A-Za-z0-9]*$")
+#: Vocabulários do núcleo; os das extensões instaladas vêm do registro (ADR 022).
+PREFIXOS_NUCLEO = ("schema", "ia", "prov")
+
+
+def prefixo_conhecido(prefixo: str) -> bool:
+    from apps.extensoes.registro import prefixos
+
+    return prefixo in PREFIXOS_NUCLEO or prefixo in prefixos()
 LITERAL_MAXIMO = 2000
 
 
@@ -55,8 +63,9 @@ def registrar_alegacao(
     """
     if (objeto_ref is None) == (objeto_literal is None):
         raise ValueError("informe exatamente um entre objeto_ref e objeto_literal")
-    if not PREDICADO.match(predicado or ""):
-        raise ValueError("predicado deve ser `schema:…`, `ia:…` ou `prov:…`")
+    m = PREDICADO.match(predicado or "")
+    if not m or not prefixo_conhecido(m.group(1)):
+        raise ValueError("predicado deve ser `schema:…`, `ia:…`, `prov:…` ou do vocabulário de uma extensão instalada")
     if not produtor or not produtor_versao:
         raise ValueError("produtor e produtor_versao são obrigatórios")
     if confianca is not None and not 0 <= confianca <= 1:

@@ -22,6 +22,7 @@ from apps.accounts.permissoes import eh_admin
 from apps.accounts.views import orgs_do_usuario
 from apps.events.context import set_correlation_id, set_tenant_id
 from apps.events.emit import emit
+from apps.extensoes import registro as extensoes
 
 from .extractors.schema_pagina import CONVENCOES, PAPEIS_CAMPO, PAPEIS_COLUNA, TIPOS, TIPOS_DOCUMENTO
 from .models import Artifact, DocumentText, ExtracaoPagina, SchemaPagina
@@ -217,6 +218,8 @@ class RevisarSchemaView(View):
             "titulo_amostra": titulo,
             "editavel": registro.status in SchemaPagina.EDITAVEIS,
             "pode_aprovar": eh_admin(request.user, registro.tenant),
+            "consumidores": [{"chave": c.chave, "rotulo": c.rotulo, "descricao": c.descricao,
+                              "ligado": c.chave in (registro.consumidores or [])} for c in extensoes.consumidores()],
             "schema_inicial": registro.schema or {"descricao": "", "campos": [], "listas": [], "invariantes": []},
             "tipos": TIPOS,
             "vocabulario": {"tipos_documento": TIPOS_DOCUMENTO, "convencoes": CONVENCOES,
@@ -300,14 +303,15 @@ class AprovarSchemaView(View):
             anteriores = SchemaPagina.da_familia(registro.tenant_id, registro.dominio, registro.caminho).filter(
                 status=SchemaPagina.Status.APROVADO, pk=substitui).select_for_update() if substitui else SchemaPagina.objects.none()
             substituidos = [str(a.versao) for a in anteriores]
-            # A versão nova continua alimentando os Gastos se a que ela substitui alimentava.
-            registro.alimenta_gastos = registro.alimenta_gastos or any(a.alimenta_gastos for a in anteriores)
+            # A versão nova continua alimentando os consumidores que a substituída alimentava.
+            registro.consumidores = list(dict.fromkeys(
+                list(registro.consumidores or []) + [c for a in anteriores for c in (a.consumidores or [])]))
             anteriores.update(status=SchemaPagina.Status.SUBSTITUIDO, updated_at=timezone.now())
             registro.status = SchemaPagina.Status.APROVADO
             registro.parser, registro.avisos = parser, list(registro.avisos or []) + avisos
             registro.aprovado_por, registro.aprovado_em = request.user, timezone.now()
             registro.save(update_fields=["status", "parser", "avisos", "aprovado_por", "aprovado_em",
-                                         "alimenta_gastos", "updated_at"])
+                                         "consumidores", "updated_at"])
         emit("schema_pagina.aprovado", "ok", subject_type="artifact", subject_id=registro.amostra_id,
              tenant_id=registro.tenant_id, user_id=request.user.id, source="portal",
              message=f"schema v{registro.versao} de {registro.dominio}{registro.caminho} aprovado"
@@ -328,30 +332,36 @@ class NovaVersaoSchemaView(View):
             status=SchemaPagina.Status.RASCUNHO, schema=origem.schema, avisos=[],
             classification_level=origem.classification_level, provider=origem.provider,
             model_name=origem.model_name, triggered_by=request.user, derivado_de=origem,
-            alimenta_gastos=origem.alimenta_gastos,
+            consumidores=list(origem.consumidores or []),
         )
         versao = nova.versao
         return JsonResponse({"id": str(nova.id), "versao": versao, "url": f"/artifacts/schemas/{nova.id}/"})
 
 
-class GastosSchemaView(View):
-    """Liga ou desliga o registro automático nos Gastos (dono ou administrador)."""
+class ConsumidorSchemaView(View):
+    """Liga ou desliga um consumidor de extensão neste schema (dono ou administrador). Só aceita
+    consumidor que uma extensão instalada oferece (ADR 022)."""
 
     def post(self, request, schema_id):
         registro = _schema_da_pessoa(request, schema_id)
         if not eh_admin(request.user, registro.tenant):
             return JsonResponse({"error": "só dono ou administrador da organização muda isto"}, status=403)
         try:
-            ativo = bool(json.loads(request.body).get("ativo"))
+            corpo = json.loads(request.body)
+            chave, ativo = corpo.get("consumidor"), bool(corpo.get("ativo"))
         except (json.JSONDecodeError, AttributeError):
             return JsonResponse({"error": "JSON inválido"}, status=400)
-        registro.alimenta_gastos = ativo
-        registro.save(update_fields=["alimenta_gastos", "updated_at"])
-        emit("schema_pagina.gastos", "ok", subject_type="artifact", subject_id=registro.amostra_id,
+        consumidor = extensoes.consumidor(chave) if isinstance(chave, str) else None
+        if consumidor is None:
+            return JsonResponse({"error": "consumidor desconhecido nesta instância"}, status=400)
+        atuais = [c for c in (registro.consumidores or []) if c != chave]
+        registro.consumidores = atuais + [chave] if ativo else atuais
+        registro.save(update_fields=["consumidores", "updated_at"])
+        emit("schema_pagina.consumidor", "ok", subject_type="artifact", subject_id=registro.amostra_id,
              tenant_id=registro.tenant_id, user_id=request.user.id, source="portal",
-             message=f"schema v{registro.versao}: registro automático nos Gastos {'ligado' if ativo else 'desligado'}",
-             payload={"schema_id": str(registro.id), "alimenta_gastos": ativo})
-        return JsonResponse({"alimenta_gastos": ativo})
+             message=f"schema v{registro.versao}: {consumidor.rotulo} {'ligado' if ativo else 'desligado'}",
+             payload={"schema_id": str(registro.id), "consumidor": chave, "ativo": ativo})
+        return JsonResponse({"consumidor": chave, "ativo": ativo, "consumidores": registro.consumidores})
 
 
 # ── execução do parser aprovado ─────────────────────────────────────────────
@@ -366,7 +376,7 @@ def _extracao_json(e: ExtracaoPagina) -> dict:
         "origem": e.origem,
         "versao": e.schema.versao,
         "schema_url": f"/artifacts/schemas/{e.schema_id}/",
-        "alimenta_gastos": e.schema.alimenta_gastos,
+        "consumidores": _rotulos_consumidores(e.schema),
         "descricao": (e.schema.schema or {}).get("descricao", ""),
         "candidatos": e.candidatos,
         "problemas": e.problemas,
@@ -435,6 +445,7 @@ class SchemasView(View):
                    .order_by("dominio", "caminho", "-versao"))
         familias: dict[tuple, list] = {}
         for s in schemas:
+            s.rotulos_consumidores = _rotulos_consumidores(s)
             familias.setdefault((s.tenant.name, s.dominio, s.caminho), []).append(s)
         return render(request, "artifacts/schemas.html", {
             "familias": [{"organizacao": o, "dominio": d, "caminho": c, "schemas": lst,
@@ -442,3 +453,8 @@ class SchemasView(View):
                          for (o, d, c), lst in familias.items()],
             "varias_organizacoes": len({k[0] for k in familias}) > 1,
         })
+
+
+def _rotulos_consumidores(schema: SchemaPagina) -> list[str]:
+    """Os rótulos dos consumidores ligados neste schema que uma extensão instalada oferece."""
+    return [c.rotulo for chave in (schema.consumidores or []) if (c := extensoes.consumidor(chave))]

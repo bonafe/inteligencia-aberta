@@ -186,9 +186,9 @@ def test_registrar_cria_alegacoes_com_evidencia_e_projeta(org):
     assert r.lancamentos == 7
 
     claims = Claim.objects.filter(produtor=L.PRODUTOR)
-    assert claims.filter(predicado="ia:periodo").count() == 1
-    assert claims.filter(predicado="ia:valor").count() == 7
-    c = claims.filter(predicado="ia:descricao").first()
+    assert claims.filter(predicado="fin:periodo").count() == 1
+    assert claims.filter(predicado="fin:valor").count() == 7
+    c = claims.filter(predicado="fin:descricao").first()
     assert c.autor_ref == "dominio:www2.bb.com.br"
     assert c.modelo == "ollama:qwen2.5:7b"
     assert c.classification_level == "restrito"

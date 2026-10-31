@@ -43,7 +43,7 @@ from .models import (
 
 PRODUTOR = "estruturacao-llm"
 #: Subir quando a forma das alegações mudar (predicados, sujeito, evidência).
-PRODUTOR_VERSAO = "1"
+PRODUTOR_VERSAO = "2"
 LOCALIZADOR_TIPO = "estruturacao-llm"
 PRODUTOR_PARSER = "parser-pagina"
 PRODUTORES = (PRODUTOR, PRODUTOR_PARSER)
@@ -383,22 +383,22 @@ def _registrar(document_text, linhas: list[Linha], contexto: dict, leitura: _Lei
 
     with transaction.atomic():
         # O que o documento diz dele mesmo: o período/vencimento, de que conta é, de quem.
-        for predicado, chave in (("ia:periodo", "periodo"), ("ia:conta", "conta"), ("ia:titular", "titular")):
+        for predicado, chave in (("fin:periodo", "periodo"), ("fin:conta", "conta"), ("fin:titular", "titular")):
             if valor := str(contexto.get(chave) or "").strip():
                 alegar(leitura.base, predicado, valor[:LITERAL_MAXIMO], dict(leitura.localizador), truncar_trecho(valor))
         for linha in linhas:
             sujeito = f"{leitura.base}/lancamento/{linha.indice}"
             trecho = truncar_trecho(json.dumps(linha.original, ensure_ascii=False))
             loc = {**leitura.localizador, "indice": linha.indice}
-            alegar(sujeito, "ia:data", linha.data, loc, trecho)
-            alegar(sujeito, "ia:valor", linha.valor, loc, trecho)
-            alegar(sujeito, "ia:descricao", linha.descricao[:LITERAL_MAXIMO], loc, trecho)
+            alegar(sujeito, "fin:data", linha.data, loc, trecho)
+            alegar(sujeito, "fin:valor", linha.valor, loc, trecho)
+            alegar(sujeito, "fin:descricao", linha.descricao[:LITERAL_MAXIMO], loc, trecho)
             if linha.secao:
-                alegar(sujeito, "ia:secao", linha.secao, loc, trecho)
+                alegar(sujeito, "fin:secao", linha.secao, loc, trecho)
             if linha.documento:
-                alegar(sujeito, "ia:documento", linha.documento[:LITERAL_MAXIMO], loc, trecho)
+                alegar(sujeito, "fin:documento", linha.documento[:LITERAL_MAXIMO], loc, trecho)
             if linha.sentido:
-                alegar(sujeito, "ia:sentido", linha.sentido, loc, trecho)
+                alegar(sujeito, "fin:sentido", linha.sentido, loc, trecho)
         anterior = LeituraLancamentos.objects.filter(artefato=artefato).values_list("base", flat=True).first()
         resultado.substituiu = anterior is not None and anterior != leitura.base
         LeituraLancamentos.objects.update_or_create(
@@ -527,11 +527,11 @@ def projetar_artefato(artefato) -> int:
 
     tipo_documento, convencao = _regras(leitura)
     conta = conta_para(artefato.tenant_id, TIPO_CONTA.get(tipo_documento, Conta.Tipo.CARTAO),
-                       _instituicao(artefato), documento.get("ia:conta", ""))
-    if documento.get("ia:titular") and not conta.titular:
-        conta.titular = documento["ia:titular"][:200]
+                       _instituicao(artefato), documento.get("fin:conta", ""))
+    if documento.get("fin:titular") and not conta.titular:
+        conta.titular = documento["fin:titular"][:200]
         conta.save(update_fields=["titular"])
-    vencimento = data_referencia(documento.get("ia:periodo", ""))
+    vencimento = data_referencia(documento.get("fin:periodo", ""))
     referencia = vencimento or artefato.created_at.date()
 
     cache: dict = {}
@@ -540,19 +540,19 @@ def projetar_artefato(artefato) -> int:
     novos = []
     for sujeito, campos in sujeitos.items():
         m = _SUJEITO.search(sujeito)
-        if not m or "ia:valor" not in campos or "ia:descricao" not in campos:
+        if not m or "fin:valor" not in campos or "fin:descricao" not in campos:
             continue
-        valor = valor_assinado(campos["ia:valor"], convencao, campos.get("ia:sentido", ""))
-        descricao = campos["ia:descricao"]
+        valor = valor_assinado(campos["fin:valor"], convencao, campos.get("fin:sentido", ""))
+        descricao = campos["fin:descricao"]
         natureza = natureza_do_movimento(descricao, valor, tipo_documento)
-        data = parse_data(campos.get("ia:data", ""), referencia)
+        data = parse_data(campos.get("fin:data", ""), referencia)
         parcela = parcela_da_descricao(descricao)
         novos.append(Movimento(
             tenant_id=artefato.tenant_id, artefato=artefato, conta=conta, fonte=m.group(1), fonte_id=m.group(2),
-            indice=int(m.group(3)), sujeito_ref=sujeito, data=data, data_texto=campos.get("ia:data", "")[:100],
+            indice=int(m.group(3)), sujeito_ref=sujeito, data=data, data_texto=campos.get("fin:data", "")[:100],
             competencia=competencia(tipo_documento, vencimento, data),
-            valor=valor, valor_texto=campos["ia:valor"][:100], descricao=descricao[:500],
-            documento=campos.get("ia:documento", "")[:100], secao=campos.get("ia:secao", "")[:200],
+            valor=valor, valor_texto=campos["fin:valor"][:100], descricao=descricao[:500],
+            documento=campos.get("fin:documento", "")[:100], secao=campos.get("fin:secao", "")[:200],
             natureza=natureza, parcela=parcela[0] if parcela else None, parcelas=parcela[1] if parcela else None,
             estabelecimento=(_estabelecimento(artefato.tenant_id, descricao, cache)
                              if natureza in com_estabelecimento else None),

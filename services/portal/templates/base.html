@@ -79,8 +79,8 @@
         <a href="{% url 'artifacts:busca' %}">Busca</a>
         <a href="{% url 'artifacts:gallery' %}">Galeria OSINT</a>
         <a href="{% url 'artifacts:mapa_vivo' %}">Mapa Vivo</a>
-        <a href="{% url 'financeiro:gastos' %}">Gastos</a>
-        <a href="{% url 'artifacts:schemas' %}">Schemas</a>
+        {% for item in menu_extensoes %}<a href="{% url item.url_name %}">{{ item.rotulo }}</a>
+        {% endfor %}        <a href="{% url 'artifacts:schemas' %}">Schemas</a>
         <a href="{% url 'agora:app' %}">Investigação (Agora)</a>
         <a href="{% url 'events:painel' %}">Eventos</a>
         <a href="{% url 'cluster:painel' %}">Cluster</a>

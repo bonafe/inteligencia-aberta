@@ -5,6 +5,7 @@ from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
 from apps.accounts.serializers import TenantTokenObtainPairSerializer
 from apps.cluster.gateway import ChatCompletionsView
+from apps.extensoes import registro as extensoes
 from config.health import health
 
 urlpatterns = [
@@ -33,5 +34,6 @@ urlpatterns = [
     path("cluster/", include("apps.cluster.urls")),
     path("federacao/", include("apps.federacao.urls")),
     path("agora/", include("apps.agora.urls")),
-    path("gastos/", include("apps.financeiro.urls")),
+    # Extensões de domínio (ADR 022), montadas pelo prefixo que cada uma declara.
+    *extensoes.urlpatterns(),
 ]

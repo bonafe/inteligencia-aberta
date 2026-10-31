@@ -86,16 +86,21 @@
 </div>
 {% endif %}
 
+{% if consumidores %}
 <div class="bloco">
-  <h2>Gastos</h2>
+  <h2>O que a extração válida alimenta</h2>
+  {% for c in consumidores %}
   <label style="display:flex;gap:.5rem;align-items:center;font-weight:500">
-    <input type="checkbox" id="alimenta-gastos" style="width:auto" {% if registro.alimenta_gastos %}checked{% endif %}
-           {% if not pode_aprovar %}disabled{% endif %} onchange="mudarGastos(this)">
-    Registrar os lançamentos nos Gastos sozinho quando a extração deste tipo de página validar
+    <input type="checkbox" style="width:auto" data-consumidor="{{ c.chave }}" {% if c.ligado %}checked{% endif %}
+           {% if not pode_aprovar %}disabled{% endif %} onchange="mudarConsumidor(this)">
+    {{ c.rotulo }}
   </label>
-  <p class="ajuda">Só para faturas e extratos. Desligado, a extração válida fica disponível para “Registrar lançamentos” no visualizador.
-    {% if not pode_aprovar %}Só dono ou administrador muda isto.{% endif %} <span id="gastos-msg"></span></p>
+  {% if c.descricao %}<p class="ajuda" style="margin-top:0">{{ c.descricao }}</p>{% endif %}
+  {% endfor %}
+  <p class="ajuda">Desligado, a extração válida continua disponível para as ações do visualizador.
+    {% if not pode_aprovar %}Só dono ou administrador muda isto.{% endif %} <span id="consumidor-msg"></span></p>
 </div>
+{% endif %}
 
 <div class="barra">
   <button class="btn" onclick="preVisualizar()">Pré-visualizar</button>
@@ -387,11 +392,12 @@
     location.reload();
   }
 
-  async function mudarGastos(caixa) {
-    const saida = document.getElementById('gastos-msg');
-    const {ok, data} = await post(`/artifacts/schemas/${SCHEMA_ID}/gastos/`, {ativo: caixa.checked});
+  async function mudarConsumidor(caixa) {
+    const saida = document.getElementById('consumidor-msg');
+    const {ok, data} = await post(`/artifacts/schemas/${SCHEMA_ID}/consumidores/`,
+                                  {consumidor: caixa.dataset.consumidor, ativo: caixa.checked});
     if (!ok) { caixa.checked = !caixa.checked; saida.textContent = data.error || 'falhou'; return; }
-    saida.textContent = data.alimenta_gastos ? 'Ligado.' : 'Desligado.';
+    saida.textContent = data.ativo ? 'Ligado.' : 'Desligado.';
   }
 
   async function novaVersao() {

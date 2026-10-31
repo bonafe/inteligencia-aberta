@@ -45,6 +45,8 @@ INSTALLED_APPS = [
     "apps.federacao.apps.FederacaoConfig",
     "apps.forense.apps.ForenseConfig",
     "apps.agora.apps.AgoraConfig",
+    "apps.extensoes.apps.ExtensoesConfig",
+    # Extensões de domínio (ADR 022): tirar daqui desliga rotas, menu e consumidores.
     "apps.financeiro.apps.FinanceiroConfig",
 ]
 
@@ -79,6 +81,7 @@ TEMPLATES = [
                 "django.template.context_processors.request",
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
+                "apps.extensoes.context_processors.extensoes",
             ],
         },
     },

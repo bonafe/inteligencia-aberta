@@ -1,5 +1,6 @@
-"""Gastos ouvem o parser de página: extração válida de um schema com `alimenta_gastos` vira
-lançamentos sozinha, sem LLM. Do lado de cá de propósito: `apps.artifacts` não conhece os Gastos.
+"""Gastos ouvem o parser de página: extração válida de um schema que tem o consumidor
+`fin.movimentos` ligado vira lançamentos sozinha, sem LLM. Do lado de cá de propósito: o núcleo
+só guarda a lista de consumidores e não conhece os Gastos (ADR 022).
 
 Nunca levanta — a extração roda dentro da captura, e uma falha aqui não pode derrubá-la; o
 motivo vai para o log e para o evento `financeiro.lancamentos`.
@@ -12,12 +13,15 @@ from django.dispatch import receiver
 
 from apps.artifacts.models import ExtracaoPagina
 
+from .extensao import CONSUMIDOR_MOVIMENTOS
+
 logger = logging.getLogger(__name__)
 
 
 @receiver(post_save, sender=ExtracaoPagina)
 def registrar_lancamentos_do_parser(sender, instance, created, **kwargs):
-    if not created or instance.status != ExtracaoPagina.Status.VALIDO or not instance.schema.alimenta_gastos:
+    if (not created or instance.status != ExtracaoPagina.Status.VALIDO
+            or CONSUMIDOR_MOVIMENTOS not in (instance.schema.consumidores or [])):
         return
     from .lancamentos import registrar_extracao
 

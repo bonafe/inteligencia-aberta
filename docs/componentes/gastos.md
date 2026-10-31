@@ -55,7 +55,7 @@ captura (MHTML) ─┬→ parser aprovado do tipo de página (sem LLM, validado)
    - **estruturação por LLM** (`registrar`): sujeito `mencao:<blob_hash>#estruturacao/<id>/lancamento/<n>`,
      produtor `estruturacao-llm`, com o modelo que extraiu.
 
-   Cada lançamento tem `ia:data`, `ia:valor`, `ia:descricao` (e `ia:secao`, se houver), copiados
+   Cada lançamento tem `fin:data`, `fin:valor`, `fin:descricao` (e `fin:secao`, se houver; vocabulário da extensão, ADR 022), copiados
    como estão na página; o período/vencimento é `ia:periodo` no sujeito-base. Autor: o domínio
    da captura. Evidência: a linha original como trecho e o localizador da fonte.
 2. **Uma leitura por documento** — a última registrada vira a escolhida (`LeituraLancamentos`).
