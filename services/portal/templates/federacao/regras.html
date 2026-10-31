@@ -46,7 +46,7 @@
     <select name="par_tipo"><option value="proprio" {% if sim.par_tipo == 'proprio' %}selected{% endif %}>par próprio</option><option value="terceiro" {% if sim.par_tipo == 'terceiro' %}selected{% endif %}>par terceiro</option></select>
     <input name="par_ref" placeholder="nome do par (opcional)" value="{{ sim.par_ref|default:'' }}">
     <select name="nivel">{% for n in niveis %}<option value="{{ n }}" {% if sim.nivel == n %}selected{% endif %}>{{ n }}</option>{% endfor %}</select>
-    <input name="tipo_objeto" placeholder="tipo do objeto (opcional)" value="{{ sim.tipo_objeto|default:'' }}">
+    <select name="tipo_objeto"><option value="">qualquer tipo</option>{% for valor, rotulo in tipos_objeto %}<option value="{{ valor }}" {% if sim.tipo_objeto == valor %}selected{% endif %}>{{ rotulo }} ({{ valor }})</option>{% endfor %}</select>
     <button type="submit">Simular</button>
   </form>
   <p class="ajuda">A simulação não registra nada (nem evento nem auditoria).</p>

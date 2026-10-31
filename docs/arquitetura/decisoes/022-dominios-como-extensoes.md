@@ -1,6 +1,6 @@
 # ADR 022 — Domínios como extensões do núcleo
 
-**Status:** aceita — 2026-10-31. **Etapas 1 a 3 implementadas em 2026-10-31**; as demais são o plano.
+**Status:** aceita — 2026-10-31. **Etapas 1 a 4 implementadas em 2026-10-31**; as demais são o plano.
 
 ## Contexto
 
@@ -60,7 +60,7 @@ chaves, parser e schemas de página, federação. **Extensão** é uma app Djang
 3. **Decisões da pessoa como alegações** (produtor `pessoa`), e as tabelas de estado do financeiro
    como projeção delas. O exportar/importar fica como conveniência. *(feito: ver abaixo)*
 4. **Piso de classificação por tipo** aplicado na criação da alegação, e `tipo_objeto` das regras de
-   replicação validado contra os tipos do registro.
+   replicação validado contra os tipos do registro. *(feito: ver abaixo)*
 5. **Uma segunda extensão pequena** (saúde: exames de laboratório, piso `confidencial`) para provar o
    contrato antes de fixá-lo.
 
@@ -83,6 +83,22 @@ chaves, parser e schemas de página, federação. **Extensão** é uma app Djang
   ainda só leva alegações de artefatos, então as decisões sem artefato não viajam até a F1 definir
   como (provavelmente um evento próprio por decisão, no espaço da pessoa). A escolha da leitura de
   cada documento (`LeituraLancamentos`) segue como estado local.
+
+## Etapa 4: como ficou
+
+- Cada `TipoDado` declara os seus **predicados**; o registro confere que tipos e predicados estão
+  no vocabulário da extensão e que nenhum predicado está em dois tipos.
+- `registrar_alegacao`: predicado de extensão que nenhum tipo declara é recusado (o vocabulário é
+  fechado, o que pega erro de digitação antes de virar dado federado); o de um tipo nasce no
+  `mais_alto` entre o nível pedido (o do artefato, ou o da decisão) e o piso do tipo. Os
+  predicados do núcleo (`schema:`, `ia:`, `prov:`) não têm piso.
+- A projeção da extensão aplica o mesmo piso (`Movimento` nunca abaixo de `restrito`).
+- Replicação: `RegraReplicacao.tipo_objeto` só aceita um tipo de artefato do núcleo ou um tipo de
+  dado de extensão instalada (`politica.tipos_de_objeto`; a simulação em `/cluster/regras/` lista os
+  dois); e `politica.decidir` sobe o nível do contexto ao piso do tipo antes do motor, que segue
+  puro. O `policy_engine` não muda.
+- Ainda não: o leitor tolerante da federação (guardar alegação de vocabulário que a instância não
+  tem instalado) — hoje o pacote recusa essa alegação, com erro no resumo.
 
 ## Consequências
 

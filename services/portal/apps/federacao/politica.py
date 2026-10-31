@@ -54,8 +54,32 @@ def garantir_regras_padrao(organizacao, *, completo: bool = False) -> int:
     return criadas
 
 
+def tipos_de_objeto() -> list[tuple[str, str]]:
+    """Os `tipo_objeto` que uma regra pode citar: os tipos de artefato do núcleo e os tipos de dado
+    das extensões instaladas (ADR 022), como (valor, rótulo)."""
+    from apps.artifacts.models import Artifact
+    from apps.extensoes.registro import tipos
+
+    return [*Artifact.Type.choices, *((t.nome, t.rotulo) for t in tipos())]
+
+
+def com_piso_do_tipo(ctx: regras.Contexto) -> regras.Contexto:
+    """O nível do contexto sobe ao piso do tipo de dado da extensão, se for um (ADR 022, regra 5):
+    o que nasce `restrito` por tipo não sai como `interno` por engano de quem montou o contexto."""
+    from dataclasses import replace
+
+    from apps.extensoes.contrato import NIVEIS, mais_alto
+    from apps.extensoes.registro import tipo
+
+    t = tipo(ctx.tipo_objeto) if ctx.tipo_objeto else None
+    if t is None or ctx.nivel not in NIVEIS:
+        return ctx
+    return replace(ctx, nivel=mais_alto(ctx.nivel, t.piso))
+
+
 def decidir(organizacao, ctx: regras.Contexto, *, agora=None) -> regras.Decisao:
     """Decide com as regras ativas da organização (semeando as padrão se ela não tem nenhuma)."""
+    ctx = com_piso_do_tipo(ctx)
     garantir_regras_padrao(organizacao)
     carregadas = [
         r.como_dados() for r in RegraReplicacao.objects.filter(organizacao=organizacao, ativa=True)

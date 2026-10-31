@@ -128,5 +128,8 @@ SEGU SAO PAULO" quando a normalização passa a tirar a parcela. Mudar a normali
 - Só faturas de cartão; a qualidade depende da estruturação escolhida (o 7B às vezes omite linhas).
 - Parcela entra pela **data da compra** (é o que a fatura mostra): o filtro de período por mês põe
   a parcela 8/10 cobrada em outubro no mês da compra. Somar por fatura (competência) ainda não existe.
-- Classificação: cada lançamento herda o nível do documento. A tela não envia nada a LLM.
+- Classificação: cada lançamento herda o nível do documento, mas nunca abaixo do piso do tipo
+  (ADR 022): `fin:Movimento` e `fin:Conta` são `restrito`, `fin:Estabelecimento` é `interno`. Os
+  predicados de cada tipo estão no manifesto (`extensao.py`); predicado `fin:` fora dele é recusado.
+  A tela não envia nada a LLM.
 - Eventos: `financeiro.lancamentos` (`ok`, ou `vazio` quando a estruturação não tem lista).

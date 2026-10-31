@@ -10,6 +10,9 @@ A **decisão de uma pessoa** (ADR 022) é alegação sem artefato: informa `tena
 `classificacao` no lugar dele, e a evidência é do tipo `decisao` (sem blob). A
 chave inclui a alegação revisada, então decidir A, depois B e de novo A são três
 alegações, cada uma revisando a anterior.
+
+Predicado do vocabulário de uma extensão tem de ser declarado por um `TipoDado` dela,
+e a alegação nasce, no mínimo, no piso do tipo (ADR 022): classificação só sobe.
 """
 
 import hashlib
@@ -19,6 +22,7 @@ from dataclasses import dataclass, field
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 
+from apps.extensoes.contrato import mais_alto
 from config.conteudo_hash import formato_valido as hash_valido
 
 from .models import Artifact, Claim, Evidence
@@ -85,6 +89,14 @@ def registrar_alegacao(
     m = PREDICADO.match(predicado or "")
     if not m or not prefixo_conhecido(m.group(1)):
         raise ValueError("predicado deve ser `schema:…`, `ia:…`, `prov:…` ou do vocabulário de uma extensão instalada")
+    if m.group(1) not in PREFIXOS_NUCLEO:
+        from apps.extensoes.registro import tipo_do_predicado
+
+        tipo = tipo_do_predicado(predicado)
+        if tipo is None:
+            raise ValueError(f"predicado {predicado} não é declarado por nenhum tipo da extensão")
+        # Piso do tipo (ADR 022, regra 5): a alegação nunca fica abaixo dele, venha de onde vier.
+        classificacao = mais_alto(classificacao, tipo.piso)
     if not produtor or not produtor_versao:
         raise ValueError("produtor e produtor_versao são obrigatórios")
     if confianca is not None and not 0 <= confianca <= 1:

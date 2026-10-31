@@ -16,6 +16,12 @@ from dataclasses import dataclass, field
 NIVEIS = ("publico", "interno", "restrito", "confidencial")
 
 
+def mais_alto(*niveis: str | None) -> str | None:
+    """O mais restrito dos níveis informados (ignora `None`): classificação só sobe."""
+    validos = [n for n in niveis if n is not None]
+    return max(validos, key=NIVEIS.index) if validos else None
+
+
 @dataclass(frozen=True)
 class Vocabulario:
     """O namespace dos predicados da extensão (`fin:valor`), versionado e imutável: mudança
@@ -28,11 +34,17 @@ class Vocabulario:
 @dataclass(frozen=True)
 class TipoDado:
     """Um tipo de objeto da extensão. `piso` é o nível mínimo de classificação: dado deste tipo
-    nunca fica abaixo dele, mesmo que o documento de origem seja menos restrito (só sobe)."""
+    nunca fica abaixo dele, mesmo que o documento de origem seja menos restrito (só sobe).
+
+    `predicados` são os do vocabulário que dizem algo sobre este tipo: a alegação com um deles
+    nasce, no mínimo, no `piso` (`registrar_alegacao`). Predicado do vocabulário da extensão que
+    nenhum tipo declara é recusado. O `nome` é o que as regras de replicação usam em `tipo_objeto`.
+    """
 
     nome: str
     rotulo: str
     piso: str = "publico"
+    predicados: tuple[str, ...] = ()
 
     def __post_init__(self):
         if self.piso not in NIVEIS:
@@ -80,3 +92,6 @@ class Extensao:
     consumidores: tuple[Consumidor, ...] = field(default_factory=tuple)
     acoes_leitura: tuple[AcaoLeitura, ...] = field(default_factory=tuple)
     menu: tuple[ItemMenu, ...] = field(default_factory=tuple)
+
+    def tipo(self, nome: str) -> TipoDado | None:
+        return next((t for t in self.tipos if t.nome == nome), None)

@@ -35,9 +35,11 @@ from django.db import transaction
 from apps.artifacts.alegacoes import LITERAL_MAXIMO, EvidenciaEntrada, registrar_alegacao, truncar_trecho
 from apps.artifacts.extractors.valores import parse_valor
 from apps.artifacts.models import Claim, EstruturacaoLLM, ExtracaoPagina
+from apps.extensoes.contrato import mais_alto
 from config.conteudo_hash import formato_valido as hash_valido
 
 from . import decisoes
+from .extensao import EXTENSAO
 from .models import (
     CategoriaGasto, CompraParcelada, Conta, DescritorEstabelecimento, LeituraLancamentos,
     Movimento,
@@ -537,6 +539,8 @@ def projetar_artefato(artefato) -> int:
     referencia = vencimento or artefato.created_at.date()
 
     cache: dict = {}
+    # O piso de `fin:Movimento` (ADR 022): o movimento nunca fica abaixo dele, mesmo de documento menos restrito.
+    nivel = mais_alto(artefato.classification_level, EXTENSAO.tipo("fin:Movimento").piso)
     novos = []
     for sujeito, campos in sujeitos.items():
         m = _SUJEITO.search(sujeito)
@@ -556,7 +560,7 @@ def projetar_artefato(artefato) -> int:
             natureza=natureza, parcela=parcela[0] if parcela else None, parcelas=parcela[1] if parcela else None,
             estabelecimento_id=(_estabelecimento(artefato.tenant_id, descricao, cache)
                                 if natureza in COM_ESTABELECIMENTO else None),
-            classification_level=artefato.classification_level,
+            classification_level=nivel,
         ))
     Movimento.objects.bulk_create(novos)
     return len(novos)

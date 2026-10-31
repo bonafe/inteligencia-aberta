@@ -26,7 +26,26 @@ def extensoes() -> tuple[Extensao, ...]:
     prefixos = [e.vocabulario.prefixo for e in encontradas]
     if len(set(prefixos)) != len(prefixos):
         raise ValueError(f"prefixo de vocabulário repetido entre extensões: {prefixos}")
+    for e in encontradas:
+        _validar_tipos(e)
     return tuple(encontradas)
+
+
+def _validar_tipos(extensao: Extensao) -> None:
+    """Tipos e predicados no vocabulário da própria extensão; cada predicado em um tipo só."""
+    prefixo = extensao.vocabulario.prefixo + ":"
+    vistos: set[str] = set()
+    for t in extensao.tipos:
+        for nome in (t.nome, *t.predicados):
+            if not nome.startswith(prefixo):
+                raise ValueError(f"{extensao.nome}: {nome!r} fora do vocabulário {prefixo}")
+        repetidos = vistos & set(t.predicados)
+        if repetidos:
+            raise ValueError(f"{extensao.nome}: predicado em mais de um tipo: {sorted(repetidos)}")
+        vistos |= set(t.predicados)
+    nomes = [t.nome for t in extensao.tipos]
+    if len(set(nomes)) != len(nomes):
+        raise ValueError(f"{extensao.nome}: tipo repetido: {nomes}")
 
 
 def prefixos() -> set[str]:
@@ -49,6 +68,15 @@ def consumidor(chave: str) -> Consumidor | None:
 
 def tipos() -> tuple[TipoDado, ...]:
     return tuple(t for e in extensoes() for t in e.tipos)
+
+
+def tipo(nome: str) -> TipoDado | None:
+    return next((t for t in tipos() if t.nome == nome), None)
+
+
+def tipo_do_predicado(predicado: str) -> TipoDado | None:
+    """O tipo que declara o predicado (`fin:valor` → `fin:Movimento`), ou None."""
+    return next((t for t in tipos() if predicado in t.predicados), None)
 
 
 def menu() -> tuple[ItemMenu, ...]:

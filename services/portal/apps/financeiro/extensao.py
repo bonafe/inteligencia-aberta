@@ -13,9 +13,16 @@ EXTENSAO = Extensao(
     urls="apps.financeiro.urls",
     prefixo_url="gastos/",
     tipos=(
-        TipoDado("fin:Movimento", "Movimento de conta", piso="restrito"),
-        TipoDado("fin:Conta", "Conta ou cartão", piso="restrito"),
-        TipoDado("fin:Estabelecimento", "Estabelecimento", piso="interno"),
+        # O que o documento diz: cada lançamento e o período da fatura (`lancamentos.py`).
+        TipoDado("fin:Movimento", "Movimento de conta", piso="restrito",
+                 predicados=("fin:data", "fin:valor", "fin:descricao", "fin:secao", "fin:documento",
+                             "fin:sentido", "fin:periodo")),
+        # De que conta é o documento e o que a pessoa decide sobre ela (`decisoes.py`).
+        TipoDado("fin:Conta", "Conta ou cartão", piso="restrito",
+                 predicados=("fin:conta", "fin:titular", "fin:apelido", "fin:contaPropria", "fin:mesmaContaQue")),
+        # O que a pessoa decide sobre o lugar: categoria, nome, empresa, fusão; e as categorias.
+        TipoDado("fin:Estabelecimento", "Estabelecimento", piso="interno",
+                 predicados=("fin:categoria", "fin:nome", "fin:empresa", "fin:mesmoLugarQue", "fin:rotulo")),
     ),
     consumidores=(
         Consumidor(CONSUMIDOR_MOVIMENTOS, "Lançamentos nos Gastos",

@@ -47,6 +47,7 @@ def _contexto(request, org, **extra) -> dict:
         "entidades": mer.entidades(),
         "relacoes": mer.relacoes(),
         "niveis": regras.NIVEIS,
+        "tipos_objeto": politica.tipos_de_objeto(),
         **extra,
     }
 
@@ -69,6 +70,8 @@ class RegrasView(View):
             erro = "Escolha o tipo do par."
         elif dados["nivel"] not in regras.NIVEIS:
             erro = "Escolha um nível de classificação."
+        elif dados["tipo_objeto"] and dados["tipo_objeto"] not in dict(politica.tipos_de_objeto()):
+            erro = "Tipo de objeto desconhecido."
         if erro:
             return render(request, "federacao/regras.html", _contexto(request, org, erro=erro, sim=dados), status=400)
         ctx = regras.Contexto(

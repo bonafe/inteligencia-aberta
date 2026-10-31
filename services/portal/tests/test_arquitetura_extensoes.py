@@ -9,6 +9,7 @@ from django.test import override_settings
 from apps.artifacts.alegacoes import prefixo_conhecido
 from apps.extensoes import registro
 from apps.extensoes.contrato import Extensao, TipoDado
+from apps.federacao import politica
 
 PORTAL = Path(__file__).resolve().parent.parent
 
@@ -60,6 +61,8 @@ def test_sem_a_extensao_o_registro_fica_vazio_e_o_vocabulario_some():
             registro.extensoes.cache_clear()
             assert registro.extensoes() == () and registro.menu() == () and registro.consumidores() == ()
             assert not prefixo_conhecido("fin") and prefixo_conhecido("schema")
+            assert registro.tipo_do_predicado("fin:valor") is None
+            assert "fin:Movimento" not in dict(politica.tipos_de_objeto())
     finally:
         registro.extensoes.cache_clear()
     assert prefixo_conhecido("fin")

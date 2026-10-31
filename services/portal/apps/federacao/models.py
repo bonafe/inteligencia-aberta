@@ -190,6 +190,13 @@ class RegraReplicacao(models.Model):
         erros = {}
         if self.nivel is not None and self.nivel not in regras.NIVEIS:
             erros["nivel"] = f"use um de {', '.join(regras.NIVEIS)}"
+        if self.tipo_objeto is not None:
+            from .politica import tipos_de_objeto
+
+            self.tipo_objeto = self.tipo_objeto.strip() or None
+            conhecidos = [v for v, _ in tipos_de_objeto()]
+            if self.tipo_objeto is not None and self.tipo_objeto not in conhecidos:
+                erros["tipo_objeto"] = f"tipo desconhecido; use um de {', '.join(conhecidos)}"
         for campo in ("espaco_urn", "objeto_urn"):
             valor = getattr(self, campo)
             if valor is not None:

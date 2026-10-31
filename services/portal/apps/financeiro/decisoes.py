@@ -48,7 +48,8 @@ MESMA_CONTA = "fin:mesmaContaQue"
 #: Objeto que desfaz a decisão anterior (sem categoria, sem apelido).
 NENHUM = "fin:nenhum"
 
-#: Nível da decisão: o piso do tipo de dado de que ela trata (ADR 022, regra 5).
+#: Nível da decisão: o piso do tipo de dado de que ela trata (ADR 022, regra 5; `registrar_alegacao`
+#: também o aplica pelo predicado).
 _PISO = {t.nome: t.piso for t in EXTENSAO.tipos}
 _ESTABELECIMENTO, _CONTA = "fin:Estabelecimento", "fin:Conta"
 
