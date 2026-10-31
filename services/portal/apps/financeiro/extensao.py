@@ -2,7 +2,8 @@
 
 from apps.extensoes.contrato import AcaoLeitura, Consumidor, Extensao, ItemMenu, TipoDado, Vocabulario
 
-#: Consumidor da extração válida do parser de página: vira lançamentos nos Gastos (`signals.py`).
+#: Consumidor da extração válida do parser de página: vira lançamentos nos Gastos (o núcleo chama
+#: `ao_validar`, `apps.extensoes.signals`).
 CONSUMIDOR_MOVIMENTOS = "fin.movimentos"
 
 EXTENSAO = Extensao(
@@ -26,7 +27,8 @@ EXTENSAO = Extensao(
     ),
     consumidores=(
         Consumidor(CONSUMIDOR_MOVIMENTOS, "Lançamentos nos Gastos",
-                   "A extração válida vira movimentos nos Gastos sozinha, sem LLM."),
+                   "A extração válida vira movimentos nos Gastos sozinha, sem LLM.",
+                   ao_validar="apps.financeiro.lancamentos.registrar_extracao"),
     ),
     acoes_leitura=(
         AcaoLeitura("Registrar lançamentos", extracao="registrar-extracao/{id}/", estruturacao="registrar/{id}/"),

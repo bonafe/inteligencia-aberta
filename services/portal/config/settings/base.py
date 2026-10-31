@@ -48,6 +48,7 @@ INSTALLED_APPS = [
     "apps.extensoes.apps.ExtensoesConfig",
     # Extensões de domínio (ADR 022): tirar daqui desliga rotas, menu e consumidores.
     "apps.financeiro.apps.FinanceiroConfig",
+    "apps.saude.apps.SaudeConfig",
 ]
 
 MIDDLEWARE = [

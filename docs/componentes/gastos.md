@@ -51,7 +51,7 @@ captura (MHTML) ─┬→ parser aprovado do tipo de página (sem LLM, validado)
      `mencao:<blob_hash>#parser/<schema>/lancamento/<n>` (do schema, não da execução: rodar de
      novo não duplica), produtor `parser-pagina`, versão `v<n>` do schema, sem modelo.
      **Automático** quando o schema tem a chave "registrar nos Gastos sozinho" ligada
-     (`SchemaPagina.alimenta_gastos`, desligada por padrão; quem ouve é `financeiro/signals.py`);
+     (o consumidor `fin.movimentos` em `SchemaPagina.consumidores`, desligado por padrão; o núcleo chama `Consumidor.ao_validar`);
    - **estruturação por LLM** (`registrar`): sujeito `mencao:<blob_hash>#estruturacao/<id>/lancamento/<n>`,
      produtor `estruturacao-llm`, com o modelo que extraiu.
 
@@ -132,4 +132,4 @@ SEGU SAO PAULO" quando a normalização passa a tirar a parcela. Mudar a normali
   (ADR 022): `fin:Movimento` e `fin:Conta` são `restrito`, `fin:Estabelecimento` é `interno`. Os
   predicados de cada tipo estão no manifesto (`extensao.py`); predicado `fin:` fora dele é recusado.
   A tela não envia nada a LLM.
-- Eventos: `financeiro.lancamentos` (`ok`, ou `vazio` quando a estruturação não tem lista).
+- Eventos: `financeiro.lancamentos` (`ok`, ou `vazio` quando a estruturação não tem lista); falha do registro automático: `extensao.consumidor`.

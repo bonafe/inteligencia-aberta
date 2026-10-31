@@ -132,7 +132,8 @@ def test_falha_no_registro_automatico_nao_derruba_a_extracao(org, padrao):
     doc = _captura(org, padrao, blob_hash="")                       # sem hash não há evidência
     e = extrair_com_parser(doc, OUTRO_MES)
     assert e.status == ExtracaoPagina.Status.VALIDO and not Movimento.objects.exists()
-    assert PipelineEvent.objects.filter(stage="financeiro.lancamentos", status="falhou").exists()
+    falha = PipelineEvent.objects.get(stage="extensao.consumidor", status="falhou")
+    assert falha.payload["consumidor"] == "fin.movimentos"
 
 
 # ── telas ───────────────────────────────────────────────────────────────────

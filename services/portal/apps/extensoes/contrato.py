@@ -45,6 +45,9 @@ class TipoDado:
     rotulo: str
     piso: str = "publico"
     predicados: tuple[str, ...] = ()
+    #: O documento de onde vem a alegação também sobe ao piso (exame de saúde: o laudo inteiro é
+    #: confidencial, não só o que se extraiu dele). Auditado; nunca desce (`artifacts.elevacao`).
+    eleva_fonte: bool = False
 
     def __post_init__(self):
         if self.piso not in NIVEIS:
@@ -59,6 +62,9 @@ class Consumidor:
     chave: str
     rotulo: str
     descricao: str = ""
+    #: Função (caminho pontuado) que recebe a `ExtracaoPagina` válida de um schema com este
+    #: consumidor ligado. O núcleo chama (`apps.extensoes.signals`) e nunca deixa a falha subir.
+    ao_validar: str = ""
 
 
 @dataclass(frozen=True)

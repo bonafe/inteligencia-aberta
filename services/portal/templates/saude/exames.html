@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}Saúde — Inteligência Aberta{% endblock %}
+
+{% block content %}
+<style>
+  .bloco { background:#fff; border:1px solid #e5e7eb; border-radius:8px; padding:1.25rem 1.5rem; margin-top:1.25rem; box-shadow:0 1px 3px rgba(0,0,0,.05); }
+  table.t { width:100%; border-collapse:collapse; font-size:.86rem; }
+  table.t th, table.t td { text-align:left; padding:.35rem .5rem; border-top:1px solid #f1f5f9; vertical-align:top; }
+  table.t td.num { text-align:right; font-variant-numeric: tabular-nums; white-space:nowrap; }
+  .ajuda { font-size:.88rem; color:#475569; margin:.4rem 0; }
+  .sem-dado { color:#9ca3af; font-size:.9rem; }
+  .historico { font-size:.78rem; color:#64748b; }
+  .conf { font-size:.72rem; padding:.1rem .45rem; border-radius:999px; background:#fef2f2; color:#991b1b; }
+  .filtros { display:flex; flex-wrap:wrap; gap:.6rem; align-items:center; }
+  .filtros select { width:auto; }
+</style>
+
+<h1>Saúde <span class="conf">confidencial</span></h1>
+<p class="ajuda">
+  Resultados de exames lidos dos laudos que você capturou ({{ n_laudos }} laudo{{ n_laudos|pluralize }}), pelo parser do
+  tipo de página ou por uma estruturação escolhida no visualizador. Tudo aqui é confidencial: o laudo também passa a ser
+  quando um resultado é registrado, nada vai a LLM externo e cada abertura desta tela fica na auditoria.
+</p>
+
+{% if organizacoes|length > 1 %}
+<form method="get" class="filtros">
+  <label>Organização
+    <select name="organizacao" onchange="this.form.requestSubmit()">
+      {% for o in organizacoes %}<option value="{{ o.pk }}" {% if o.pk == org.pk %}selected{% endif %}>{{ o.name }}</option>{% endfor %}
+    </select>
+  </label>
+</form>
+{% endif %}
+
+<div class="bloco">
+  {% if analitos %}
+  <table class="t">
+    <tr><th>Exame</th><th class="num">Último resultado</th><th>Referência</th><th>Data</th><th>Histórico</th></tr>
+    {% for a in analitos %}
+    <tr>
+      <td>{{ a.nome }}{% if a.ultimo.material %} <span class="historico">({{ a.ultimo.material }})</span>{% endif %}</td>
+      <td class="num">{{ a.ultimo.resultado }} {{ a.ultimo.unidade }}</td>
+      <td>{{ a.ultimo.referencia|default:"—" }}</td>
+      <td>{{ a.ultimo.data|date:"d/m/Y"|default:a.ultimo.data_texto }}</td>
+      <td class="historico">{% if a.historico|length > 1 %}{% for r in a.historico %}{{ r.data|date:"m/Y"|default:"?" }}: {{ r.resultado }}{% if not forloop.last %} · {% endif %}{% endfor %}{% else %}—{% endif %}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}
+  <p class="sem-dado">Nenhum resultado ainda. No visualizador de um laudo capturado, use “Registrar exames” numa extração
+    válida ou numa estruturação; ou ligue “Resultados na Saúde” no schema de página do laboratório.</p>
+  {% endif %}
+</div>
+{% endblock %}

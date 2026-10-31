@@ -95,8 +95,12 @@ def registrar_alegacao(
         tipo = tipo_do_predicado(predicado)
         if tipo is None:
             raise ValueError(f"predicado {predicado} não é declarado por nenhum tipo da extensão")
-        # Piso do tipo (ADR 022, regra 5): a alegação nunca fica abaixo dele, venha de onde vier.
+        # Piso do tipo (ADR 022, regra 5): a alegação nunca fica abaixo dele, venha de onde vier;
+        # e, se o tipo pede, o documento de onde ela vem também sobe (auditado).
         classificacao = mais_alto(classificacao, tipo.piso)
+        eleva_fonte = tipo if tipo.eleva_fonte and artefato is not None else None
+    else:
+        eleva_fonte = None
     if not produtor or not produtor_versao:
         raise ValueError("produtor e produtor_versao são obrigatórios")
     if confianca is not None and not 0 <= confianca <= 1:
@@ -124,6 +128,11 @@ def registrar_alegacao(
             raise ValueError("evidência sem localizador_tipo")
         if len(ev.trecho) > Evidence.TRECHO_MAXIMO:
             raise ValueError(f"trecho acima de {Evidence.TRECHO_MAXIMO} caracteres (use truncar_trecho)")
+
+    if eleva_fonte is not None:         # depois de validar tudo: entrada inválida não eleva nada
+        from .elevacao import elevar
+
+        elevar(artefato, eleva_fonte.piso, motivo=f"alegação {predicado} ({eleva_fonte.nome}) extraída do documento")
 
     chave = _chave(sujeito, predicado, objeto_ref, objeto_literal, autor, produtor, produtor_versao, revisa)
     def mesma():

@@ -1,6 +1,6 @@
 # ADR 022 — Domínios como extensões do núcleo
 
-**Status:** aceita — 2026-10-31. **Etapas 1 a 4 implementadas em 2026-10-31**; as demais são o plano.
+**Status:** aceita — 2026-10-31. **Etapas 1 a 5 implementadas em 2026-10-31.**
 
 ## Contexto
 
@@ -62,7 +62,7 @@ chaves, parser e schemas de página, federação. **Extensão** é uma app Djang
 4. **Piso de classificação por tipo** aplicado na criação da alegação, e `tipo_objeto` das regras de
    replicação validado contra os tipos do registro. *(feito: ver abaixo)*
 5. **Uma segunda extensão pequena** (saúde: exames de laboratório, piso `confidencial`) para provar o
-   contrato antes de fixá-lo.
+   contrato antes de fixá-lo. *(feito: ver abaixo)*
 
 ## Etapa 3: como ficou
 
@@ -99,6 +99,27 @@ chaves, parser e schemas de página, federação. **Extensão** é uma app Djang
   puro. O `policy_engine` não muda.
 - Ainda não: o leitor tolerante da federação (guardar alegação de vocabulário que a instância não
   tem instalado) — hoje o pacote recusa essa alegação, com erro no resumo.
+
+## Etapa 5: o que a segunda extensão ensinou
+
+`apps/saude` (`docs/componentes/saude.md`) entrou sem tocar uma linha do núcleo **por causa dela**,
+fora o que o contrato ganhou. O teste de arquitetura roda para as duas extensões. O que mudou no
+contrato:
+
+- **`Consumidor.ao_validar`.** Cada extensão escrevia o seu `post_save` de `ExtracaoPagina` e a sua
+  conferência da chave no schema. Agora a extensão declara a função e o núcleo entrega a extração
+  válida a cada consumidor ligado (`apps/extensoes/signals.py`), isolando falhas (uma não impede a
+  outra nem a captura; evento `extensao.consumidor`). O `financeiro/signals.py` saiu.
+- **`TipoDado.eleva_fonte`.** O piso na alegação não basta para dado sensível: o laudo `interno`
+  continuaria indo a LLM externo com o exame dentro. O tipo pode declarar que o documento de onde a
+  alegação vem sobe ao piso também; o núcleo faz isso num serviço único, só para cima e auditado
+  (`artifacts/elevacao.py`), depois de validar a alegação. Os Gastos não usam (as faturas já nascem
+  `restrito` pela regra de domínio).
+
+O que se repetiu e **fica fora do contrato por ora** (duas ocorrências ainda não justificam
+abstração): a leitura escolhida por documento (`LeituraLancamentos`, `LeituraExames`), o registro
+"leitura → alegações com evidência" e as views de registrar que devolvem `mensagem`/`link`; o
+`_org` das telas. Se uma terceira extensão repetir, vira serviço do núcleo.
 
 ## Consequências
 
