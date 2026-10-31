@@ -114,7 +114,7 @@ def _captura(org, nivel="restrito"):
 def _schema(org, provider="ollama"):
     artefato, padrao = _captura(org)
     return SchemaPagina.objects.create(
-        tenant=org, padrao=padrao, amostra=artefato, versao=1, classification_level="restrito",
+        tenant=org, padrao=padrao, dominio=padrao.domain, caminho=padrao.path_pattern, amostra=artefato, versao=1, classification_level="restrito",
         provider=provider, model_name="qwen2.5:7b",
     )
 

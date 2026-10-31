@@ -34,7 +34,7 @@ def padrao(org):
 def _aprovar(org, padrao, schema=SCHEMA, html=AMOSTRA):
     parser, _ = P.montar_parser(schema, html)
     return SchemaPagina.objects.create(
-        tenant=org, padrao=padrao, versao=1, status=SchemaPagina.Status.APROVADO, schema=schema, parser=parser,
+        tenant=org, padrao=padrao, dominio=padrao.domain, caminho=padrao.path_pattern, versao=1, status=SchemaPagina.Status.APROVADO, schema=schema, parser=parser,
         classification_level="restrito", provider="ollama", model_name="qwen2.5:7b",
     )
 
@@ -141,7 +141,7 @@ def test_um_parser_que_levanta_nao_derruba_a_captura(org, padrao):
             mock.patch("apps.artifacts.extractors.detect_page_type",
                        return_value=("tabular_generico", 0.9, "teste", padrao.id, padrao)), \
             mock.patch.object(tasks.fragment_text, "delay"), \
-            mock.patch("apps.artifacts.extracao_pagina.schema_aprovado", side_effect=RuntimeError("banco fora")):
+            mock.patch("apps.artifacts.extracao_pagina.schemas_aprovados", side_effect=RuntimeError("banco fora")):
         minio.return_value.get_object.return_value = resposta
         assert tasks.extract_text_from_mhtml.run(str(artefato.id))["status"] == "success"
     assert DocumentText.objects.filter(document=artefato).exists()
@@ -163,7 +163,7 @@ def test_rodar_parser_sob_demanda_e_listar(client, org, padrao, html_da_captura)
     resp = client.post(f"/artifacts/{artefato.id}/extracoes-pagina/")
     assert resp.status_code == 200 and resp.json()["status"] == "valido" and resp.json()["origem"] == "manual"
     lista = client.get(f"/artifacts/{artefato.id}/extracoes-pagina/").json()
-    assert lista["schema_aprovado"]["versao"] == 1 and len(lista["extracoes"]) == 1
+    assert [a["versao"] for a in lista["schemas_aprovados"]] == [1] and len(lista["extracoes"]) == 1
     pagina = client.get(f"/artifacts/schemas/{s.id}/").content.decode()
     assert "Uso nas capturas" in pagina and "1 execução(ões): 1 válida(s)" in pagina
 
@@ -172,7 +172,7 @@ def test_rodar_parser_sem_schema_aprovado_e_400(client, org, padrao, html_da_cap
     client.force_login(org.owner)
     artefato, _ = _captura(org, padrao)
     assert client.post(f"/artifacts/{artefato.id}/extracoes-pagina/").status_code == 400
-    assert client.get(f"/artifacts/{artefato.id}/extracoes-pagina/").json() == {"schema_aprovado": None, "extracoes": []}
+    assert client.get(f"/artifacts/{artefato.id}/extracoes-pagina/").json() == {"schemas_aprovados": [], "extracoes": []}
 
 
 def test_tela_do_schema_avisa_quando_a_ultima_nao_validou(client, org, padrao):

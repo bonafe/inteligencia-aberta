@@ -279,8 +279,18 @@ O campo `hints` é opcional — o LLM o inclui quando consegue identificar selet
 ## Parser por tipo de página (em construção, 2026-10-30)
 
 Objetivo: o LLM ajuda **uma vez por tipo de página** e as capturas seguintes do mesmo tipo
-são extraídas por um parser determinístico, sem chamar LLM. Chave do tipo: a do
-`URLPatternCache` (organização, domínio, padrão de path, impressão estrutural).
+são extraídas por um parser determinístico, sem chamar LLM.
+
+**Família, não impressão estrutural** (2026-10-30): o schema pertence a organização +
+domínio + caminho (`SchemaPagina.dominio`/`caminho`), e uma família pode ter vários schemas
+aprovados. Motivo: a `structure_fingerprint` do `URLPatternCache` inclui a primeira linha das
+tabelas, que no internet banking traz valores do mês — 27 capturas do BB deram 25 impressões
+diferentes, e o parser da fatura de outubro nunca rodaria na de novembro. E no mesmo endereço
+(`/aapf/principal.jsp`) convivem fatura e extrato. Na captura rodam **todos** os aprovados da
+família e **a validação decide**: vale o que validar (o aprovado mais recente, se mais de um);
+se nenhum, registra o que chegou mais perto, e a extração guarda os candidatos. Na aprovação a
+pessoa diz qual aprovado o novo **substitui** (padrão: aquele de que foi copiado); gerado do
+zero não substitui nada. Lista de todos os schemas: `/artifacts/schemas/` (menu "Schemas").
 
 1. **Schema (feito)** — `SchemaPagina` (`apps/artifacts/models.py`), gerado em
    `extractors/schema_pagina.py` pela task `gerar_schema_pagina`, disparada por
@@ -298,7 +308,7 @@ são extraídas por um parser determinístico, sem chamar LLM. Chave do tipo: a 
    **pré-visualizar** na amostra o que o parser extrai com o schema da tela, sem salvar. Só
    rascunho se edita; aprovado é fixo e "Nova versão a partir desta" copia para um rascunho.
    **Aprovar** é de dono/administrador e só acontece se a amostra **valida**; grava o parser e
-   o aprovado anterior do mesmo tipo vira `substituido` (no máximo um aprovado por tipo).
+   o aprovado indicado em "substitui" vira `substituido`.
 3. **Parser (feito)** — `extractors/parser_pagina.py`. `montar_parser`: campos únicos por
    `dom2parser.parser.scalars` (locator ancorado no rótulo, sintetizado do exemplo; valor que
    também está numa linha de lista vem de fora dela); listas ligadas ao registro verificado do

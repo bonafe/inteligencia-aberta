@@ -1,5 +1,6 @@
-"""Schema de tipo de página (`SchemaPagina`): gerar a partir de uma captura, listar as versões
-do tipo, cancelar uma geração e a tela de revisão (editar, pré-visualizar, salvar, aprovar).
+"""Schema de tipo de página (`SchemaPagina`): gerar a partir de uma captura, listar os schemas
+da família (domínio + caminho), cancelar uma geração, a tela de revisão (editar, pré-visualizar,
+salvar, aprovar) e a lista de todos os schemas da organização.
 
 Isolado por organização: a captura e o schema têm de ser de uma organização da pessoa,
 senão 404. LLM externo segue a mesma régua da estruturação manual (`permite_llm_externo`).
@@ -10,8 +11,8 @@ valida na amostra.
 
 import json
 
-from django.db import transaction
-from django.db.models import Max
+from django.db import IntegrityError, transaction
+from django.db.models import Count, Max, Q
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, render
 from django.utils import timezone
@@ -23,7 +24,7 @@ from apps.events.context import set_correlation_id, set_tenant_id
 from apps.events.emit import emit
 
 from .extractors.schema_pagina import TIPOS
-from .models import Artifact, DocumentText, ExtracaoPagina, SchemaPagina, URLPatternCache
+from .models import Artifact, DocumentText, ExtracaoPagina, SchemaPagina
 from .policy import permite_llm_externo
 from .views import _maquina_escolhida
 
@@ -44,6 +45,20 @@ def _schema_json(s: SchemaPagina) -> dict:
         "created_at": s.created_at.isoformat(),
         "started_at": s.started_at.isoformat() if s.started_at else None,
     }
+
+
+def _nova_versao(tenant, dominio: str, caminho: str, **campos) -> SchemaPagina:
+    """Cria a próxima versão da família. A numeração é por família; duas criações simultâneas
+    colidem na restrição única e a segunda tenta de novo com o número seguinte."""
+    for _ in range(5):
+        versao = (SchemaPagina.da_familia(tenant.id, dominio, caminho).aggregate(m=Max("versao"))["m"] or 0) + 1
+        try:
+            with transaction.atomic():
+                return SchemaPagina.objects.create(tenant=tenant, dominio=dominio, caminho=caminho,
+                                                   versao=versao, **campos)
+        except IntegrityError:
+            continue
+    raise IntegrityError("não foi possível numerar a versão do schema")
 
 
 def _padrao_da_captura(request, artifact_id):
@@ -82,14 +97,12 @@ class GerarSchemaView(View):
         if erro:
             return JsonResponse({"error": erro}, status=400)
 
-        with transaction.atomic():
-            URLPatternCache.objects.select_for_update().get(pk=padrao.pk)
-            versao = (SchemaPagina.objects.filter(padrao=padrao).aggregate(m=Max("versao"))["m"] or 0) + 1
-            registro = SchemaPagina.objects.create(
-                tenant=artifact.tenant, padrao=padrao, amostra=artifact, versao=versao,
-                classification_level=artifact.classification_level, provider=provider,
-                model_name=model_name, triggered_by=request.user,
-            )
+        registro = _nova_versao(
+            artifact.tenant, padrao.domain, padrao.path_pattern, padrao=padrao, amostra=artifact,
+            classification_level=artifact.classification_level, provider=provider,
+            model_name=model_name, triggered_by=request.user,
+        )
+        versao = registro.versao
 
         correlation = correlacao_do_artefato(artifact.id)
         emit("schema_pagina.solicitado", "ok", correlation_id=correlation,
@@ -107,24 +120,23 @@ class GerarSchemaView(View):
 
 
 class SchemasListView(View):
-    """As versões de schema do tipo de página desta captura, mais nova primeiro."""
+    """Os schemas da família desta captura (domínio + caminho), mais nova primeiro."""
 
     def get(self, request, artifact_id):
-        _, padrao = _padrao_da_captura(request, artifact_id)
+        artifact, padrao = _padrao_da_captura(request, artifact_id)
         if padrao is None:
             return JsonResponse({"padrao": None, "schemas": []})
-        schemas = SchemaPagina.objects.filter(padrao=padrao).order_by("-versao")
+        schemas = SchemaPagina.da_familia(artifact.tenant_id, padrao.domain, padrao.path_pattern).order_by("-versao")
         return JsonResponse({
-            "padrao": {"dominio": padrao.domain, "caminho": padrao.path_pattern,
-                       "impressao": padrao.structure_fingerprint},
+            "padrao": {"dominio": padrao.domain, "caminho": padrao.path_pattern},
             "schemas": [_schema_json(s) for s in schemas],
         })
 
 
 class SchemaCancelarView(View):
     def post(self, request, artifact_id, schema_id):
-        _, padrao = _padrao_da_captura(request, artifact_id)
-        registro = get_object_or_404(SchemaPagina, id=schema_id, padrao=padrao)
+        artifact, _ = _padrao_da_captura(request, artifact_id)
+        registro = get_object_or_404(SchemaPagina, id=schema_id, tenant=artifact.tenant)
         if registro.status not in (SchemaPagina.Status.PENDENTE, SchemaPagina.Status.EXECUTANDO):
             return JsonResponse({"error": "geração já finalizada"}, status=400)
         if registro.celery_task_id:
@@ -185,7 +197,10 @@ def _montar_e_executar(schema, html):
 class RevisarSchemaView(View):
     def get(self, request, schema_id):
         registro = _schema_da_pessoa(request, schema_id)
-        versoes = SchemaPagina.objects.filter(padrao=registro.padrao).order_by("-versao")
+        familia = SchemaPagina.da_familia(registro.tenant_id, registro.dominio, registro.caminho)
+        versoes = familia.order_by("-versao")
+        aprovados = familia.filter(status=SchemaPagina.Status.APROVADO).exclude(pk=registro.pk).order_by("-versao")
+        substitui_padrao = registro.derivado_de_id if any(a.pk == registro.derivado_de_id for a in aprovados) else None
         titulo = ""
         if registro.amostra_id:
             titulo = DocumentText.objects.filter(document_id=registro.amostra_id).values_list("title", flat=True).first() or ""
@@ -197,6 +212,8 @@ class RevisarSchemaView(View):
             "uso_total": sum(uso.values()),
             "ultimas_extracoes": list(extracoes[:5]),
             "versoes": versoes,
+            "aprovados": aprovados,
+            "substitui_padrao": substitui_padrao,
             "titulo_amostra": titulo,
             "editavel": registro.status in SchemaPagina.EDITAVEIS,
             "pode_aprovar": eh_admin(request.user, registro.tenant),
@@ -260,6 +277,13 @@ class AprovarSchemaView(View):
         if registro.status != SchemaPagina.Status.RASCUNHO:
             return JsonResponse({"error": f"só um rascunho é aprovado (este está {registro.status})"}, status=400)
         try:
+            substitui = (json.loads(request.body or b"{}") or {}).get("substitui") or None
+        except json.JSONDecodeError:
+            return JsonResponse({"error": "JSON inválido"}, status=400)
+        if substitui and not SchemaPagina.da_familia(registro.tenant_id, registro.dominio, registro.caminho).filter(
+                pk=substitui, status=SchemaPagina.Status.APROVADO).exclude(pk=registro.pk).exists():
+            return JsonResponse({"error": "o schema a substituir tem de ser um aprovado da mesma família"}, status=400)
+        try:
             html = _html_da_amostra(registro)
         except ValueError as exc:
             return JsonResponse({"error": str(exc)}, status=400)
@@ -270,10 +294,11 @@ class AprovarSchemaView(View):
             return JsonResponse({"error": "a amostra não valida com este schema",
                                  "problemas": resultado["validacao"]["problemas"]}, status=400)
         with transaction.atomic():
-            anteriores = SchemaPagina.objects.select_for_update().filter(
-                padrao=registro.padrao, status=SchemaPagina.Status.APROVADO)
+            # Substitui só o que a pessoa indicou: na mesma família convivem fatura e extrato.
+            anteriores = SchemaPagina.da_familia(registro.tenant_id, registro.dominio, registro.caminho).filter(
+                status=SchemaPagina.Status.APROVADO, pk=substitui).select_for_update() if substitui else SchemaPagina.objects.none()
             substituidos = [str(a.versao) for a in anteriores]
-            # A versão nova do mesmo tipo continua alimentando os Gastos se a anterior alimentava.
+            # A versão nova continua alimentando os Gastos se a que ela substitui alimentava.
             registro.alimenta_gastos = registro.alimenta_gastos or any(a.alimenta_gastos for a in anteriores)
             anteriores.update(status=SchemaPagina.Status.SUBSTITUIDO, updated_at=timezone.now())
             registro.status = SchemaPagina.Status.APROVADO
@@ -283,7 +308,8 @@ class AprovarSchemaView(View):
                                          "alimenta_gastos", "updated_at"])
         emit("schema_pagina.aprovado", "ok", subject_type="artifact", subject_id=registro.amostra_id,
              tenant_id=registro.tenant_id, user_id=request.user.id, source="portal",
-             message=f"schema v{registro.versao} de {registro.padrao.domain}{registro.padrao.path_pattern} aprovado",
+             message=f"schema v{registro.versao} de {registro.dominio}{registro.caminho} aprovado"
+                     + (f", substitui v{', v'.join(substituidos)}" if substituidos else ""),
              payload={"schema_id": str(registro.id), "versao": registro.versao, "substituidos": substituidos})
         return JsonResponse({"status": registro.status, "substituidos": substituidos})
 
@@ -295,16 +321,14 @@ class NovaVersaoSchemaView(View):
         origem = _schema_da_pessoa(request, schema_id)
         if not origem.schema:
             return JsonResponse({"error": "este schema não tem conteúdo para copiar"}, status=400)
-        with transaction.atomic():
-            URLPatternCache.objects.select_for_update().get(pk=origem.padrao_id)
-            versao = (SchemaPagina.objects.filter(padrao=origem.padrao).aggregate(m=Max("versao"))["m"] or 0) + 1
-            nova = SchemaPagina.objects.create(
-                tenant=origem.tenant, padrao=origem.padrao, amostra=origem.amostra, versao=versao,
-                status=SchemaPagina.Status.RASCUNHO, schema=origem.schema, avisos=[],
-                classification_level=origem.classification_level, provider=origem.provider,
-                model_name=origem.model_name, triggered_by=request.user, derivado_de=origem,
-                alimenta_gastos=origem.alimenta_gastos,
-            )
+        nova = _nova_versao(
+            origem.tenant, origem.dominio, origem.caminho, padrao=origem.padrao, amostra=origem.amostra,
+            status=SchemaPagina.Status.RASCUNHO, schema=origem.schema, avisos=[],
+            classification_level=origem.classification_level, provider=origem.provider,
+            model_name=origem.model_name, triggered_by=request.user, derivado_de=origem,
+            alimenta_gastos=origem.alimenta_gastos,
+        )
+        versao = nova.versao
         return JsonResponse({"id": str(nova.id), "versao": versao, "url": f"/artifacts/schemas/{nova.id}/"})
 
 
@@ -341,6 +365,8 @@ def _extracao_json(e: ExtracaoPagina) -> dict:
         "versao": e.schema.versao,
         "schema_url": f"/artifacts/schemas/{e.schema_id}/",
         "alimenta_gastos": e.schema.alimenta_gastos,
+        "descricao": (e.schema.schema or {}).get("descricao", ""),
+        "candidatos": e.candidatos,
         "problemas": e.problemas,
         "invariantes": e.invariantes,
         "duration_ms": e.duration_ms,
@@ -350,27 +376,27 @@ def _extracao_json(e: ExtracaoPagina) -> dict:
 
 
 class ExtracoesPaginaView(View):
-    """O parser aprovado do tipo desta captura e as execuções dele nela."""
+    """Os parsers aprovados da família desta captura e as execuções deles nela."""
 
     def get(self, request, artifact_id):
-        from .extracao_pagina import schema_aprovado
+        from .extracao_pagina import schemas_aprovados
 
         artifact = get_object_or_404(Artifact, id=artifact_id, tenant__in=orgs_do_usuario(request.user))
         try:
             doc_text = artifact.extracted_text
         except DocumentText.DoesNotExist:
-            return JsonResponse({"schema_aprovado": None, "extracoes": []})
-        schema = schema_aprovado(doc_text)
+            return JsonResponse({"schemas_aprovados": [], "extracoes": []})
         extracoes = doc_text.extracoes_pagina.select_related("schema").order_by("-created_at")[:10]
         return JsonResponse({
-            "schema_aprovado": ({"id": str(schema.id), "versao": schema.versao, "url": f"/artifacts/schemas/{schema.id}/"}
-                                if schema else None),
+            "schemas_aprovados": [
+                {"id": str(s.id), "versao": s.versao, "descricao": (s.schema or {}).get("descricao", ""),
+                 "url": f"/artifacts/schemas/{s.id}/"} for s in schemas_aprovados(doc_text)],
             "extracoes": [_extracao_json(e) for e in extracoes],
         })
 
     def post(self, request, artifact_id):
-        """Roda o parser aprovado nesta captura agora (capturas anteriores à aprovação)."""
-        from .extracao_pagina import extrair_com_parser, schema_aprovado
+        """Roda os parsers aprovados nesta captura agora (capturas anteriores à aprovação)."""
+        from .extracao_pagina import extrair_com_parser, schemas_aprovados
         from .tasks import correlacao_do_artefato
 
         artifact = get_object_or_404(Artifact, id=artifact_id, tenant__in=orgs_do_usuario(request.user))
@@ -378,8 +404,8 @@ class ExtracoesPaginaView(View):
             doc_text = artifact.extracted_text
         except DocumentText.DoesNotExist:
             return JsonResponse({"error": "texto ainda não extraído para esta captura"}, status=400)
-        if schema_aprovado(doc_text) is None:
-            return JsonResponse({"error": "o tipo desta página não tem schema aprovado"}, status=400)
+        if not schemas_aprovados(doc_text).exists():
+            return JsonResponse({"error": "este endereço não tem schema aprovado"}, status=400)
         try:
             html = _html_do_artefato(artifact)
         except ValueError as exc:
@@ -392,3 +418,25 @@ class ExtracoesPaginaView(View):
         if extracao is None:
             return JsonResponse({"error": "a execução não pôde ser registrada (ver log)"}, status=500)
         return JsonResponse(_extracao_json(extracao))
+
+
+# ── lista de schemas ────────────────────────────────────────────────────────
+
+class SchemasView(View):
+    """Todos os schemas das organizações da pessoa, agrupados por família (domínio + caminho)."""
+
+    def get(self, request):
+        schemas = (SchemaPagina.objects.filter(tenant__in=orgs_do_usuario(request.user))
+                   .select_related("tenant", "aprovado_por")
+                   .annotate(validas=Count("extracoes", filter=Q(extracoes__status=ExtracaoPagina.Status.VALIDO)),
+                             nao_validaram=Count("extracoes", filter=~Q(extracoes__status=ExtracaoPagina.Status.VALIDO)))
+                   .order_by("dominio", "caminho", "-versao"))
+        familias: dict[tuple, list] = {}
+        for s in schemas:
+            familias.setdefault((s.tenant.name, s.dominio, s.caminho), []).append(s)
+        return render(request, "artifacts/schemas.html", {
+            "familias": [{"organizacao": o, "dominio": d, "caminho": c, "schemas": lst,
+                          "aprovados": sum(1 for x in lst if x.status == SchemaPagina.Status.APROVADO)}
+                         for (o, d, c), lst in familias.items()],
+            "varias_organizacoes": len({k[0] for k in familias}) > 1,
+        })

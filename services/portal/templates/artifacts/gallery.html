@@ -1078,16 +1078,23 @@
     function renderExtracoesPagina(data) {
         const container = document.getElementById('llm-parser-pagina');
         container.innerHTML = '';
-        if (!data.schema_aprovado) return;
+        const aprovados = data.schemas_aprovados || [];
+        if (!aprovados.length) return;
         const cab = document.createElement('div');
         cab.className = 'llm-toolbar';
-        const titulo = document.createElement('a');
-        titulo.href = data.schema_aprovado.url;
-        titulo.target = '_blank';
-        titulo.textContent = `Parser aprovado do tipo de página (schema v${data.schema_aprovado.versao})`;
+        const titulo = document.createElement('span');
+        titulo.className = 'llm-card-meta';
+        titulo.append('Parsers aprovados deste endereço: ');
+        aprovados.forEach((a, i) => {
+            const link = document.createElement('a');
+            link.href = a.url;
+            link.target = '_blank';
+            link.textContent = `v${a.versao}${a.descricao ? ` (${a.descricao})` : ''}`;
+            titulo.append(i ? ' · ' : '', link);
+        });
         const botao = document.createElement('button');
         botao.className = 'btn-primary';
-        botao.textContent = 'Rodar parser nesta captura';
+        botao.textContent = aprovados.length > 1 ? 'Rodar parsers nesta captura' : 'Rodar parser nesta captura';
         botao.onclick = () => rodarParser(botao);
         const msg = document.createElement('span');
         msg.className = 'llm-status-msg';
@@ -1103,7 +1110,7 @@
             const esq = document.createElement('div');
             const t = document.createElement('span');
             t.className = 'llm-card-title';
-            t.textContent = `Parser v${e.versao} · ${e.origem === 'captura' ? 'na captura' : 'manual'}`;
+            t.textContent = `Parser v${e.versao}${e.descricao ? ` (${e.descricao})` : ''} · ${e.origem === 'captura' ? 'na captura' : 'manual'}`;
             const meta = document.createElement('span');
             meta.className = 'llm-card-meta';
             meta.textContent = ` · ${new Date(e.created_at).toLocaleString('pt-BR')}` +
@@ -1114,6 +1121,13 @@
             badge.textContent = valido ? 'validou' : (e.status === 'erro' ? 'erro' : 'não validou');
             header.append(esq, badge);
             card.appendChild(header);
+            if ((e.candidatos || []).length > 1) {
+                const c = document.createElement('div');
+                c.className = 'llm-card-meta';
+                c.textContent = 'Tentados: ' + e.candidatos.map(x =>
+                    `v${x.versao} ${x.status === 'valido' ? 'validou' : `não validou (${x.problemas} problema${x.problemas === 1 ? '' : 's'})`}`).join(' · ');
+                card.appendChild(c);
+            }
             (e.invariantes || []).forEach(inv => {
                 const d = document.createElement('div');
                 d.className = 'llm-card-meta';
@@ -1124,7 +1138,7 @@
                 const erro = document.createElement('div');
                 erro.className = 'llm-card-error';
                 erro.textContent = (e.problemas || []).join(' · ') +
-                    ' — a página pode ter mudado: estruture com LLM ou gere um schema novo a partir desta captura.';
+                    ' — a página mudou ou é de um tipo ainda sem schema: estruture com LLM ou gere um schema a partir desta captura.';
                 card.appendChild(erro);
             }
             if (valido) {
@@ -1205,7 +1219,12 @@
         const titulo = document.createElement('div');
         titulo.className = 'metadata-muted';
         titulo.style.margin = '.5rem 0';
-        titulo.textContent = `Schemas do tipo de página ${padrao.dominio}${padrao.caminho}`;
+        titulo.textContent = `Schemas deste endereço (${padrao.dominio}${padrao.caminho}) — `;
+        const todos = document.createElement('a');
+        todos.href = '/artifacts/schemas/';
+        todos.target = '_blank';
+        todos.textContent = 'todos os schemas';
+        titulo.appendChild(todos);
         container.appendChild(titulo);
         schemas.forEach(s => {
             const card = document.createElement('div');

@@ -143,7 +143,7 @@ def _rascunho(org, schema=SCHEMA, versao=1, status=SchemaPagina.Status.RASCUNHO)
     )
     DocumentText.objects.create(document=artefato, text="t", dom_representation="<x/>", url_pattern_cache=padrao)
     return SchemaPagina.objects.create(
-        tenant=org, padrao=padrao, amostra=artefato, versao=versao, status=status, schema=schema,
+        tenant=org, padrao=padrao, dominio=padrao.domain, caminho=padrao.path_pattern, amostra=artefato, versao=versao, status=status, schema=schema,
         classification_level="restrito", provider="ollama", model_name="qwen2.5:7b",
     )
 
@@ -178,12 +178,29 @@ def test_salvar_e_aprovar_substitui_o_aprovado_anterior(client, org, amostra):
     antigo = _rascunho(org, versao=1, status=SchemaPagina.Status.APROVADO)
     r = _rascunho(org, versao=2)
     assert _post(client, f"/artifacts/schemas/{r.id}/salvar/", {"schema": SCHEMA}).status_code == 200
-    resp = _post(client, f"/artifacts/schemas/{r.id}/aprovar/")
+    resp = _post(client, f"/artifacts/schemas/{r.id}/aprovar/", {"substitui": str(antigo.id)})
     assert resp.status_code == 200 and resp.json()["substituidos"] == ["1"]
     r.refresh_from_db(); antigo.refresh_from_db()
     assert r.status == SchemaPagina.Status.APROVADO and r.parser["listas"] and r.aprovado_por == org.owner
     assert antigo.status == SchemaPagina.Status.SUBSTITUIDO
     assert _post(client, f"/artifacts/schemas/{r.id}/salvar/", {"schema": SCHEMA}).status_code == 400
+
+
+def test_aprovar_sem_substituir_deixa_os_dois_valendo(client, org, amostra):
+    # Fatura e extrato no mesmo endereço: aprovar um não tira o outro.
+    client.force_login(org.owner)
+    outro = _rascunho(org, versao=1, status=SchemaPagina.Status.APROVADO)
+    r = _rascunho(org, versao=2)
+    assert _post(client, f"/artifacts/schemas/{r.id}/aprovar/").json()["substituidos"] == []
+    outro.refresh_from_db()
+    assert outro.status == SchemaPagina.Status.APROVADO
+
+
+def test_so_substitui_aprovado_da_mesma_familia(client, org, amostra):
+    client.force_login(org.owner)
+    r = _rascunho(org, versao=2)
+    rascunho = _rascunho(org, versao=3)
+    assert _post(client, f"/artifacts/schemas/{r.id}/aprovar/", {"substitui": str(rascunho.id)}).status_code == 400
 
 
 def test_nao_aprova_o_que_nao_valida(client, org, amostra):

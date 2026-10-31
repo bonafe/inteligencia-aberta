@@ -38,20 +38,21 @@
 
 <h1>Schema v{{ registro.versao }} <span class="tag {{ registro.status }}">{{ registro.get_status_display }}</span></h1>
 <p class="meta">
-  Tipo de página <strong>{{ registro.padrao.domain }}{{ registro.padrao.path_pattern }}</strong>
-  <span class="mono">({{ registro.padrao.structure_fingerprint }})</span> ·
+  Endereço <strong>{{ registro.dominio }}{{ registro.caminho }}</strong> ·
   amostra: {{ titulo_amostra|default:"captura" }} · gerado por {{ registro.provider }}:{{ registro.model_name }}
   {% if registro.derivado_de_id %}· copiado da v{{ registro.derivado_de.versao }}{% endif %}
   {% if registro.aprovado_em %}· aprovado por {{ registro.aprovado_por.username|default:"—" }} em {{ registro.aprovado_em|date:"d/m/Y H:i" }}{% endif %}
 </p>
 <p class="ajuda">
-  O schema diz o que um parser vai extrair de <strong>toda</strong> página deste tipo, sem LLM. Revise os nomes, o tipo,
+  O schema diz o que um parser vai extrair de <strong>toda</strong> página deste tipo, sem LLM. Num mesmo endereço podem
+  conviver vários tipos (fatura e extrato do internet banking): na captura rodam todos os aprovados e vale o que validar. Revise os nomes, o tipo,
   o que é obrigatório e os exemplos (é pelo exemplo que o parser acha onde cada campo está). “Pré-visualizar” mostra o
   que sairia da amostra com o que está na tela, sem salvar. Só se aprova o que valida na amostra.
 </p>
 {% if versoes|length > 1 %}
-<p class="meta">Versões:
-  {% for v in versoes %}{% if v.pk == registro.pk %}<strong>v{{ v.versao }}</strong>{% else %}<a href="{% url 'artifacts:schema_revisar' v.pk %}">v{{ v.versao }}</a>{% endif %} <span class="sem-dado">({{ v.get_status_display }})</span>{% if not forloop.last %} · {% endif %}{% endfor %}
+<p class="meta">Schemas deste endereço:
+  {% for v in versoes %}{% if v.pk == registro.pk %}<strong>v{{ v.versao }}</strong>{% else %}<a href="{% url 'artifacts:schema_revisar' v.pk %}">v{{ v.versao }}</a>{% endif %} <span class="sem-dado">({{ v.schema.descricao|default:""|truncatechars:40 }}{% if v.schema.descricao %}, {% endif %}{{ v.get_status_display|lower }})</span>{% if not forloop.last %} · {% endif %}{% endfor %}
+  · <a href="{% url 'artifacts:schemas' %}">todos os schemas</a>
 </p>
 {% endif %}
 
@@ -100,7 +101,15 @@
   <button class="btn" onclick="preVisualizar()">Pré-visualizar</button>
   {% if editavel %}
   <button class="btn" onclick="salvar()">Salvar</button>
-  {% if pode_aprovar %}<button class="btn btn-primary" onclick="aprovar()">Salvar e aprovar</button>{% endif %}
+  {% if pode_aprovar %}
+  <label class="meta" style="display:flex;gap:.35rem;align-items:center;margin:0">Substitui
+    <select id="substitui" style="width:auto">
+      <option value="">nenhum (outro tipo de página)</option>
+      {% for a in aprovados %}<option value="{{ a.pk }}" {% if a.pk == substitui_padrao %}selected{% endif %}>v{{ a.versao }} — {{ a.schema.descricao|default:"sem descrição"|truncatechars:50 }}</option>{% endfor %}
+    </select>
+  </label>
+  <button class="btn btn-primary" onclick="aprovar()">Salvar e aprovar</button>
+  {% endif %}
   {% else %}
   <button class="btn" onclick="novaVersao()">Nova versão a partir desta</button>
   {% endif %}
@@ -342,7 +351,8 @@
   async function aprovar() {
     if (!(await salvar(true))) return;
     msg('Validando na amostra…');
-    const {ok, data} = await post(`/artifacts/schemas/${SCHEMA_ID}/aprovar/`);
+    const sel = document.getElementById('substitui');
+    const {ok, data} = await post(`/artifacts/schemas/${SCHEMA_ID}/aprovar/`, {substitui: sel ? sel.value || null : null});
     if (!ok) {
       msg(data.error || 'falhou');
       if (data.problemas) mostrarAvisos(data.problemas);

@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}Schemas de página — Inteligência Aberta{% endblock %}
+
+{% block content %}
+<style>
+  .bloco { background:#fff; border:1px solid #e5e7eb; border-radius:8px; padding:1.1rem 1.3rem; margin-top:1.1rem; box-shadow:0 1px 3px rgba(0,0,0,.05); }
+  .bloco h2 { font-size:1.02rem; margin-bottom:.5rem; }
+  .ajuda { font-size:.88rem; color:#475569; margin:.4rem 0; }
+  .sem-dado { color:#9ca3af; font-size:.88rem; }
+  table.t { width:100%; border-collapse:collapse; font-size:.86rem; }
+  table.t th, table.t td { text-align:left; padding:.35rem .5rem; border-top:1px solid #f1f5f9; vertical-align:top; }
+  table.t th { color:#64748b; font-weight:600; font-size:.78rem; }
+  table.t td.num { text-align:right; font-variant-numeric: tabular-nums; }
+  .tag { display:inline-block; font-size:.72rem; padding:.1rem .5rem; border-radius:999px; background:#eef2ff; color:#4338ca; font-weight:600; }
+  .tag.rascunho { background:#fef3c7; color:#92400e; } .tag.aprovado { background:#dcfce7; color:#166534; }
+  .tag.substituido, .tag.cancelado, .tag.vazio { background:#f1f5f9; color:#475569; }
+  .tag.falhou { background:#fee2e2; color:#b91c1c; } .tag.pendente, .tag.executando { background:#dbeafe; color:#1e40af; }
+  .alerta { color:#b91c1c; }
+</style>
+
+<h1>Schemas de página</h1>
+<p class="ajuda">
+  Cada schema diz o que um parser extrai de um tipo de página, sem LLM. Eles se agrupam pelo endereço (domínio + caminho):
+  num internet banking, fatura e extrato têm o mesmo endereço e convivem aqui. Na captura rodam todos os aprovados do endereço
+  e vale o que validar. Para criar um, abra uma captura na <a href="{% url 'artifacts:gallery' %}">Galeria</a>, aba LLM, “Gerar schema”.
+</p>
+
+{% for f in familias %}
+<div class="bloco">
+  <h2>{{ f.dominio }}{{ f.caminho }} {% if varias_organizacoes %}<span class="sem-dado">· {{ f.organizacao }}</span>{% endif %}
+    <span class="sem-dado">· {{ f.aprovados }} aprovado(s)</span></h2>
+  <table class="t">
+    <tr><th>Versão</th><th>Descrição</th><th>Situação</th><th class="num">Validou</th><th class="num">Não validou</th><th>Gastos</th><th></th></tr>
+    {% for s in f.schemas %}
+    <tr>
+      <td>v{{ s.versao }}</td>
+      <td>{{ s.schema.descricao|default:"—"|truncatechars:70 }}</td>
+      <td><span class="tag {{ s.status }}">{{ s.get_status_display }}</span>
+        {% if s.aprovado_em %}<span class="sem-dado">{{ s.aprovado_em|date:"d/m/Y" }}</span>{% endif %}</td>
+      <td class="num">{{ s.validas }}</td>
+      <td class="num {% if s.nao_validaram %}alerta{% endif %}">{{ s.nao_validaram }}</td>
+      <td>{% if s.alimenta_gastos %}automático{% else %}<span class="sem-dado">—</span>{% endif %}</td>
+      <td><a href="{% url 'artifacts:schema_revisar' s.pk %}">{% if s.status == "rascunho" or s.status == "vazio" %}revisar{% else %}abrir{% endif %} →</a></td>
+    </tr>
+    {% endfor %}
+  </table>
+</div>
+{% empty %}
+<div class="bloco"><p class="sem-dado">Nenhum schema ainda.</p></div>
+{% endfor %}
+{% endblock %}

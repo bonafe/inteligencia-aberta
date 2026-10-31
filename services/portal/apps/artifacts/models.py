@@ -326,13 +326,19 @@ class EstruturacaoLLM(models.Model):
 
 
 class SchemaPagina(models.Model):
-    """O schema declarado de um tipo de página (`URLPatternCache`): campos únicos, listas e
-    invariantes que um parser determinístico vai extrair de toda página desse tipo.
+    """O schema declarado de um tipo de página: campos únicos, listas e invariantes que um
+    parser determinístico vai extrair de toda página desse tipo.
+
+    Pertence à **família** domínio + caminho (`dominio`, `caminho`), não a um `URLPatternCache`:
+    num internet banking a fatura e o extrato têm o mesmo endereço, e a impressão estrutural
+    do cache muda a cada captura (valores do mês entram nela). Uma família pode ter vários
+    schemas aprovados — fatura, extrato —, e quem decide qual vale numa captura é a validação
+    (`extracao_pagina.py`). `padrao` só registra de onde veio a amostra.
 
     Gerado por LLM a partir de uma captura de amostra (`extractors/schema_pagina.py`) e
-    revisado por uma pessoa antes de valer. Cada geração é uma versão nova do mesmo tipo;
-    nada é sobrescrito. Os exemplos do schema são dados da amostra, por isso a linha leva o
-    nível de classificação dela.
+    revisado por uma pessoa antes de valer. Cada geração é uma versão nova da família; nada é
+    sobrescrito. Os exemplos do schema são dados da amostra, por isso a linha leva o nível de
+    classificação dela.
     """
 
     class Provider(models.TextChoices):
@@ -355,6 +361,8 @@ class SchemaPagina(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     tenant = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="schemas_pagina")
     padrao = models.ForeignKey(URLPatternCache, on_delete=models.CASCADE, related_name="schemas")
+    dominio = models.CharField(max_length=255, default="")
+    caminho = models.CharField(max_length=1024, default="")
     amostra = models.ForeignKey(
         Artifact, null=True, blank=True, on_delete=models.SET_NULL, related_name="schemas_pagina",
     )
@@ -390,23 +398,26 @@ class SchemaPagina(models.Model):
     class Meta:
         db_table = "artifacts_schema_pagina"
         constraints = [
-            models.UniqueConstraint(fields=["padrao", "versao"], name="uniq_schema_padrao_versao"),
-            # Um tipo de página tem no máximo um schema valendo.
-            models.UniqueConstraint(fields=["padrao"], condition=Q(status="aprovado"), name="uniq_schema_aprovado_por_padrao"),
+            models.UniqueConstraint(fields=["tenant", "dominio", "caminho", "versao"], name="uniq_schema_familia_versao"),
         ]
-        indexes = [Index(fields=["padrao", "-versao"])]
+        indexes = [Index(fields=["tenant", "dominio", "caminho", "status"])]
+
+    @classmethod
+    def da_familia(cls, tenant_id, dominio: str, caminho: str):
+        return cls.objects.filter(tenant_id=tenant_id, dominio=dominio, caminho=caminho)
 
     def __str__(self):
-        return f"schema v{self.versao} de {self.padrao_id} — {self.status}"
+        return f"schema v{self.versao} de {self.dominio}{self.caminho} — {self.status}"
 
 
 class ExtracaoPagina(models.Model):
-    """Uma execução do parser aprovado de um tipo de página numa captura, sem LLM.
+    """Uma execução dos parsers aprovados da família de uma captura, sem LLM.
 
-    Roda na extração de toda captura cujo tipo tem `SchemaPagina` aprovado
-    (`extracao_pagina.extrair_com_parser`) ou sob demanda no visualizador. `invalido` é o
-    parser que rodou e não passou na validação (obrigatório vazio, conferência que não
-    fecha): é o sinal de que a página mudou, dito na hora em vez de dado errado em silêncio.
+    Roda na extração de toda captura cuja família (domínio + caminho) tem `SchemaPagina`
+    aprovado (`extracao_pagina.extrair_com_parser`) ou sob demanda no visualizador. `schema` é
+    o que validou (o aprovado mais recente, se mais de um) ou, se nenhum, o que chegou mais
+    perto; `candidatos` guarda todos os tentados. `invalido` é o sinal de que a página mudou
+    (ou é de um tipo ainda sem schema), dito na hora em vez de dado errado em silêncio.
     """
 
     class Status(models.TextChoices):
@@ -428,6 +439,8 @@ class ExtracaoPagina(models.Model):
     dados = models.JSONField(null=True, blank=True)
     problemas = models.JSONField(default=list, blank=True)
     invariantes = models.JSONField(default=list, blank=True)
+    #: Todos os parsers aprovados da família que foram tentados: [{schema_id, versao, ok, problemas}].
+    candidatos = models.JSONField(default=list, blank=True)
     classification_level = models.CharField(max_length=20, choices=Artifact.ClassificationLevel.choices)
     duration_ms = models.IntegerField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)

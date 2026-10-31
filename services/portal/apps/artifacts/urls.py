@@ -22,6 +22,7 @@ urlpatterns = [
         views_schema.SchemaCancelarView.as_view(), name="schema_cancelar",
     ),
     path("<uuid:artifact_id>/extracoes-pagina/", views_schema.ExtracoesPaginaView.as_view(), name="extracoes_pagina"),
+    path("schemas/", views_schema.SchemasView.as_view(), name="schemas"),
     path("schemas/<uuid:schema_id>/", views_schema.RevisarSchemaView.as_view(), name="schema_revisar"),
     path("schemas/<uuid:schema_id>/previa/", views_schema.PreviaSchemaView.as_view(), name="schema_previa"),
     path("schemas/<uuid:schema_id>/salvar/", views_schema.SalvarSchemaView.as_view(), name="schema_salvar"),

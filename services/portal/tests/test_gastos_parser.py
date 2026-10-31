@@ -37,7 +37,7 @@ def padrao(org):
 def _schema(org, padrao, alimenta=False, versao=1, status=SchemaPagina.Status.APROVADO):
     parser, _ = P.montar_parser(SCHEMA, AMOSTRA)
     return SchemaPagina.objects.create(
-        tenant=org, padrao=padrao, versao=versao, status=status, schema=SCHEMA, parser=parser,
+        tenant=org, padrao=padrao, dominio=padrao.domain, caminho=padrao.path_pattern, versao=versao, status=status, schema=SCHEMA, parser=parser,
         classification_level="restrito", provider="ollama", model_name="qwen2.5:7b", alimenta_gastos=alimenta,
     )
 
@@ -154,7 +154,7 @@ def test_chave_e_de_dono_ou_admin_e_a_nova_versao_herda(client, org, padrao):
 
 def test_aprovar_versao_nova_herda_a_chave_da_substituida(client, org, padrao):
     client.force_login(org.owner)
-    _schema(org, padrao, alimenta=True)
+    anterior = _schema(org, padrao, alimenta=True)
     rascunho = _schema(org, padrao, versao=2, status=SchemaPagina.Status.RASCUNHO)
     with mock.patch("apps.artifacts.tasks._ler_mhtml", return_value=b""), \
          mock.patch("apps.artifacts.tasks._html_do_mhtml", return_value=(AMOSTRA, "utf-8")):
@@ -162,7 +162,8 @@ def test_aprovar_versao_nova_herda_a_chave_da_substituida(client, org, padrao):
             artifact_type=Artifact.Type.DOCUMENT, tenant=org, info_type=Artifact.InfoType.FACT,
             classification_level="restrito", content={"mhtml_path": "x"})
         rascunho.save()
-        assert _post(client, f"/artifacts/schemas/{rascunho.id}/aprovar/").status_code == 200
+        assert _post(client, f"/artifacts/schemas/{rascunho.id}/aprovar/",
+                     {"substitui": str(anterior.id)}).status_code == 200
     rascunho.refresh_from_db()
     assert rascunho.alimenta_gastos
 
