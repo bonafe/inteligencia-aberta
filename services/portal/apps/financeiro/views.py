@@ -1,13 +1,16 @@
-"""Tela `/gastos/`: quanto se gastou por categoria e por estabelecimento, e o registro dos lançamentos.
+"""Tela `/gastos/`: quanto se gastou por categoria, por estabelecimento e por conta, e o registro
+dos movimentos.
 
+Gasto é a saída de consumo (`Movimento.CONSUMO`), mostrada positiva; o mês é a **competência** —
+o da fatura que cobrou —, então a soma de um mês bate com o total das faturas daquele mês.
 Isolada por organização (`orgs_do_usuario`); objeto de outra organização é 404. Nada aqui chama
-LLM: os lançamentos já vieram da estruturação, e somar e categorizar é determinístico.
+LLM: os movimentos já vieram das leituras, e somar e categorizar é determinístico.
 """
 
 from datetime import date
 from urllib.parse import urlencode
 
-from django.db.models import Count, Sum
+from django.db.models import Count, F, Sum
 from django.http import Http404, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views import View
@@ -17,7 +20,10 @@ from apps.accounts.views import orgs_do_usuario
 from apps.artifacts.models import EstruturacaoLLM, ExtracaoPagina
 
 from . import lancamentos
-from .models import CategoriaGasto, Estabelecimento, Lancamento
+from .models import CategoriaGasto, Conta, Estabelecimento, Movimento
+
+#: Gasto mostrado positivo: a soma das saídas de consumo com o sinal invertido.
+GASTO = Sum(-F("valor"))
 
 
 def _org(request, org_id):
@@ -51,19 +57,25 @@ class GastosView(View):
         org = _org(request, request.GET.get("organizacao"))
         lancamentos.garantir_categorias(org)
         de, ate = request.GET.get("de", ""), request.GET.get("ate", "")
+        contas = Conta.objects.filter(tenant=org)
+        filtro_conta = request.GET.get("conta", "")
+        conta = get_object_or_404(Conta, pk=filtro_conta, tenant=org) if filtro_conta else None
 
-        gastos = Lancamento.objects.filter(tenant=org, tipo__in=Lancamento.TIPOS_GASTO, valor__isnull=False)
+        gastos = Movimento.objects.filter(tenant=org, natureza__in=Movimento.CONSUMO, valor__isnull=False)
+        if conta:
+            gastos = gastos.filter(conta=conta)
         if inicio := _mes(de):
-            gastos = gastos.filter(data__gte=inicio)
+            gastos = gastos.filter(competencia__gte=inicio)
         if fim := _mes(ate, fim=True):
-            gastos = gastos.filter(data__lte=fim)
+            gastos = gastos.filter(competencia__lte=fim)
 
         por_categoria = list(
             gastos.values("estabelecimento__categoria_id", "estabelecimento__categoria__nome")
-            .annotate(total=Sum("valor"), n=Count("id")).order_by("-total"))
+            .annotate(total=GASTO, n=Count("id")).order_by("-total"))
         por_estabelecimento = list(
             gastos.values("estabelecimento_id", "estabelecimento__nome", "estabelecimento__categoria_id")
-            .annotate(total=Sum("valor"), n=Count("id")).order_by("-total"))
+            .annotate(total=GASTO, n=Count("id")).order_by("-total"))
+        por_conta = {c["conta_id"]: c for c in gastos.values("conta_id").annotate(total=GASTO, n=Count("id"))}
 
         filtro_est, filtro_cat = request.GET.get("estabelecimento", ""), request.GET.get("categoria", "")
         lista, titulo_lista, est = None, "", None
@@ -76,20 +88,25 @@ class GastosView(View):
             cat = get_object_or_404(CategoriaGasto, pk=filtro_cat, tenant=org)
             lista, titulo_lista = gastos.filter(estabelecimento__categoria=cat), cat.nome
         if lista is not None:
-            lista = lista.select_related("estabelecimento", "artefato__extracted_text").order_by("data", "indice")
+            lista = (lista.select_related("estabelecimento", "conta", "artefato__extracted_text")
+                     .order_by("competencia", "data", "indice"))
 
         return render(request, "financeiro/gastos.html", {
             "org": org,
             "organizacoes": list(orgs_do_usuario(request.user).order_by("name")),
             "de": de, "ate": ate,
-            "total": gastos.aggregate(t=Sum("valor"))["t"] or 0,
+            "contas": [{"conta": c, "total": por_conta.get(c.pk, {}).get("total") or 0,
+                        "n": por_conta.get(c.pk, {}).get("n") or 0} for c in contas],
+            "conta_filtrada": conta,
+            "total": gastos.aggregate(t=GASTO)["t"] or 0,
             "por_categoria": por_categoria,
             "por_estabelecimento": por_estabelecimento,
             "categorias": CategoriaGasto.objects.filter(tenant=org),
             "estabelecimentos": Estabelecimento.objects.filter(tenant=org),
             "lista": lista, "titulo_lista": titulo_lista, "est_filtrado": est,
-            "pagamentos": Lancamento.objects.filter(tenant=org, tipo=Lancamento.Tipo.PAGAMENTO).count(),
-            "filtros": urlencode({k: v for k, v in (("organizacao", org.pk), ("de", de), ("ate", ate)) if v}),
+            "pagamentos": Movimento.objects.filter(tenant=org, natureza=Movimento.Natureza.PAGAMENTO_FATURA).count(),
+            "filtros": urlencode({k: v for k, v in (("organizacao", org.pk), ("de", de), ("ate", ate),
+                                                    ("conta", filtro_conta)) if v}),
         })
 
     def post(self, request):
@@ -109,6 +126,14 @@ class GastosView(View):
             destino = get_object_or_404(Estabelecimento, pk=request.POST.get("destino"), tenant=org)
             origem = get_object_or_404(Estabelecimento, pk=request.POST.get("origem"), tenant=org)
             lancamentos.fundir(destino, origem)
+        elif acao == "apelido_conta":
+            alvo = get_object_or_404(Conta, pk=request.POST.get("conta"), tenant=org)
+            alvo.apelido = request.POST.get("apelido", "").strip()[:120]
+            alvo.save(update_fields=["apelido"])
+        elif acao == "juntar_contas":
+            destino = get_object_or_404(Conta, pk=request.POST.get("destino"), tenant=org)
+            origem = get_object_or_404(Conta, pk=request.POST.get("origem"), tenant=org)
+            lancamentos.juntar_contas(destino, origem)
         elif acao == "nova_categoria":
             if nome := request.POST.get("nome", "").strip():
                 CategoriaGasto.objects.get_or_create(tenant=org, nome=nome[:80])

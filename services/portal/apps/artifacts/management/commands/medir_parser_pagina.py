@@ -121,9 +121,11 @@ class Command(BaseCommand):
         saldos = [x for x in especiais if x not in totais]
         def soma(grupo):
             return sum((L.parse_valor(x["valor"]) or Decimal(0) for x in grupo), Decimal(0))
-        tipos = Counter(str(L.tipo_do_lancamento(x["descricao"], L.parse_valor(x["valor"]))) for x in lancamentos)
-        gastos = soma([x for x in lancamentos
-                       if L.tipo_do_lancamento(x["descricao"], L.parse_valor(x["valor"])) != "pagamento"])
+        def natureza(x):        # convenção da fatura de cartão: positivo é saída
+            return str(L.natureza_do_movimento(x["descricao"], L.valor_assinado(x["valor"], "positivo_e_saida"),
+                                               "fatura_cartao"))
+        tipos = Counter(natureza(x) for x in lancamentos)
+        gastos = soma([x for x in lancamentos if natureza(x) != "pagamento_fatura"])
         texto = _texto(root.text_content())
         declarado = re.search(r"Total da fatura\s*-?\s*R\$\s*([\d.]+,\d{2})", texto, re.I)
         total_pagina = L.parse_valor(declarado.group(1)) if declarado else None

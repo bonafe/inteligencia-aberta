@@ -1,7 +1,24 @@
-# Gastos a partir de faturas
+# Gastos a partir de faturas e extratos
 
-Responde "quanto gastei em tal lugar" e "quanto gastei com tal categoria" a partir das faturas
-capturadas. Código em `services/portal/apps/financeiro/`, tela em `/gastos/`.
+Responde "quanto gastei em tal lugar", "com tal categoria" e "em qual conta" a partir das faturas
+e extratos capturados. Código em `services/portal/apps/financeiro/`, tela em `/gastos/`. Desenho e
+fases: ADR 021 (movimentos de contas); a fase 1 está implementada.
+
+## Movimentos de contas (ADR 021, fase 1)
+
+- **Conta** (`Conta`): cartão ou conta corrente, criada na primeira vez que um documento a
+  identifica (campo de papel `identifica_conta` no schema); sem identificador, cai na conta
+  "sem número" da instituição. A tela permite dar apelido e juntar contas (a junção leva os
+  identificadores, e vale para os documentos futuros).
+- **Papéis e convenção no schema**: o schema declara o tipo de documento (`fatura_cartao`,
+  `extrato_conta`), a convenção de sinal (`positivo_e_saida`, `negativo_e_saida`, `sufixo_dc`,
+  `colunas_debito_credito`) e o papel de cada campo e coluna. Com papéis, a leitura não adivinha
+  coluna (`linhas_do_schema`); sem eles (estruturação por LLM), lê por forma (`extrair_linhas`).
+- **Movimento** (projeção, no lugar do antigo `Lancamento`): valor com o sinal **da conta**
+  (negativo = saída), natureza (compra, tarifa, estorno, saída a terceiros, pagamento de fatura,
+  entrada...), **competência** (o mês da fatura que cobrou; no extrato, o da data) e parcela n/m
+  lida da descrição (`PARC 08/12`). **Gasto** = saídas de consumo (`Movimento.CONSUMO`), mostradas
+  positivas; a soma de um mês por competência bate com o total das faturas daquele mês.
 
 ## Fluxo
 

@@ -23,7 +23,7 @@ from apps.accounts.views import orgs_do_usuario
 from apps.events.context import set_correlation_id, set_tenant_id
 from apps.events.emit import emit
 
-from .extractors.schema_pagina import TIPOS
+from .extractors.schema_pagina import CONVENCOES, PAPEIS_CAMPO, PAPEIS_COLUNA, TIPOS, TIPOS_DOCUMENTO
 from .models import Artifact, DocumentText, ExtracaoPagina, SchemaPagina
 from .policy import permite_llm_externo
 from .views import _maquina_escolhida
@@ -219,6 +219,8 @@ class RevisarSchemaView(View):
             "pode_aprovar": eh_admin(request.user, registro.tenant),
             "schema_inicial": registro.schema or {"descricao": "", "campos": [], "listas": [], "invariantes": []},
             "tipos": TIPOS,
+            "vocabulario": {"tipos_documento": TIPOS_DOCUMENTO, "convencoes": CONVENCOES,
+                            "papeis_campo": PAPEIS_CAMPO, "papeis_coluna": PAPEIS_COLUNA},
         })
 
 

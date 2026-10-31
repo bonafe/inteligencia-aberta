@@ -13,7 +13,7 @@ from apps.artifacts.models import (
 )
 from apps.events.models import PipelineEvent
 from apps.financeiro import lancamentos as L
-from apps.financeiro.models import Lancamento
+from apps.financeiro.models import Conta, Movimento
 from tests.test_parser_pagina import AMOSTRA, OUTRO_MES, SCHEMA
 
 pytestmark = pytest.mark.django_db
@@ -58,7 +58,7 @@ def test_extracao_valida_vira_lancamentos_com_secao_e_evidencia(org, padrao):
     e = extrair_com_parser(doc, OUTRO_MES)
     r = L.registrar_extracao(e)
     assert r.lancamentos == 5
-    ls = list(Lancamento.objects.order_by("indice"))
+    ls = list(Movimento.objects.order_by("indice"))
     assert {l.fonte for l in ls} == {"parser"} and {l.fonte_id for l in ls} == {s.id}
     assert [l.secao for l in ls] == ["Restaurantes"] * 3 + ["Supermercados"] * 2
     assert str(ls[0].data) == "2026-10-01"                     # ano pelo vencimento 28/11/2026
@@ -74,7 +74,7 @@ def test_rodar_o_parser_de_novo_nao_duplica(org, padrao):
     alegacoes = Claim.objects.count()
     r = L.registrar_extracao(extrair_com_parser(doc, OUTRO_MES))   # outra execução, mesmo schema
     assert r.alegacoes_criadas == 0 and not r.substituiu
-    assert Claim.objects.count() == alegacoes and Lancamento.objects.count() == 5
+    assert Claim.objects.count() == alegacoes and Movimento.objects.count() == 5
 
 
 def test_trocar_a_leitura_do_llm_pelo_parser_nao_soma_duas_vezes(org, padrao):
@@ -86,13 +86,13 @@ def test_trocar_a_leitura_do_llm_pelo_parser_nao_soma_duas_vezes(org, padrao):
         structured_data={"lancamentos": [{"data": "01/10", "valor": "50,00", "descricao": "BAR CINCO"}]},
     )
     L.registrar(llm)
-    assert Lancamento.objects.get().fonte == "estruturacao"
+    assert Movimento.objects.get().fonte == "estruturacao"
     r = L.registrar_extracao(extrair_com_parser(doc, OUTRO_MES))
     assert r.substituiu
     assert Claim.objects.filter(produtor="estruturacao-llm", estado=Claim.Estado.ATIVA).exists()
-    assert set(Lancamento.objects.values_list("fonte", flat=True)) == {"parser"}
+    assert set(Movimento.objects.values_list("fonte", flat=True)) == {"parser"}
     L.registrar(llm)                                                # e de volta
-    assert set(Lancamento.objects.values_list("fonte", flat=True)) == {"estruturacao"}
+    assert set(Movimento.objects.values_list("fonte", flat=True)) == {"estruturacao"}
     assert L.reconstruir(org) == 1
 
 
@@ -110,27 +110,27 @@ def test_com_a_chave_ligada_a_captura_alimenta_os_gastos_sozinha(org, padrao):
     _schema(org, padrao, alimenta=True)
     doc = _captura(org, padrao)
     extrair_com_parser(doc, OUTRO_MES)
-    assert Lancamento.objects.count() == 5
+    assert Movimento.objects.count() == 5
     assert PipelineEvent.objects.filter(stage="financeiro.lancamentos", status="ok").exists()
 
 
 def test_com_a_chave_desligada_nada_entra(org, padrao):
     _schema(org, padrao, alimenta=False)
     extrair_com_parser(_captura(org, padrao), OUTRO_MES)
-    assert not Lancamento.objects.exists()
+    assert not Movimento.objects.exists()
 
 
 def test_extracao_invalida_nao_entra_mesmo_com_a_chave(org, padrao):
     _schema(org, padrao, alimenta=True)
     extrair_com_parser(_captura(org, padrao), OUTRO_MES.replace("Vencimento", "Data limite"))
-    assert not Lancamento.objects.exists()
+    assert not Movimento.objects.exists()
 
 
 def test_falha_no_registro_automatico_nao_derruba_a_extracao(org, padrao):
     _schema(org, padrao, alimenta=True)
     doc = _captura(org, padrao, blob_hash="")                       # sem hash não há evidência
     e = extrair_com_parser(doc, OUTRO_MES)
-    assert e.status == ExtracaoPagina.Status.VALIDO and not Lancamento.objects.exists()
+    assert e.status == ExtracaoPagina.Status.VALIDO and not Movimento.objects.exists()
     assert PipelineEvent.objects.filter(stage="financeiro.lancamentos", status="falhou").exists()
 
 

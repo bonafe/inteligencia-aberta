@@ -26,9 +26,11 @@
 
 <h1>Gastos</h1>
 <p class="ajuda">
-  Somas dos lançamentos registrados a partir das faturas (no visualizador: aba LLM, “Registrar lançamentos”).
-  Pagamentos da fatura ficam fora; estornos abatem. A categoria é do <strong>estabelecimento</strong>: escolha uma vez e ela
-  vale para todas as faturas. Variantes do mesmo lugar (“NAKAYOSHI” e “NAKAYOSHI PRODUTOS ORI”) se juntam em “Juntar”.
+  Gastos são as saídas de consumo (compras, tarifas, saídas a terceiros) das suas contas; pagamento de fatura e
+  dinheiro entre contas suas ficam fora, estornos abatem. O mês é o da <strong>fatura que cobrou</strong> (competência):
+  a parcela de uma compra de maio cobrada em outubro conta em outubro, e a soma de um mês bate com as faturas daquele mês.
+  A categoria é do <strong>estabelecimento</strong>: escolha uma vez e ela vale para todos os documentos. Variantes do mesmo
+  lugar (“NAKAYOSHI” e “NAKAYOSHI PRODUTOS ORI”) se juntam em “Juntar”.
 </p>
 
 <form method="get" class="bloco filtros">
@@ -41,12 +43,61 @@
   {% else %}<input type="hidden" name="organizacao" value="{{ org.pk }}">{% endif %}
   <label>De <input type="month" name="de" value="{{ de }}"></label>
   <label>Até <input type="month" name="ate" value="{{ ate }}"></label>
+  {% if contas|length > 1 %}
+  <label>Conta
+    <select name="conta">
+      <option value="">todas</option>
+      {% for c in contas %}<option value="{{ c.conta.pk }}" {% if c.conta.pk == conta_filtrada.pk %}selected{% endif %}>{{ c.conta.nome }}</option>{% endfor %}
+    </select>
+  </label>
+  {% endif %}
   <button type="submit" class="btn btn-primary">Filtrar</button>
   <div style="margin-left:auto; text-align:right">
     <div class="ajuda">Total no período</div>
     <div class="total">R$ {{ total|floatformat:"2g" }}</div>
   </div>
 </form>
+
+{% if contas %}
+<div class="bloco">
+  <h2>Contas</h2>
+  <table class="t">
+    <tr><th>Conta</th><th>Identificador</th><th>Titular</th><th>Apelido</th><th class="num">Mov.</th><th class="num">Gastos</th></tr>
+    {% for c in contas %}
+    <tr>
+      <td><a href="?organizacao={{ org.pk }}&conta={{ c.conta.pk }}">{{ c.conta.nome }}</a></td>
+      <td class="sem-dado">{% for i in c.conta.identificadores %}{{ i|default:"(sem número)" }}{% if not forloop.last %}, {% endif %}{% endfor %}</td>
+      <td>{{ c.conta.titular|default:"—" }}</td>
+      <td>
+        <form method="post" class="filtros">{% csrf_token %}
+          <input type="hidden" name="organizacao" value="{{ org.pk }}">
+          <input type="hidden" name="volta" value="{{ filtros }}">
+          <input type="hidden" name="acao" value="apelido_conta">
+          <input type="hidden" name="conta" value="{{ c.conta.pk }}">
+          <input name="apelido" value="{{ c.conta.apelido }}" maxlength="120" placeholder="ex.: Ourocard Elo" onchange="this.form.requestSubmit()">
+        </form>
+      </td>
+      <td class="num">{{ c.n }}</td>
+      <td class="num">{{ c.total|floatformat:"2g" }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% if contas|length > 1 %}
+  <form method="post" class="filtros" style="margin-top:.75rem">{% csrf_token %}
+    <input type="hidden" name="organizacao" value="{{ org.pk }}">
+    <input type="hidden" name="volta" value="{{ filtros }}">
+    <input type="hidden" name="acao" value="juntar_contas">
+    <label>Esta conta
+      <select name="origem" class="inline">{% for c in contas %}<option value="{{ c.conta.pk }}">{{ c.conta.nome }}</option>{% endfor %}</select>
+    </label>
+    <label>é a mesma que
+      <select name="destino" class="inline">{% for c in contas %}<option value="{{ c.conta.pk }}">{{ c.conta.nome }}</option>{% endfor %}</select>
+    </label>
+    <button type="submit" class="btn">Juntar</button>
+  </form>
+  {% endif %}
+</div>
+{% endif %}
 
 <div class="colunas">
   <div class="bloco">
@@ -123,19 +174,21 @@
 
 {% if lista is not None %}
 <div class="bloco">
-  <h2>Lançamentos — {{ titulo_lista }}</h2>
+  <h2>Movimentos — {{ titulo_lista }}</h2>
   <table class="t">
-    <tr><th>Data</th><th>Descrição na fatura</th><th>Tipo</th><th>Fatura</th><th class="num">Valor</th></tr>
+    <tr><th>Mês</th><th>Data</th><th>Descrição</th><th>Natureza</th><th>Conta</th><th>Documento</th><th class="num">Valor</th></tr>
     {% for l in lista %}
     <tr>
+      <td>{{ l.competencia|date:"m/Y" }}</td>
       <td>{{ l.data|date:"d/m/Y"|default:l.data_texto }}</td>
-      <td>{{ l.descricao }}{% if l.secao %} <span class="sem-dado">· {{ l.secao }}</span>{% endif %}</td>
-      <td><span class="tipo {{ l.tipo }}">{{ l.get_tipo_display }}</span></td>
+      <td>{{ l.descricao }}{% if l.parcelas %} <span class="tipo">{{ l.parcela }}/{{ l.parcelas }}</span>{% endif %}{% if l.secao %} <span class="sem-dado">· {{ l.secao }}</span>{% endif %}</td>
+      <td><span class="tipo {{ l.natureza }}">{{ l.get_natureza_display }}</span></td>
+      <td class="sem-dado">{{ l.conta.nome|default:"—" }}</td>
       <td><a href="{% url 'artifacts:serve_mhtml' l.artefato_id %}" target="_blank" rel="noopener">{{ l.artefato.extracted_text.title|default:"captura"|truncatechars:40 }}</a></td>
-      <td class="num {% if l.valor < 0 %}negativo{% endif %}">{{ l.valor|floatformat:"2g" }}</td>
+      <td class="num {% if l.gasto < 0 %}negativo{% endif %}">{{ l.gasto|floatformat:"2g" }}</td>
     </tr>
     {% empty %}
-    <tr><td colspan="5" class="sem-dado">Nenhum lançamento.</td></tr>
+    <tr><td colspan="7" class="sem-dado">Nenhum movimento.</td></tr>
     {% endfor %}
   </table>
   {% if est_filtrado %}

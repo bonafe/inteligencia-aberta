@@ -1,4 +1,4 @@
-"""Gastos: estruturação → alegações → `Lancamento`, categorias por estabelecimento e a tela `/gastos/`."""
+"""Gastos: estruturação → alegações → `Movimento`, categorias por estabelecimento e a tela `/gastos/`."""
 from datetime import date
 from decimal import Decimal
 
@@ -7,7 +7,7 @@ import pytest
 from apps.accounts.models import Membership, Organization, User
 from apps.artifacts.models import Artifact, Claim, DocumentText, EstruturacaoLLM
 from apps.financeiro import lancamentos as L
-from apps.financeiro.models import CategoriaGasto, Estabelecimento, Lancamento
+from apps.financeiro.models import CategoriaGasto, Conta, Estabelecimento, Movimento
 
 HASH = "ni:///sha-256;" + "A" * 43
 
@@ -84,11 +84,46 @@ def test_normalizar_descritor(descricao, esperado):
     assert L.normalizar_descritor(descricao) == esperado
 
 
-def test_tipo_do_lancamento():
-    assert L.tipo_do_lancamento("PGTO DEBITO CONTA", Decimal("-10")) == Lancamento.Tipo.PAGAMENTO
-    assert L.tipo_do_lancamento("LOJA", Decimal("-10")) == Lancamento.Tipo.ESTORNO
-    assert L.tipo_do_lancamento("IOF - COMPRA NO EXTERIOR", Decimal("1")) == Lancamento.Tipo.TARIFA
-    assert L.tipo_do_lancamento("PADARIA", Decimal("1")) == Lancamento.Tipo.COMPRA
+@pytest.mark.parametrize("texto,convencao,sentido,esperado", [
+    ("R$ 93,50", "positivo_e_saida", "", Decimal("-93.50")),        # compra no cartão: sai
+    ("R$ -9.964,56", "positivo_e_saida", "", Decimal("9964.56")),   # pagamento: entra no cartão
+    ("3.000,00 D", "sufixo_dc", "", Decimal("-3000.00")),
+    ("300,00 C", "sufixo_dc", "", Decimal("300.00")),
+    ("49,78", "colunas_debito_credito", "D", Decimal("-49.78")),
+    ("-12,00", "negativo_e_saida", "", Decimal("-12.00")),
+    ("", "positivo_e_saida", "", None),
+])
+def test_valor_assinado(texto, convencao, sentido, esperado):
+    assert L.valor_assinado(texto, convencao, sentido) == esperado
+
+
+def test_natureza_do_movimento():
+    N = Movimento.Natureza
+    assert L.natureza_do_movimento("PGTO DEBITO CONTA", Decimal("10"), "fatura_cartao") == N.PAGAMENTO_FATURA
+    assert L.natureza_do_movimento("LOJA", Decimal("10"), "fatura_cartao") == N.ESTORNO
+    assert L.natureza_do_movimento("IOF - COMPRA NO EXTERIOR", Decimal("-1"), "fatura_cartao") == N.TARIFA
+    assert L.natureza_do_movimento("PADARIA", Decimal("-1"), "fatura_cartao") == N.COMPRA
+    assert L.natureza_do_movimento("Pix - Recebido", Decimal("300"), "extrato_conta") == N.ENTRADA
+    assert L.natureza_do_movimento("Pix - Enviado ANA", Decimal("-400"), "extrato_conta") == N.SAIDA_TERCEIROS
+    assert L.natureza_do_movimento("Tarifa MSG", Decimal("-5"), "extrato_conta") == N.TARIFA
+    assert L.natureza_do_movimento("Pagto cartão crédito ELO", Decimal("-13405.63"), "extrato_conta") == N.PAGAMENTO_FATURA
+
+
+@pytest.mark.parametrize("descricao,esperado", [
+    ("Vindi Catum PARC 08/12 Campinas BR", (8, 12)),
+    ("LOJA PARCELA 3 DE 10", (3, 10)),
+    ("Eletroservice PARC 10/10 OURINHOS BR", (10, 10)),
+    ("PADARIA 01/10", None),
+    ("PARC 13/12", None),
+])
+def test_parcela_da_descricao(descricao, esperado):
+    assert L.parcela_da_descricao(descricao) == esperado
+
+
+def test_competencia():
+    assert L.competencia("fatura_cartao", date(2026, 10, 28), date(2025, 5, 13)) == date(2026, 10, 1)
+    assert L.competencia("extrato_conta", date(2026, 10, 28), date(2026, 9, 30)) == date(2026, 9, 1)
+    assert L.competencia("fatura_cartao", None, date(2026, 9, 3)) == date(2026, 9, 1)
 
 
 def test_extrair_linhas_acha_a_lista_e_o_periodo_e_pula_a_cotacao():
@@ -160,13 +195,18 @@ def test_registrar_cria_alegacoes_com_evidencia_e_projeta(org):
     ev = c.evidencias.get()
     assert ev.blob_hash == HASH and ev.localizador["estruturacao"] == str(e.id)
 
-    ls = {l.indice: l for l in Lancamento.objects.all()}
+    ls = {l.indice: l for l in Movimento.objects.all()}
     assert len(ls) == 7
-    assert ls[0].tipo == Lancamento.Tipo.PAGAMENTO and ls[0].estabelecimento is None
-    assert ls[1].data == date(2026, 9, 29) and ls[1].valor == Decimal("132.01")
+    N = Movimento.Natureza
+    assert ls[0].natureza == N.PAGAMENTO_FATURA and ls[0].estabelecimento is None and ls[0].valor == Decimal("9964.56")
+    assert ls[1].data == date(2026, 9, 29) and ls[1].valor == Decimal("-132.01") and ls[1].gasto == Decimal("132.01")
+    assert ls[1].competencia == date(2026, 10, 1)                 # a fatura de Out/26 cobrou
     assert ls[1].estabelecimento == ls[2].estabelecimento       # mesmo descritor, mesmo lugar
-    assert ls[3].tipo == Lancamento.Tipo.TARIFA
-    assert ls[4].tipo == Lancamento.Tipo.ESTORNO
+    assert ls[3].natureza == N.TARIFA
+    assert ls[4].natureza == N.ESTORNO
+    conta = Conta.objects.get()                                 # a estruturação não diz o número
+    assert conta.tipo == "cartao" and conta.instituicao == "www2.bb.com.br" and conta.identificadores == [""]
+    assert {l.conta_id for l in ls.values()} == {conta.id}
 
 
 def test_registrar_e_idempotente(org):
@@ -176,7 +216,7 @@ def test_registrar_e_idempotente(org):
     r = L.registrar(e)
     assert r.alegacoes_criadas == 0
     assert Claim.objects.count() == total
-    assert Lancamento.objects.count() == 7
+    assert Movimento.objects.count() == 7
 
 
 def test_outra_estruturacao_substitui_a_anterior_sem_duplicar_gastos(org):
@@ -187,12 +227,12 @@ def test_outra_estruturacao_substitui_a_anterior_sem_duplicar_gastos(org):
     assert r.substituiu
     # A leitura anterior não foi desmentida: as alegações seguem ativas, só não alimentam os Gastos.
     assert Claim.objects.filter(sujeito_ref__contains=str(e1.id), estado=Claim.Estado.ATIVA).exists()
-    assert Lancamento.objects.count() == 7
-    assert set(Lancamento.objects.values_list("fonte_id", flat=True)) == {e2.id}
+    assert Movimento.objects.count() == 7
+    assert set(Movimento.objects.values_list("fonte_id", flat=True)) == {e2.id}
     r = L.registrar(e1)                                             # e voltar não perde nada
     assert r.substituiu and r.alegacoes_criadas == 0
-    assert set(Lancamento.objects.values_list("fonte_id", flat=True)) == {e1.id}
-    assert Lancamento.objects.count() == 7
+    assert set(Movimento.objects.values_list("fonte_id", flat=True)) == {e1.id}
+    assert Movimento.objects.count() == 7
 
 
 def test_registrar_recusa_sem_hash_ou_nao_concluida(org):
@@ -219,9 +259,9 @@ def test_reconstruir_mantem_fusao_e_categoria(org):
     naka.save()
     L.fundir(naka, variante)
 
-    Lancamento.objects.all().delete()
+    Movimento.objects.all().delete()
     assert L.reconstruir(org) == 7
-    gastos_naka = Lancamento.objects.filter(estabelecimento=naka)
+    gastos_naka = Movimento.objects.filter(estabelecimento=naka)
     assert gastos_naka.count() == 2
     assert {l.estabelecimento.categoria for l in gastos_naka} == {mercado}
 
@@ -258,8 +298,9 @@ def test_view_registrar_e_somar_por_categoria(client, org):
     assert linhas["Mercado"] == Decimal("151.49")
     assert [l.indice for l in resp.context["lista"]] == [1, 2]
 
-    resp = client.get("/gastos/?de=2026-10&ate=2026-10")
-    assert resp.context["total"] == Decimal("19.48")
+    # O mês é o da fatura que cobrou (Out/26), não o da compra (setembro).
+    assert client.get("/gastos/?de=2026-10&ate=2026-10").context["total"] == Decimal("371.04")
+    assert client.get("/gastos/?de=2026-09&ate=2026-09").context["total"] == 0
 
 
 def test_view_isola_organizacao(client, org):

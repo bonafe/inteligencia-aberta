@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import CategoriaGasto, DescritorEstabelecimento, Estabelecimento, Lancamento
+from .models import CategoriaGasto, Conta, DescritorEstabelecimento, Estabelecimento, Movimento
 
 
 @admin.register(CategoriaGasto)
@@ -22,12 +22,18 @@ class EstabelecimentoAdmin(admin.ModelAdmin):
     inlines = [DescritorInline]
 
 
-@admin.register(Lancamento)
-class LancamentoAdmin(admin.ModelAdmin):
+@admin.register(Conta)
+class ContaAdmin(admin.ModelAdmin):
+    list_display = ("nome", "tipo", "instituicao", "titular", "propria", "tenant")
+    list_filter = ("tenant", "tipo")
+
+
+@admin.register(Movimento)
+class MovimentoAdmin(admin.ModelAdmin):
     """Só leitura: é projeção das alegações (`reconstruir_lancamentos`)."""
 
-    list_display = ("data", "descricao", "valor", "tipo", "estabelecimento", "tenant")
-    list_filter = ("tenant", "tipo")
+    list_display = ("competencia", "data", "descricao", "valor", "natureza", "conta", "estabelecimento", "tenant")
+    list_filter = ("tenant", "natureza", "conta")
     search_fields = ("descricao",)
 
     def has_add_permission(self, request):

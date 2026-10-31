@@ -1,10 +1,12 @@
-"""Estruturação → alegações → projeção `Lancamento`.
+"""Leitura de um documento → alegações → projeção `Movimento` (ADR 021).
 
 Três passos, cada um com seu lugar:
 
-1. **Parsing puro** (`extrair_linhas`, `parse_valor`, `parse_data`, `normalizar_descritor`,
-   `tipo_do_lancamento`): sem banco e sem LLM. Os nomes de campo vêm de um LLM e variam entre
-   execuções ("transação", "descricao", "historico"), por isso a busca é por forma, não por caminho.
+1. **Parsing puro** (`extrair_linhas`, `linhas_do_schema`, `valor_assinado`, `natureza_do_movimento`,
+   `parcela_da_descricao`, `parse_data`, `normalizar_descritor`): sem banco e sem LLM. Com o
+   parser de página, o schema diz o **papel** de cada coluna (data, descrição, valor, D/C...) e a
+   **convenção** de sinal; numa estruturação por LLM os nomes variam entre execuções
+   ("transação", "descricao", "historico"), e a busca é por forma.
 2. **Registro**: a leitura escolhida de um documento vira alegações pelo serviço único
    `registrar_alegacao`, com evidência apontando para a linha. Duas fontes, intercambiáveis:
    uma estruturação por LLM (`registrar`) ou uma extração **válida** do parser aprovado do tipo
@@ -12,10 +14,10 @@ Três passos, cada um com seu lugar:
    A leitura registrada passa a ser a escolhida do documento (`LeituraLancamentos`); as
    alegações das outras leituras continuam ativas (ninguém as desmentiu), só não alimentam os
    Gastos. Trocar e voltar não perde nada, e a fatura nunca é somada duas vezes.
-3. **Projeção** (`projetar_artefato`, `reconstruir`): das alegações ativas para `Lancamento`.
-   Apagar e refazer a projeção é seguro; as fusões e categorias ficam em `Estabelecimento`.
-
-Convenção de sinal (fatura de cartão): positivo é gasto, negativo é pagamento ou estorno.
+3. **Projeção** (`projetar_artefato`, `reconstruir`): das alegações ativas para `Movimento`, com
+   a conta, o valor com o sinal da conta (negativo = saída), a natureza (compra, pagamento de
+   fatura, entrada...), a competência (o mês em que o dinheiro saiu: o vencimento da fatura) e a
+   parcela n/m. Apagar e refazer é seguro; contas, fusões e categorias são estado da pessoa.
 """
 
 import calendar
@@ -34,7 +36,9 @@ from apps.artifacts.extractors.valores import parse_valor
 from apps.artifacts.models import Claim, EstruturacaoLLM, ExtracaoPagina
 from config.conteudo_hash import formato_valido as hash_valido
 
-from .models import CategoriaGasto, DescritorEstabelecimento, Estabelecimento, Lancamento, LeituraLancamentos
+from .models import (
+    CategoriaGasto, Conta, DescritorEstabelecimento, Estabelecimento, LeituraLancamentos, Movimento,
+)
 
 PRODUTOR = "estruturacao-llm"
 #: Subir quando a forma das alegações mudar (predicados, sujeito, evidência).
@@ -79,6 +83,16 @@ class Linha:
     descricao: str
     secao: str
     original: dict
+    documento: str = ""
+    #: "D" ou "C" quando a página separa o sentido do valor (coluna D/C, débito e crédito).
+    sentido: str = ""
+
+
+#: Que conta cada tipo de documento descreve.
+TIPO_CONTA = {"fatura_cartao": Conta.Tipo.CARTAO, "extrato_conta": Conta.Tipo.CORRENTE}
+#: A leitura que não diz o que é (estruturação por LLM, schema anterior aos papéis) é tratada
+#: como fatura de cartão, que era o único documento antes da ADR 021.
+TIPO_DOCUMENTO_PADRAO, CONVENCAO_PADRAO = "fatura_cartao", "positivo_e_saida"
 
 
 def _campos(item: dict) -> dict[str, str] | None:
@@ -135,6 +149,44 @@ def extrair_linhas(structured_data) -> tuple[list[Linha], str]:
 
     visitar(structured_data, "")
     return linhas, periodo
+
+
+def schema_tem_papeis(schema: dict) -> bool:
+    """O schema diz qual coluna é o valor (ou débito e crédito): dá para ler sem adivinhar."""
+    papeis = {c.get("papel") for l in schema.get("listas", []) for c in l.get("campos", [])}
+    return "valor" in papeis or {"debito", "credito"} <= papeis
+
+
+def linhas_do_schema(dados: dict, schema: dict) -> tuple[list[Linha], dict]:
+    """Os movimentos de uma extração do parser, lidos pelos papéis do schema, e o contexto do
+    documento: {"periodo", "conta", "titular"} (vazios quando o schema não os marca)."""
+    campos = dados.get("campos", {})
+    ctx = {c["papel"]: campos.get(c["nome"], "") for c in schema.get("campos", []) if c.get("papel")}
+    contexto = {"periodo": ctx.get("vencimento") or ctx.get("periodo") or "",
+                "conta": ctx.get("identifica_conta", ""), "titular": ctx.get("titular", "")}
+    linhas: list[Linha] = []
+    for lista in schema.get("listas", []):
+        papel = {c["papel"]: c["nome"] for c in lista["campos"] if c.get("papel") not in ("", None, "complemento")}
+        complementos = [c["nome"] for c in lista["campos"] if c.get("papel") == "complemento"]
+        if "valor" not in papel and not {"debito", "credito"} <= papel.keys():
+            continue
+        for item in dados.get("listas", {}).get(lista["nome"], {}).get("itens", []):
+            sentido = ""
+            if "valor" in papel:
+                valor = str(item.get(papel["valor"], "")).strip()
+            else:
+                debito = str(item.get(papel["debito"], "")).strip()
+                valor, sentido = (debito, "D") if debito else (str(item.get(papel["credito"], "")).strip(), "C")
+            if "dc" in papel and str(item.get(papel["dc"], "")).strip():
+                sentido = str(item[papel["dc"]]).strip()[:1].upper()
+            if not valor:
+                continue
+            partes = [item.get(papel.get("descricao", ""), "")] + [item.get(n, "") for n in complementos]
+            descricao = " ".join(str(p).strip() for p in partes if p and str(p).strip())
+            linhas.append(Linha(len(linhas), str(item.get(papel.get("data", ""), "")).strip(), valor,
+                                descricao or "(sem descrição)", str(item.get("secao", "")), item,
+                                documento=str(item.get(papel.get("documento", ""), "")).strip(), sentido=sentido))
+    return linhas, contexto
 
 
 def data_referencia(periodo: str) -> date | None:
@@ -198,15 +250,63 @@ def normalizar_descritor(descricao: str) -> str:
     return " ".join(palavras).strip(" .-")[:300]
 
 
-def tipo_do_lancamento(descricao: str, valor: Decimal | None) -> str:
+def valor_assinado(texto: str, convencao: str, sentido: str = "") -> Decimal | None:
+    """O valor com o sinal da conta (negativo = saída), conforme a convenção do documento."""
+    valor = parse_valor(texto)
+    if valor is None:
+        return None
+    if convencao == "positivo_e_saida":
+        return -valor
+    if convencao in ("sufixo_dc", "colunas_debito_credito"):
+        if not sentido and (m := re.search(r"\b([DC])\s*$", (texto or "").strip().upper())):
+            sentido = m.group(1)
+        if sentido in ("D", "C"):
+            return -abs(valor) if sentido == "D" else abs(valor)
+    return valor
+
+
+_TARIFA = re.compile(r"\b(IOF|ANUIDADE|TARIFA|JUROS|ENCARGOS?|MULTA)\b")
+_PAGAMENTO = re.compile(r"\b(PGTO|PAGTO|PAGAMENTO)\b")
+_PAGAMENTO_CARTAO = re.compile(r"\b(PGTO|PAGTO|PAGAMENTO)\b.*\bCARTAO\b")
+
+
+def natureza_do_movimento(descricao: str, valor: Decimal | None, tipo_documento: str) -> str:
+    """A natureza padrão pelo tipo de documento e pelo sinal; a conciliação refina depois.
+
+    Fatura: saída é compra (ou tarifa); entrada é o pagamento que quita a fatura ou um estorno.
+    Extrato: entrada é entrada; saída é tarifa, pagamento de fatura de cartão ou saída a terceiros.
+    """
+    N = Movimento.Natureza
+    if valor is None:
+        return N.OUTRO
     texto = _sem_acento(descricao).upper()
-    if valor is not None and valor < 0:
-        if re.search(r"\b(PGTO|PAGTO|PAGAMENTO)\b", texto):
-            return Lancamento.Tipo.PAGAMENTO
-        return Lancamento.Tipo.ESTORNO
-    if re.search(r"\b(IOF|ANUIDADE|TARIFA|JUROS|ENCARGOS?|MULTA)\b", texto):
-        return Lancamento.Tipo.TARIFA
-    return Lancamento.Tipo.COMPRA
+    if tipo_documento == "extrato_conta":
+        if valor > 0:
+            return N.ENTRADA
+        if _PAGAMENTO_CARTAO.search(texto):
+            return N.PAGAMENTO_FATURA
+        return N.TARIFA if _TARIFA.search(texto) else N.SAIDA_TERCEIROS
+    if valor > 0:
+        return N.PAGAMENTO_FATURA if _PAGAMENTO.search(texto) else N.ESTORNO
+    return N.TARIFA if _TARIFA.search(texto) else N.COMPRA
+
+
+_PARCELA = re.compile(r"\bPARC(?:ELA)?\.?\s*(\d{1,2})\s*(?:/|DE)\s*(\d{1,2})\b")
+
+
+def parcela_da_descricao(descricao: str) -> tuple[int, int] | None:
+    """"Vindi Catum PARC 08/12 Campinas BR" → (8, 12); "PARCELA 8 DE 12" também."""
+    m = _PARCELA.search(_sem_acento(descricao).upper())
+    if not m:
+        return None
+    n, total = int(m.group(1)), int(m.group(2))
+    return (n, total) if 0 < n <= total else None
+
+
+def competencia(tipo_documento: str, referencia: date | None, data: date | None) -> date | None:
+    """O mês em que o dinheiro saiu: na fatura, o do vencimento; no extrato, o da data."""
+    base = referencia if tipo_documento != "extrato_conta" and referencia else data
+    return date(base.year, base.month, 1) if base else None
 
 
 def nome_legivel(descritor: str) -> str:
@@ -249,7 +349,7 @@ class _Leitura:
     payload: dict
 
 
-def _registrar(document_text, dados, leitura: _Leitura, user_id) -> Resultado:
+def _registrar(document_text, linhas: list[Linha], contexto: dict, leitura: _Leitura, user_id) -> Resultado:
     from apps.artifacts.tasks import correlacao_do_artefato
     from apps.events.emit import emit
 
@@ -257,7 +357,6 @@ def _registrar(document_text, dados, leitura: _Leitura, user_id) -> Resultado:
     if not hash_valido(artefato.blob_hash or ""):
         raise ValueError("a captura não tem hash de conteúdo; sem ele não há evidência")
 
-    linhas, periodo = extrair_linhas(dados)
     resultado = Resultado(lancamentos=len(linhas))
     comum = dict(
         correlation_id=correlacao_do_artefato(artefato.id), subject_type="artifact", subject_id=artefato.id,
@@ -281,8 +380,10 @@ def _registrar(document_text, dados, leitura: _Leitura, user_id) -> Resultado:
         resultado.alegacoes_criadas += int(criada)
 
     with transaction.atomic():
-        if periodo:
-            alegar(leitura.base, "ia:periodo", periodo, dict(leitura.localizador), truncar_trecho(periodo))
+        # O que o documento diz dele mesmo: o período/vencimento, de que conta é, de quem.
+        for predicado, chave in (("ia:periodo", "periodo"), ("ia:conta", "conta"), ("ia:titular", "titular")):
+            if valor := str(contexto.get(chave) or "").strip():
+                alegar(leitura.base, predicado, valor[:LITERAL_MAXIMO], dict(leitura.localizador), truncar_trecho(valor))
         for linha in linhas:
             sujeito = f"{leitura.base}/lancamento/{linha.indice}"
             trecho = truncar_trecho(json.dumps(linha.original, ensure_ascii=False))
@@ -292,6 +393,10 @@ def _registrar(document_text, dados, leitura: _Leitura, user_id) -> Resultado:
             alegar(sujeito, "ia:descricao", linha.descricao[:LITERAL_MAXIMO], loc, trecho)
             if linha.secao:
                 alegar(sujeito, "ia:secao", linha.secao, loc, trecho)
+            if linha.documento:
+                alegar(sujeito, "ia:documento", linha.documento[:LITERAL_MAXIMO], loc, trecho)
+            if linha.sentido:
+                alegar(sujeito, "ia:sentido", linha.sentido, loc, trecho)
         anterior = LeituraLancamentos.objects.filter(artefato=artefato).values_list("base", flat=True).first()
         resultado.substituiu = anterior is not None and anterior != leitura.base
         LeituraLancamentos.objects.update_or_create(
@@ -319,9 +424,10 @@ def registrar(estruturacao: EstruturacaoLLM, *, user_id=None) -> Resultado:
         raise ValueError("só uma estruturação concluída pode virar lançamentos")
     document_text = estruturacao.document_text
     modelo = f"{estruturacao.provider}:{estruturacao.model_name}"
-    return _registrar(document_text, estruturacao.structured_data, _Leitura(
+    linhas, periodo = extrair_linhas(estruturacao.structured_data)
+    return _registrar(document_text, linhas, {"periodo": periodo}, _Leitura(
         base=base_sujeito(document_text.document.blob_hash, estruturacao.id),
-        fonte=Lancamento.Fonte.ESTRUTURACAO, fonte_id=estruturacao.id, produtor=PRODUTOR, produtor_versao=PRODUTOR_VERSAO, modelo=modelo,
+        fonte=Movimento.Fonte.ESTRUTURACAO, fonte_id=estruturacao.id, produtor=PRODUTOR, produtor_versao=PRODUTOR_VERSAO, modelo=modelo,
         localizador_tipo=LOCALIZADOR_TIPO, localizador={"estruturacao": str(estruturacao.id)},
         rotulo=modelo, payload={"estruturacao_id": str(estruturacao.id)},
     ), user_id)
@@ -336,9 +442,14 @@ def registrar_extracao(extracao: ExtracaoPagina, *, user_id=None) -> Resultado:
     if extracao.status != ExtracaoPagina.Status.VALIDO or not extracao.dados:
         raise ValueError("só uma extração que validou pode virar lançamentos")
     document_text, schema = extracao.document_text, extracao.schema
-    return _registrar(document_text, extracao.dados, _Leitura(
+    if schema_tem_papeis(schema.schema or {}):
+        linhas, contexto = linhas_do_schema(extracao.dados, schema.schema)
+    else:                                       # schema anterior aos papéis: lê por forma
+        linhas, periodo = extrair_linhas(extracao.dados)
+        contexto = {"periodo": periodo}
+    return _registrar(document_text, linhas, contexto, _Leitura(
         base=f"mencao:{document_text.document.blob_hash}#parser/{schema.id}",
-        fonte=Lancamento.Fonte.PARSER, fonte_id=schema.id, produtor=PRODUTOR_PARSER, produtor_versao=f"v{schema.versao}", modelo="",
+        fonte=Movimento.Fonte.PARSER, fonte_id=schema.id, produtor=PRODUTOR_PARSER, produtor_versao=f"v{schema.versao}", modelo="",
         localizador_tipo=PRODUTOR_PARSER,
         localizador={"schema": str(schema.id), "versao": schema.versao, "extracao": str(extracao.id)},
         rotulo=f"parser v{schema.versao}, sem LLM",
@@ -364,63 +475,103 @@ def _estabelecimento(tenant_id, descricao: str, cache: dict) -> Estabelecimento 
     return cache[descritor]
 
 
+def _regras(leitura) -> tuple[str, str]:
+    """(tipo de documento, convenção de sinal) com que a leitura escolhida deve ser lida."""
+    if leitura.fonte == Movimento.Fonte.PARSER:
+        from apps.artifacts.models import SchemaPagina
+
+        schema = SchemaPagina.objects.filter(pk=leitura.fonte_id).values_list("schema", flat=True).first() or {}
+        return (schema.get("tipo_documento") or TIPO_DOCUMENTO_PADRAO, schema.get("convencao") or CONVENCAO_PADRAO)
+    return TIPO_DOCUMENTO_PADRAO, CONVENCAO_PADRAO
+
+
+def _instituicao(artefato) -> str:
+    url = (artefato.content or {}).get("url", "")
+    try:
+        url = artefato.extracted_text.source_url or url
+    except Exception:
+        pass
+    return (urlsplit(url).hostname if url else "") or "desconhecida"
+
+
+def conta_para(tenant_id, tipo: str, instituicao: str, identificador: str) -> Conta:
+    """A conta que tem este identificador; nasce na primeira vez que aparece."""
+    for conta in Conta.objects.filter(tenant_id=tenant_id, tipo=tipo, instituicao=instituicao):
+        if identificador in (conta.identificadores or []):
+            return conta
+    return Conta.objects.create(tenant_id=tenant_id, tipo=tipo, instituicao=instituicao,
+                                identificadores=[identificador])
+
+
 def projetar_artefato(artefato) -> int:
-    """Refaz os `Lancamento` de um documento a partir das alegações ativas da leitura escolhida.
+    """Refaz os `Movimento` de um documento a partir das alegações ativas da leitura escolhida.
     Devolve quantos (zero quando nenhuma leitura foi escolhida)."""
     from django.db.models import Q
 
-    Lancamento.objects.filter(artefato=artefato).delete()
+    Movimento.objects.filter(artefato=artefato).delete()
     leitura = LeituraLancamentos.objects.filter(artefato=artefato).first()
     if leitura is None:
         return 0
     sujeitos: dict[str, dict[str, str]] = {}
-    periodos: dict[str, str] = {}
+    documento: dict[str, str] = {}
     da_leitura = Q(sujeito_ref=leitura.base) | Q(sujeito_ref__startswith=leitura.base + "/")
     for c in Claim.objects.filter(da_leitura, artefato=artefato, produtor__in=PRODUTORES,
                                   estado=Claim.Estado.ATIVA):
-        if c.predicado == "ia:periodo":
-            periodos[c.sujeito_ref] = c.objeto_literal
+        if c.sujeito_ref == leitura.base:
+            documento[c.predicado] = c.objeto_literal
         else:
             sujeitos.setdefault(c.sujeito_ref, {})[c.predicado] = c.objeto_literal
 
+    tipo_documento, convencao = _regras(leitura)
+    conta = conta_para(artefato.tenant_id, TIPO_CONTA.get(tipo_documento, Conta.Tipo.CARTAO),
+                       _instituicao(artefato), documento.get("ia:conta", ""))
+    if documento.get("ia:titular") and not conta.titular:
+        conta.titular = documento["ia:titular"][:200]
+        conta.save(update_fields=["titular"])
+    vencimento = data_referencia(documento.get("ia:periodo", ""))
+    referencia = vencimento or artefato.created_at.date()
+
     cache: dict = {}
+    com_estabelecimento = {Movimento.Natureza.COMPRA, Movimento.Natureza.TARIFA, Movimento.Natureza.ESTORNO,
+                           Movimento.Natureza.SAIDA_TERCEIROS}
     novos = []
     for sujeito, campos in sujeitos.items():
         m = _SUJEITO.search(sujeito)
         if not m or "ia:valor" not in campos or "ia:descricao" not in campos:
             continue
-        base = sujeito.rsplit("/lancamento/", 1)[0]
-        referencia = data_referencia(periodos.get(base, "")) or artefato.created_at.date()
-        valor = parse_valor(campos["ia:valor"])
+        valor = valor_assinado(campos["ia:valor"], convencao, campos.get("ia:sentido", ""))
         descricao = campos["ia:descricao"]
-        tipo = tipo_do_lancamento(descricao, valor)
-        novos.append(Lancamento(
-            tenant_id=artefato.tenant_id, artefato=artefato, fonte=m.group(1), fonte_id=m.group(2),
-            indice=int(m.group(3)),
-            sujeito_ref=sujeito, data=parse_data(campos.get("ia:data", ""), referencia),
-            data_texto=campos.get("ia:data", "")[:100], valor=valor, valor_texto=campos["ia:valor"][:100],
-            descricao=descricao[:500], secao=campos.get("ia:secao", "")[:200], tipo=tipo,
-            estabelecimento=(None if tipo == Lancamento.Tipo.PAGAMENTO
-                             else _estabelecimento(artefato.tenant_id, descricao, cache)),
+        natureza = natureza_do_movimento(descricao, valor, tipo_documento)
+        data = parse_data(campos.get("ia:data", ""), referencia)
+        parcela = parcela_da_descricao(descricao)
+        novos.append(Movimento(
+            tenant_id=artefato.tenant_id, artefato=artefato, conta=conta, fonte=m.group(1), fonte_id=m.group(2),
+            indice=int(m.group(3)), sujeito_ref=sujeito, data=data, data_texto=campos.get("ia:data", "")[:100],
+            competencia=competencia(tipo_documento, vencimento, data),
+            valor=valor, valor_texto=campos["ia:valor"][:100], descricao=descricao[:500],
+            documento=campos.get("ia:documento", "")[:100], secao=campos.get("ia:secao", "")[:200],
+            natureza=natureza, parcela=parcela[0] if parcela else None, parcelas=parcela[1] if parcela else None,
+            estabelecimento=(_estabelecimento(artefato.tenant_id, descricao, cache)
+                             if natureza in com_estabelecimento else None),
             classification_level=artefato.classification_level,
         ))
-    Lancamento.objects.bulk_create(novos)
+    Movimento.objects.bulk_create(novos)
     return len(novos)
 
 
 def reconstruir(tenant=None) -> int:
-    """Refaz toda a projeção (de uma organização ou de todas). Devolve o total de lançamentos."""
+    """Refaz toda a projeção (de uma organização ou de todas). Devolve o total de movimentos."""
     from apps.artifacts.models import Artifact
 
     leituras = LeituraLancamentos.objects.all()
-    lancamentos = Lancamento.objects.all()
+    movimentos = Movimento.objects.all()
     if tenant is not None:
         leituras = leituras.filter(tenant=tenant)
-        lancamentos = lancamentos.filter(tenant=tenant)
+        movimentos = movimentos.filter(tenant=tenant)
     ids = set(leituras.values_list("artefato_id", flat=True))
     total = 0
     with transaction.atomic():
-        lancamentos.exclude(artefato_id__in=ids).delete()
+        movimentos.exclude(artefato_id__in=ids).delete()
         for artefato in Artifact.objects.filter(id__in=ids):
             total += projetar_artefato(artefato)
     return total
@@ -436,16 +587,32 @@ def garantir_categorias(tenant) -> None:
 
 
 def fundir(destino: Estabelecimento, origem: Estabelecimento) -> None:
-    """Junta `origem` em `destino`: descritores e lançamentos passam para ele, valendo para as
-    faturas futuras. A categoria do destino prevalece; sem ela, herda a da origem."""
+    """Junta `origem` em `destino`: descritores e movimentos passam para ele, valendo para os
+    documentos futuros. A categoria do destino prevalece; sem ela, herda a da origem."""
     if destino.tenant_id != origem.tenant_id:
         raise ValueError("estabelecimentos de organizações diferentes")
     if destino.pk == origem.pk:
         return
     with transaction.atomic():
         DescritorEstabelecimento.objects.filter(estabelecimento=origem).update(estabelecimento=destino)
-        Lancamento.objects.filter(estabelecimento=origem).update(estabelecimento=destino)
+        Movimento.objects.filter(estabelecimento=origem).update(estabelecimento=destino)
         if destino.categoria_id is None and origem.categoria_id is not None:
             destino.categoria_id = origem.categoria_id
             destino.save(update_fields=["categoria"])
+        origem.delete()
+
+
+def juntar_contas(destino: Conta, origem: Conta) -> None:
+    """Junta `origem` em `destino` (o cartão "sem número" e o 1402 são o mesmo): identificadores
+    e movimentos passam para ele, e os documentos futuros com aqueles identificadores também."""
+    if destino.tenant_id != origem.tenant_id:
+        raise ValueError("contas de organizações diferentes")
+    if destino.pk == origem.pk:
+        return
+    with transaction.atomic():
+        destino.identificadores = list(dict.fromkeys((destino.identificadores or []) + (origem.identificadores or [])))
+        destino.titular = destino.titular or origem.titular
+        destino.apelido = destino.apelido or origem.apelido
+        destino.save(update_fields=["identificadores", "titular", "apelido"])
+        Movimento.objects.filter(conta=origem).update(conta=destino)
         origem.delete()

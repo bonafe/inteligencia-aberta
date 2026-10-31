@@ -23,6 +23,19 @@ import unicodedata
 from .llm_common import _extract_json, gerar_texto
 
 TIPOS = ("texto", "data", "valor", "numero", "inteiro", "url")
+
+# ── papéis (ADR 021): o que cada campo significa para os movimentos de conta ──
+#: Que documento é; diz o que a conferência e a natureza padrão dos movimentos significam.
+TIPOS_DOCUMENTO = ("", "fatura_cartao", "extrato_conta")
+#: Como ler o sinal do valor de cada movimento. Vazio: o documento não tem movimentos.
+CONVENCOES = ("", "positivo_e_saida", "negativo_e_saida", "sufixo_dc", "colunas_debito_credito")
+#: Papel de um campo único. Cada um (exceto o vazio) aparece no máximo uma vez.
+PAPEIS_CAMPO = ("", "identifica_conta", "titular", "saldo_anterior", "saldo_final", "total_documento",
+                "vencimento", "periodo")
+#: Papel de uma coluna de lista. `complemento` pode repetir (é concatenado à descrição).
+PAPEIS_COLUNA = ("", "data", "descricao", "complemento", "documento", "valor", "debito", "credito", "dc",
+                 "saldo_linha")
+_PAPEIS_QUE_REPETEM = {"", "complemento"}
 #: Linhas de amostra por estrutura repetida no resumo enviado ao LLM.
 AMOSTRAS_POR_ESTRUTURA = 3
 EXEMPLO_MAXIMO = 500
@@ -50,6 +63,15 @@ estrutura repetida correspondente, quando houver.
 4. INVARIANTES são conferências que a página permite: a soma de uma coluna da lista, mais \
 campos opcionais, igual a um campo total. Declare só se os números desta página confirmarem.
 5. Ignore menus, rodapés, avisos e propaganda.
+6. Se a página é de dinheiro (fatura de cartão, extrato de conta), diga também:
+   - "tipo_documento": "fatura_cartao" ou "extrato_conta" ("" se não for nenhum dos dois);
+   - "convencao" do sinal dos valores: "positivo_e_saida" (fatura: compra positiva), \
+"negativo_e_saida", "sufixo_dc" (valor termina em D ou C, ex.: "400,00 D") ou \
+"colunas_debito_credito" (débito e crédito em colunas separadas);
+   - o "papel" de cada campo: identifica_conta (número do cartão ou agência/conta), titular, \
+saldo_anterior, saldo_final, total_documento, vencimento, periodo — ou "";
+   - o "papel" de cada coluna da lista: data, descricao, complemento (texto que continua a \
+descrição), documento, valor, debito, credito, dc, saldo_linha — ou "".
 
 Tipos: texto, data, valor (dinheiro), numero, inteiro, url.
 
@@ -57,12 +79,16 @@ RETORNE APENAS O JSON ABAIXO. Nada antes, nada depois, sem markdown.
 
 {
   "descricao": "<que tipo de página é, uma frase>",
+  "tipo_documento": "<fatura_cartao|extrato_conta|>",
+  "convencao": "<positivo_e_saida|negativo_e_saida|sufixo_dc|colunas_debito_credito|>",
   "campos": [
-    {"nome": "vencimento", "tipo": "data", "descricao": "...", "obrigatorio": true, "exemplo": "..."}
+    {"nome": "vencimento", "tipo": "data", "papel": "vencimento", "descricao": "...", "obrigatorio": true,
+     "exemplo": "..."}
   ],
   "listas": [
     {"nome": "lancamentos", "descricao": "...", "secoes": true, "estrutura": "<nome ou null>",
-     "campos": [{"nome": "data", "tipo": "data", "descricao": "...", "obrigatorio": true, "exemplo": "..."}]}
+     "campos": [{"nome": "data", "tipo": "data", "papel": "data", "descricao": "...", "obrigatorio": true,
+                 "exemplo": "..."}]}
   ],
   "invariantes": [
     {"tipo": "soma", "lista": "lancamentos", "campo": "valor", "mais": ["saldo_anterior"],
@@ -86,8 +112,8 @@ def _unico(nome: str, usados: set[str]) -> str:
     return final
 
 
-def _campos(brutos, onde: str, avisos: list[str]) -> list[dict]:
-    saida, usados = [], set()
+def _campos(brutos, onde: str, avisos: list[str], papeis: tuple = PAPEIS_CAMPO) -> list[dict]:
+    saida, usados, papeis_usados = [], set(), set()
     for bruto in brutos if isinstance(brutos, list) else []:
         if not isinstance(bruto, dict):
             continue
@@ -99,10 +125,19 @@ def _campos(brutos, onde: str, avisos: list[str]) -> list[dict]:
         if tipo not in TIPOS:
             avisos.append(f"{onde}.{nome}: tipo {tipo!r} desconhecido, usando 'texto'")
             tipo = "texto"
+        papel = str(bruto.get("papel") or "").strip().lower()
+        if papel not in papeis:
+            avisos.append(f"{onde}.{nome}: papel {papel!r} desconhecido, ignorado")
+            papel = ""
+        elif papel not in _PAPEIS_QUE_REPETEM and papel in papeis_usados:
+            avisos.append(f"{onde}.{nome}: papel {papel!r} já é de outro campo, ignorado")
+            papel = ""
+        papeis_usados.add(papel)
         exemplo = bruto.get("exemplo")
         saida.append({
             "nome": _unico(nome, usados),
             "tipo": tipo,
+            "papel": papel,
             "descricao": str(bruto.get("descricao") or "").strip()[:300],
             "obrigatorio": bool(bruto.get("obrigatorio")),
             "exemplo": "" if exemplo is None else " ".join(str(exemplo).split())[:EXEMPLO_MAXIMO],
@@ -114,7 +149,8 @@ def normalizar_schema(bruto) -> tuple[dict, list[str]]:
     """O schema na forma canônica e os avisos sobre o que foi corrigido ou descartado."""
     avisos: list[str] = []
     if not isinstance(bruto, dict):
-        return {"descricao": "", "campos": [], "listas": [], "invariantes": []}, ["resposta não é um objeto JSON"]
+        return ({"descricao": "", "tipo_documento": "", "convencao": "", "campos": [], "listas": [],
+                 "invariantes": []}, ["resposta não é um objeto JSON"])
 
     campos = _campos(bruto.get("campos"), "campos", avisos)
     nomes_campos = {c["nome"] for c in campos}
@@ -127,7 +163,7 @@ def normalizar_schema(bruto) -> tuple[dict, list[str]]:
         if not nome:
             avisos.append("listas: lista sem nome descartada")
             continue
-        colunas = _campos(lista.get("campos"), f"listas.{nome}", avisos)
+        colunas = _campos(lista.get("campos"), f"listas.{nome}", avisos, PAPEIS_COLUNA)
         if not colunas:
             avisos.append(f"listas.{nome}: lista sem campos descartada")
             continue
@@ -163,8 +199,23 @@ def normalizar_schema(bruto) -> tuple[dict, list[str]]:
         invariantes.append({"tipo": "soma", "lista": lista, "campo": campo, "mais": mais, "igual_a": igual_a,
                             "descricao": str(inv.get("descricao") or "").strip()[:300]})
 
+    tipo_documento = str(bruto.get("tipo_documento") or "").strip().lower()
+    if tipo_documento not in TIPOS_DOCUMENTO:
+        avisos.append(f"tipo_documento {tipo_documento!r} desconhecido, ignorado")
+        tipo_documento = ""
+    convencao = str(bruto.get("convencao") or "").strip().lower()
+    if convencao not in CONVENCOES:
+        avisos.append(f"convencao {convencao!r} desconhecida, ignorada")
+        convencao = ""
+    papeis_colunas = {c["papel"] for l in listas for c in l["campos"]}
+    if convencao == "colunas_debito_credito" and not {"debito", "credito"} <= papeis_colunas:
+        avisos.append("convenção 'colunas_debito_credito' sem colunas de papel 'debito' e 'credito'")
+    elif convencao and convencao != "colunas_debito_credito" and "valor" not in papeis_colunas:
+        avisos.append(f"convenção {convencao!r} sem coluna de papel 'valor'")
+
     schema = {
         "descricao": str(bruto.get("descricao") or "").strip()[:500],
+        "tipo_documento": tipo_documento, "convencao": convencao,
         "campos": campos, "listas": listas, "invariantes": invariantes,
     }
     return schema, avisos

@@ -123,6 +123,14 @@
     <div class="bloco">
       <h2>Descrição</h2>
       <input type="text" id="descricao" maxlength="500">
+      <div style="display:flex;gap:1rem;flex-wrap:wrap;margin-top:.6rem">
+        <label class="meta" style="margin:0">Documento
+          <select id="tipo-documento" style="width:auto"></select></label>
+        <label class="meta" style="margin:0">Sinal dos valores
+          <select id="convencao" style="width:auto"></select></label>
+      </div>
+      <p class="ajuda">Para faturas e extratos: o tipo diz o que a conferência significa; o sinal, como ler cada valor
+        (fatura: compra positiva; extrato do BB: “400,00 D” é saída). Os papéis nas tabelas abaixo dizem o que cada campo é.</p>
     </div>
     <div class="bloco">
       <h2>Campos únicos <button class="mini" data-so-edicao onclick="addCampo()">+ campo</button></h2>
@@ -148,12 +156,20 @@
 
 {{ schema_inicial|json_script:"schema-inicial" }}
 {{ tipos|json_script:"tipos" }}
+{{ vocabulario|json_script:"vocabulario" }}
 {{ registro.avisos|json_script:"avisos-iniciais" }}
 
 <script>
   const SCHEMA_ID = "{{ registro.pk }}";
   const EDITAVEL = {{ editavel|yesno:"true,false" }};
   const TIPOS = JSON.parse(document.getElementById('tipos').textContent);
+  const VOC = JSON.parse(document.getElementById('vocabulario').textContent);
+  const ROTULO = {'': '—', fatura_cartao: 'fatura de cartão', extrato_conta: 'extrato de conta',
+    positivo_e_saida: 'positivo é saída', negativo_e_saida: 'negativo é saída', sufixo_dc: 'sufixo D/C',
+    colunas_debito_credito: 'colunas débito e crédito', identifica_conta: 'identifica a conta',
+    saldo_anterior: 'saldo anterior', saldo_final: 'saldo final', total_documento: 'total do documento',
+    saldo_linha: 'saldo da linha', dc: 'D/C', debito: 'débito', credito: 'crédito', descricao: 'descrição'};
+  const rotulo = v => ROTULO[v] ?? v;
   const CSRF = "{{ csrf_token }}";
   let estado = JSON.parse(document.getElementById('schema-inicial').textContent);
   estado.campos = estado.campos || []; estado.listas = estado.listas || []; estado.invariantes = estado.invariantes || [];
@@ -168,7 +184,7 @@
     return e;
   }
   function mover(arr, i, d) { const j = i + d; if (j < 0 || j >= arr.length) return; [arr[i], arr[j]] = [arr[j], arr[i]]; render(); }
-  function novoCampo() { return {nome: '', tipo: 'texto', descricao: '', obrigatorio: false, exemplo: ''}; }
+  function novoCampo() { return {nome: '', tipo: 'texto', papel: '', descricao: '', obrigatorio: false, exemplo: ''}; }
 
   // Renomear um campo leva junto as conferências que o citam.
   function renomear(antigo, novo, lista) {
@@ -185,7 +201,7 @@
   function tabelaCampos(arr, nomeLista) {
     if (!arr.length) return el('p', {className: 'sem-dado'}, 'Nenhum.');
     const t = el('table', {className: 't'},
-      el('tr', {}, el('th', {}, 'Nome'), el('th', {}, 'Tipo'), el('th', {title: 'Obrigatório'}, 'Obr.'),
+      el('tr', {}, el('th', {}, 'Nome'), el('th', {}, 'Tipo'), el('th', {}, 'Papel'), el('th', {title: 'Obrigatório'}, 'Obr.'),
          el('th', {}, 'Exemplo (da amostra)'), el('th', {}, 'Descrição'), el('th', {})));
     arr.forEach((c, i) => {
       const tipo = el('select', {disabled: !EDITAVEL, on: {change: e => { c.tipo = e.target.value; }}},
@@ -194,6 +210,9 @@
         el('td', {}, el('input', {type: 'text', value: c.nome, disabled: !EDITAVEL, on: {
           change: e => { const antigo = c.nome; c.nome = e.target.value; renomear(antigo, c.nome, nomeLista); renderInvariantes(); }}})),
         el('td', {}, tipo),
+        el('td', {}, el('select', {disabled: !EDITAVEL, on: {change: e => { c.papel = e.target.value; }}},
+          (nomeLista === undefined ? VOC.papeis_campo : VOC.papeis_coluna).map(pp =>
+            el('option', {value: pp, selected: pp === (c.papel || '')}, rotulo(pp))))),
         el('td', {className: 'ck'}, el('input', {type: 'checkbox', checked: !!c.obrigatorio, disabled: !EDITAVEL,
           on: {change: e => { c.obrigatorio = e.target.checked; }}})),
         el('td', {}, el('input', {type: 'text', value: c.exemplo ?? '', disabled: !EDITAVEL,
@@ -269,6 +288,13 @@
     const desc = document.getElementById('descricao');
     desc.value = estado.descricao ?? ''; desc.disabled = !EDITAVEL;
     desc.oninput = e => { estado.descricao = e.target.value; };
+    for (const [id, chave, valores] of [['tipo-documento', 'tipo_documento', VOC.tipos_documento],
+                                        ['convencao', 'convencao', VOC.convencoes]]) {
+      const sel = document.getElementById(id);
+      sel.replaceChildren(...valores.map(v => el('option', {value: v, selected: v === (estado[chave] || '')}, rotulo(v))));
+      sel.disabled = !EDITAVEL;
+      sel.onchange = e => { estado[chave] = e.target.value; };
+    }
     renderCampos(); renderListas(); renderInvariantes();
     document.querySelectorAll('[data-so-edicao]').forEach(b => { b.style.display = EDITAVEL ? '' : 'none'; });
   }
