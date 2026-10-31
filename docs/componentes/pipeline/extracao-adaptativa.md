@@ -307,8 +307,15 @@ são extraídas por um parser determinístico, sem chamar LLM. Chave do tipo: a 
    `executar` extrai e valida: obrigatório vazio, coluna sem ligação, lista vazia e conferência
    que não fecha são problemas (`ok: False` com o motivo). Na fatura BB: 4 campos, 134 itens,
    11 seções, conferência fechando.
-4. **Execução com validação** a cada captura; falha avisa e oferece o LLM, nunca congela em
-   silêncio. A fazer.
+4. **Execução com validação (feito)** — `apps/artifacts/extracao_pagina.py`
+   (`extrair_com_parser`), chamado em `extract_text_from_mhtml` logo depois do `DocumentText`:
+   com schema aprovado para o tipo, roda o parser (lxml, sem LLM) e grava uma `ExtracaoPagina`
+   (`valido` / `invalido` / `erro`, com dados, problemas e conferências, no nível da captura) e
+   o evento `extracao.parser_pagina`. Nunca levanta. No visualizador, "Rodar parser nesta
+   captura" faz o mesmo para capturas anteriores à aprovação; o card que não validou diz por
+   quê e aponta para "Estruturar com LLM" e "Gerar schema". A tela do schema mostra o uso
+   (válidas, não validaram, erro) e alerta quando a execução mais recente não validou. Nada
+   roda o LLM sozinho.
 
 **Por que não repete o erro de `c6d8d1c`** (o reuso de schema removido em 2026-09-17): lá o
 schema era *inferido* dos valores presentes na primeira captura, então um campo vazio nela

@@ -23,7 +23,7 @@ from apps.events.context import set_correlation_id, set_tenant_id
 from apps.events.emit import emit
 
 from .extractors.schema_pagina import TIPOS
-from .models import Artifact, DocumentText, SchemaPagina, URLPatternCache
+from .models import Artifact, DocumentText, ExtracaoPagina, SchemaPagina, URLPatternCache
 from .policy import permite_llm_externo
 from .views import _maquina_escolhida
 
@@ -148,17 +148,21 @@ def _schema_da_pessoa(request, schema_id) -> SchemaPagina:
     )
 
 
-def _html_da_amostra(registro: SchemaPagina) -> str:
-    """O HTML da captura de amostra, relido do Garage. `ValueError` com a razão se não der."""
+def _html_do_artefato(artifact) -> str:
+    """O HTML da captura, relido do Garage. `ValueError` com a razão se não der."""
     from .tasks import _html_do_mhtml, _ler_mhtml
 
-    content = (registro.amostra.content or {}) if registro.amostra else {}
+    content = (artifact.content or {}) if artifact else {}
     if not content.get("mhtml_path"):
-        raise ValueError("a captura de amostra não existe mais ou não tem MHTML")
+        raise ValueError("a captura não existe mais ou não tem MHTML")
     html, _ = _html_do_mhtml(_ler_mhtml(content.get("mhtml_bucket", "inteligencia-aberta-mhtml"), content["mhtml_path"]))
     if not html:
-        raise ValueError("a amostra não tem HTML")
+        raise ValueError("a captura não tem HTML")
     return html
+
+
+def _html_da_amostra(registro: SchemaPagina) -> str:
+    return _html_do_artefato(registro.amostra)
 
 
 def _schema_do_corpo(request):
@@ -185,8 +189,13 @@ class RevisarSchemaView(View):
         titulo = ""
         if registro.amostra_id:
             titulo = DocumentText.objects.filter(document_id=registro.amostra_id).values_list("title", flat=True).first() or ""
+        extracoes = registro.extracoes.select_related("document_text").order_by("-created_at")
+        uso = {st: extracoes.filter(status=st).count() for st in ExtracaoPagina.Status.values}
         return render(request, "artifacts/schema_revisao.html", {
             "registro": registro,
+            "uso": uso,
+            "uso_total": sum(uso.values()),
+            "ultimas_extracoes": list(extracoes[:5]),
             "versoes": versoes,
             "titulo_amostra": titulo,
             "editavel": registro.status in SchemaPagina.EDITAVEIS,
@@ -293,3 +302,68 @@ class NovaVersaoSchemaView(View):
                 model_name=origem.model_name, triggered_by=request.user, derivado_de=origem,
             )
         return JsonResponse({"id": str(nova.id), "versao": versao, "url": f"/artifacts/schemas/{nova.id}/"})
+
+
+# ── execução do parser aprovado ─────────────────────────────────────────────
+
+def _extracao_json(e: ExtracaoPagina) -> dict:
+    from .extractors.parser_pagina import previa
+
+    dados = e.dados or {}
+    return {
+        "id": str(e.id),
+        "status": e.status,
+        "origem": e.origem,
+        "versao": e.schema.versao,
+        "schema_url": f"/artifacts/schemas/{e.schema_id}/",
+        "problemas": e.problemas,
+        "invariantes": e.invariantes,
+        "duration_ms": e.duration_ms,
+        "created_at": e.created_at.isoformat(),
+        "dados": previa({"listas": dados.get("listas", {}), "campos": dados.get("campos", {})}) if e.dados else None,
+    }
+
+
+class ExtracoesPaginaView(View):
+    """O parser aprovado do tipo desta captura e as execuções dele nela."""
+
+    def get(self, request, artifact_id):
+        from .extracao_pagina import schema_aprovado
+
+        artifact = get_object_or_404(Artifact, id=artifact_id, tenant__in=orgs_do_usuario(request.user))
+        try:
+            doc_text = artifact.extracted_text
+        except DocumentText.DoesNotExist:
+            return JsonResponse({"schema_aprovado": None, "extracoes": []})
+        schema = schema_aprovado(doc_text)
+        extracoes = doc_text.extracoes_pagina.select_related("schema").order_by("-created_at")[:10]
+        return JsonResponse({
+            "schema_aprovado": ({"id": str(schema.id), "versao": schema.versao, "url": f"/artifacts/schemas/{schema.id}/"}
+                                if schema else None),
+            "extracoes": [_extracao_json(e) for e in extracoes],
+        })
+
+    def post(self, request, artifact_id):
+        """Roda o parser aprovado nesta captura agora (capturas anteriores à aprovação)."""
+        from .extracao_pagina import extrair_com_parser, schema_aprovado
+        from .tasks import correlacao_do_artefato
+
+        artifact = get_object_or_404(Artifact, id=artifact_id, tenant__in=orgs_do_usuario(request.user))
+        try:
+            doc_text = artifact.extracted_text
+        except DocumentText.DoesNotExist:
+            return JsonResponse({"error": "texto ainda não extraído para esta captura"}, status=400)
+        if schema_aprovado(doc_text) is None:
+            return JsonResponse({"error": "o tipo desta página não tem schema aprovado"}, status=400)
+        try:
+            html = _html_do_artefato(artifact)
+        except ValueError as exc:
+            return JsonResponse({"error": str(exc)}, status=400)
+        except Exception:
+            return JsonResponse({"error": "não foi possível ler a captura no armazenamento"}, status=503)
+        set_correlation_id(correlacao_do_artefato(artifact.id))
+        set_tenant_id(artifact.tenant_id)
+        extracao = extrair_com_parser(doc_text, html, origem=ExtracaoPagina.Origem.MANUAL, user_id=request.user.id)
+        if extracao is None:
+            return JsonResponse({"error": "a execução não pôde ser registrada (ver log)"}, status=500)
+        return JsonResponse(_extracao_json(extracao))

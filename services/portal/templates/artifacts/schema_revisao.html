@@ -55,6 +55,36 @@
 </p>
 {% endif %}
 
+{% if uso_total or registro.status == "aprovado" %}
+<div class="bloco">
+  <h2>Uso nas capturas</h2>
+  {% if uso_total %}
+  <p class="meta">{{ uso_total }} execução(ões): {{ uso.valido }} válida(s), {{ uso.invalido }} não validaram, {{ uso.erro }} com erro.</p>
+  {% with ultima=ultimas_extracoes.0 %}{% if ultima.status != "valido" %}
+  <div class="nao">
+    A execução mais recente ({{ ultima.created_at|date:"d/m/Y H:i" }}, captura “{{ ultima.document_text.title|default:"sem título"|truncatechars:60 }}”) não validou:
+    <ul>{% for p in ultima.problemas|slice:":5" %}<li>{{ p }}</li>{% endfor %}</ul>
+    A página pode ter mudado. No visualizador, estruture essa captura com LLM ou gere um schema novo a partir dela.
+  </div>
+  {% endif %}{% endwith %}
+  <table class="t">
+    <tr><th>Quando</th><th>Captura</th><th>Origem</th><th>Resultado</th></tr>
+    {% for e in ultimas_extracoes %}
+    <tr>
+      <td>{{ e.created_at|date:"d/m/Y H:i" }}</td>
+      <td>{{ e.document_text.title|default:"sem título"|truncatechars:50 }}</td>
+      <td>{{ e.get_origem_display }}</td>
+      <td><span class="tag {% if e.status == 'valido' %}aprovado{% else %}falhou{% endif %}">{{ e.get_status_display }}</span>
+        {% if e.problemas %}<span class="sem-dado">{{ e.problemas.0|truncatechars:80 }}</span>{% endif %}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}
+  <p class="sem-dado">Ainda não rodou em nenhuma captura. Roda sozinho nas próximas capturas deste tipo; para as anteriores, use “Rodar parser” no visualizador.</p>
+  {% endif %}
+</div>
+{% endif %}
+
 <div class="barra">
   <button class="btn" onclick="preVisualizar()">Pré-visualizar</button>
   {% if editavel %}

@@ -397,6 +397,46 @@ class SchemaPagina(models.Model):
         return f"schema v{self.versao} de {self.padrao_id} — {self.status}"
 
 
+class ExtracaoPagina(models.Model):
+    """Uma execução do parser aprovado de um tipo de página numa captura, sem LLM.
+
+    Roda na extração de toda captura cujo tipo tem `SchemaPagina` aprovado
+    (`extracao_pagina.extrair_com_parser`) ou sob demanda no visualizador. `invalido` é o
+    parser que rodou e não passou na validação (obrigatório vazio, conferência que não
+    fecha): é o sinal de que a página mudou, dito na hora em vez de dado errado em silêncio.
+    """
+
+    class Status(models.TextChoices):
+        VALIDO = "valido", "Válido"
+        INVALIDO = "invalido", "Não validou"
+        ERRO = "erro", "Erro"
+
+    class Origem(models.TextChoices):
+        CAPTURA = "captura", "Na captura"
+        MANUAL = "manual", "Manual"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    tenant = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="extracoes_pagina")
+    document_text = models.ForeignKey(DocumentText, on_delete=models.CASCADE, related_name="extracoes_pagina")
+    schema = models.ForeignKey(SchemaPagina, on_delete=models.CASCADE, related_name="extracoes")
+    status = models.CharField(max_length=20, choices=Status.choices)
+    origem = models.CharField(max_length=20, choices=Origem.choices)
+    #: {"campos": {...}, "listas": {nome: {"itens": [...], "secoes": [...], ...}}}
+    dados = models.JSONField(null=True, blank=True)
+    problemas = models.JSONField(default=list, blank=True)
+    invariantes = models.JSONField(default=list, blank=True)
+    classification_level = models.CharField(max_length=20, choices=Artifact.ClassificationLevel.choices)
+    duration_ms = models.IntegerField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "artifacts_extracao_pagina"
+        indexes = [Index(fields=["document_text", "-created_at"]), Index(fields=["schema", "-created_at"])]
+
+    def __str__(self):
+        return f"parser v{self.schema.versao} em {self.document_text_id} — {self.status}"
+
+
 class Comparacao(models.Model):
     """Comparação de 2+ seções de dado estruturado, julgada por um LLM.
 

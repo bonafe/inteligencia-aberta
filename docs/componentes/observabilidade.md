@@ -63,7 +63,8 @@ A separação entre `vazio` e `falhou` é a razão de ser deste modelo. Antes de
 | `cluster.*` | portal | `par` (um par ficou inacessível/voltou: `falhou`/`ok`, só nas transições), `modelo` (operação de modelo do Ollama: `iniciado`, `ok`, `falhou`, `ignorado` = cancelada; payload só com operação, tipo, modelo e status) |
 | `federacao.*` | portal | `canal` (requisição de outra instância recusada: só `rota` e o `codigo` da recusa, nunca corpo; `ignorado`), `decisao` — cada decisão do motor de replicação (`ok` = permitido, `ignorado` = negado; payload só com identificadores, nunca conteúdo) |
 | `artefato.*` | portal | `ignorado` — as saídas silenciosas do signal `post_save` |
-| `extracao.*` | worker | `iniciada`, `reiniciada`, `ignorada`, `minio`, `mhtml`, `trafilatura`, `texto_completo`, `dom2parser`, `extruct`, `deterministico`, `alegacoes` (JSON-LD → `Claim`/`Evidence`; `vazio` quando o site não declara nada aproveitável), `concluida` |
+| `extracao.*` | worker | `iniciada`, `reiniciada`, `ignorada`, `minio`, `mhtml`, `trafilatura`, `texto_completo`, `dom2parser`, `extruct`, `deterministico`, `alegacoes` (JSON-LD → `Claim`/`Evidence`; `vazio` quando o site não declara nada aproveitável), `parser_pagina` (parser aprovado do tipo de página, sem LLM: `ok` = validou, `falhou` = não validou ou levantou, com os problemas; ausente quando o tipo não tem schema aprovado; também emitido pela execução manual no visualizador), `concluida` |
+| `schema_pagina.*` | portal, worker | `solicitado`, `iniciado`, `gerado` (`ok`), `vazio`, `falhou`, `bloqueado` (`ignorado`: LLM externo para amostra restrita), `cancelado`, `editado`, `aprovado` |
 | `deteccao.*` | worker | `page_type` |
 | `fragmentacao.*` | worker | `concluida`, `ignorada` |
 | `embedding.*` | worker | `concluido`, `ignorado` |

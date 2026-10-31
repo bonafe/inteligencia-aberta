@@ -475,6 +475,11 @@ def extract_text_from_mhtml(self, artifact_id: str, forcar: bool = False):
     except Exception:
         logger.exception("[%s] registro de alegações falhou — seguindo sem elas", artifact_id)
 
+    # Parser aprovado do tipo de página (SchemaPagina): extrai e valida sem LLM. Sem
+    # schema aprovado não faz nada; nunca levanta (ver extracao_pagina.py).
+    from .extracao_pagina import extrair_com_parser
+    extrair_com_parser(doc_text, html_content)
+
     evento("extracao.concluida", "ok",
            message=f"DocumentText criado ({doc_text.word_count} palavras)",
            payload={"document_text_id": str(doc_text.id),

@@ -649,6 +649,7 @@
                     <button class="btn-primary" id="btn-schema" onclick="dispararSchema()" title="Declara os campos deste tipo de página para um parser reutilizável">Gerar schema</button>
                     <span class="llm-status-msg" id="llm-status-msg"></span>
                 </div>
+                <div id="llm-parser-pagina"></div>
                 <div id="llm-schemas-list"></div>
                 <div id="llm-execucoes-list"></div>
             </div>
@@ -714,6 +715,7 @@
         limparSelecao();
         document.getElementById('llm-execucoes-list').innerHTML = '';
         document.getElementById('llm-schemas-list').innerHTML = '';
+        document.getElementById('llm-parser-pagina').innerHTML = '';
         document.getElementById('comparacao-atual').innerHTML = '';
         document.getElementById('comparacao-historico').innerHTML = '';
         setTabState('tab-llm', true);
@@ -785,7 +787,7 @@
         if (tab !== 'mhtml' && currentArtifactId && contentCache[currentArtifactId]) {
             renderContent(contentCache[currentArtifactId]);
         }
-        if (tab === 'llm' && currentArtifactId) { carregarExecucoes(); carregarSchemas(); }
+        if (tab === 'llm' && currentArtifactId) { carregarExecucoes(); carregarSchemas(); carregarExtracoesPagina(); }
         if (tab === 'comparacao' && currentArtifactId) carregarComparacoes();
     }
 
@@ -1041,6 +1043,98 @@
         fetch(`/artifacts/${currentArtifactId}/estruturacoes/${id}/cancelar/`, {
             method: 'POST', headers: {'X-CSRFToken': CSRF_TOKEN},
         }).then(() => carregarExecucoes()).catch(() => {});
+    }
+
+    // ─── Parser aprovado do tipo de página (ExtracaoPagina) ──────────────────────
+    // Roda sozinho em toda captura nova do tipo; aqui, também sob demanda.
+    function carregarExtracoesPagina() {
+        if (!currentArtifactId) return;
+        const artifactId = currentArtifactId;
+        fetch(`/artifacts/${artifactId}/extracoes-pagina/`)
+            .then(r => r.json())
+            .then(data => {
+                if (artifactId !== currentArtifactId || currentTab !== 'llm') return;
+                renderExtracoesPagina(data);
+            })
+            .catch(() => {});
+    }
+
+    function rodarParser(botao) {
+        if (!currentArtifactId) return;
+        const msg = document.getElementById('parser-pagina-msg');
+        botao.disabled = true;
+        msg.textContent = 'rodando…';
+        fetch(`/artifacts/${currentArtifactId}/extracoes-pagina/`, {method: 'POST', headers: {'X-CSRFToken': CSRF_TOKEN}})
+            .then(r => r.json().then(data => ({ok: r.ok, data})))
+            .then(({ok, data}) => {
+                botao.disabled = false;
+                if (!ok) { msg.textContent = data.error || 'falhou'; return; }
+                msg.textContent = '';
+                carregarExtracoesPagina();
+            })
+            .catch(() => { botao.disabled = false; msg.textContent = 'erro de rede'; });
+    }
+
+    function renderExtracoesPagina(data) {
+        const container = document.getElementById('llm-parser-pagina');
+        container.innerHTML = '';
+        if (!data.schema_aprovado) return;
+        const cab = document.createElement('div');
+        cab.className = 'llm-toolbar';
+        const titulo = document.createElement('a');
+        titulo.href = data.schema_aprovado.url;
+        titulo.target = '_blank';
+        titulo.textContent = `Parser aprovado do tipo de página (schema v${data.schema_aprovado.versao})`;
+        const botao = document.createElement('button');
+        botao.className = 'btn-primary';
+        botao.textContent = 'Rodar parser nesta captura';
+        botao.onclick = () => rodarParser(botao);
+        const msg = document.createElement('span');
+        msg.className = 'llm-status-msg';
+        msg.id = 'parser-pagina-msg';
+        cab.append(titulo, botao, msg);
+        container.appendChild(cab);
+        (data.extracoes || []).slice(0, 3).forEach(e => {
+            const card = document.createElement('div');
+            card.className = 'llm-card';
+            const valido = e.status === 'valido';
+            const header = document.createElement('div');
+            header.className = 'llm-card-header';
+            const esq = document.createElement('div');
+            const t = document.createElement('span');
+            t.className = 'llm-card-title';
+            t.textContent = `Parser v${e.versao} · ${e.origem === 'captura' ? 'na captura' : 'manual'}`;
+            const meta = document.createElement('span');
+            meta.className = 'llm-card-meta';
+            meta.textContent = ` · ${new Date(e.created_at).toLocaleString('pt-BR')}` +
+                (e.duration_ms != null ? ` · ${e.duration_ms} ms, sem LLM` : '');
+            esq.append(t, meta);
+            const badge = document.createElement('span');
+            badge.className = `llm-badge llm-badge-${valido ? 'concluido' : 'falhou'}`;
+            badge.textContent = valido ? 'validou' : (e.status === 'erro' ? 'erro' : 'não validou');
+            header.append(esq, badge);
+            card.appendChild(header);
+            (e.invariantes || []).forEach(inv => {
+                const d = document.createElement('div');
+                d.className = 'llm-card-meta';
+                d.textContent = `${inv.ok ? '✓' : '✗'} ${inv.descricao}: esperado ${inv.esperado ?? '—'}, obtido ${inv.obtido}`;
+                card.appendChild(d);
+            });
+            if (!valido) {
+                const erro = document.createElement('div');
+                erro.className = 'llm-card-error';
+                erro.textContent = (e.problemas || []).join(' · ') +
+                    ' — a página pode ter mudado: estruture com LLM ou gere um schema novo a partir desta captura.';
+                card.appendChild(erro);
+            }
+            if (e.dados) {
+                const body = document.createElement('div');
+                body.className = 'llm-card-body json-tree';
+                body.appendChild(renderJsonNode(e.dados));
+                card.appendChild(body);
+            }
+            container.appendChild(card);
+        });
     }
 
     // ─── Schema do tipo de página (SchemaPagina) ────────────────────────────────
