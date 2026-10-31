@@ -1,0 +1,321 @@
+{% extends "base.html" %}
+{% block title %}Schema v{{ registro.versao }} — Inteligência Aberta{% endblock %}
+
+{% block content %}
+<style>
+  .bloco { background:#fff; border:1px solid #e5e7eb; border-radius:8px; padding:1.1rem 1.3rem; margin-top:1.1rem; box-shadow:0 1px 3px rgba(0,0,0,.05); }
+  .bloco h2 { font-size:1.02rem; margin-bottom:.6rem; display:flex; align-items:center; gap:.6rem; }
+  .ajuda { font-size:.86rem; color:#475569; margin:.3rem 0; }
+  .sem-dado { color:#9ca3af; font-size:.88rem; }
+  .meta { font-size:.86rem; color:#475569; }
+  .tag { display:inline-block; font-size:.74rem; padding:.12rem .55rem; border-radius:999px; background:#eef2ff; color:#4338ca; font-weight:600; }
+  .tag.rascunho { background:#fef3c7; color:#92400e; } .tag.aprovado { background:#dcfce7; color:#166534; }
+  .tag.substituido, .tag.cancelado, .tag.vazio { background:#f1f5f9; color:#475569; } .tag.falhou { background:#fee2e2; color:#b91c1c; }
+  .colunas { display:grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap:1.1rem; align-items:start; }
+  @media (max-width: 1100px) { .colunas { grid-template-columns: 1fr; } }
+  table.t { width:100%; border-collapse:collapse; font-size:.84rem; }
+  table.t th, table.t td { text-align:left; padding:.3rem .35rem; border-top:1px solid #f1f5f9; vertical-align:middle; }
+  table.t th { color:#64748b; font-weight:600; font-size:.78rem; }
+  table.t input, table.t select { width:100%; padding:.25rem .35rem; font-size:.84rem; }
+  table.t td.ck { width:2.2rem; text-align:center; } table.t td.ck input { width:auto; }
+  table.t td.ops { white-space:nowrap; width:5.6rem; }
+  .ops button, .mini { border:1px solid #d1d5db; background:#fff; border-radius:4px; padding:.12rem .4rem; font-size:.8rem; cursor:pointer; }
+  .ops button:hover, .mini:hover { background:#f1f5f9; }
+  .lista { border:1px solid #e5e7eb; border-radius:6px; padding:.7rem .8rem; margin:.6rem 0; }
+  .lista-cab { display:flex; gap:.6rem; align-items:center; flex-wrap:wrap; margin-bottom:.4rem; }
+  .lista-cab input[type=text] { width:auto; }
+  .lista-cab label { display:flex; gap:.3rem; align-items:center; margin:0; font-weight:500; }
+  .lista-cab label input { width:auto; }
+  .barra { display:flex; gap:.6rem; flex-wrap:wrap; align-items:center; position:sticky; top:0; background:#f4f5f7; padding:.6rem 0; z-index:2; }
+  .ok { background:#f0fdf4; border:1px solid #86efac; color:#166534; border-radius:6px; padding:.55rem .8rem; margin:.4rem 0; font-size:.88rem; }
+  .nao { background:#fef2f2; border:1px solid #fca5a5; color:#991b1b; border-radius:6px; padding:.55rem .8rem; margin:.4rem 0; font-size:.88rem; }
+  .aviso { background:#fffbeb; border:1px solid #fcd34d; color:#92400e; border-radius:6px; padding:.55rem .8rem; margin:.4rem 0; font-size:.86rem; }
+  .aviso ul, .nao ul { margin:.3rem 0 0 1.1rem; }
+  .previa-tabela { max-height:420px; overflow:auto; border:1px solid #f1f5f9; border-radius:4px; }
+  .mono { font-family: ui-monospace, monospace; font-size:.8rem; }
+  #msg { font-size:.88rem; color:#475569; }
+</style>
+
+<h1>Schema v{{ registro.versao }} <span class="tag {{ registro.status }}">{{ registro.get_status_display }}</span></h1>
+<p class="meta">
+  Tipo de página <strong>{{ registro.padrao.domain }}{{ registro.padrao.path_pattern }}</strong>
+  <span class="mono">({{ registro.padrao.structure_fingerprint }})</span> ·
+  amostra: {{ titulo_amostra|default:"captura" }} · gerado por {{ registro.provider }}:{{ registro.model_name }}
+  {% if registro.derivado_de_id %}· copiado da v{{ registro.derivado_de.versao }}{% endif %}
+  {% if registro.aprovado_em %}· aprovado por {{ registro.aprovado_por.username|default:"—" }} em {{ registro.aprovado_em|date:"d/m/Y H:i" }}{% endif %}
+</p>
+<p class="ajuda">
+  O schema diz o que um parser vai extrair de <strong>toda</strong> página deste tipo, sem LLM. Revise os nomes, o tipo,
+  o que é obrigatório e os exemplos (é pelo exemplo que o parser acha onde cada campo está). “Pré-visualizar” mostra o
+  que sairia da amostra com o que está na tela, sem salvar. Só se aprova o que valida na amostra.
+</p>
+{% if versoes|length > 1 %}
+<p class="meta">Versões:
+  {% for v in versoes %}{% if v.pk == registro.pk %}<strong>v{{ v.versao }}</strong>{% else %}<a href="{% url 'artifacts:schema_revisar' v.pk %}">v{{ v.versao }}</a>{% endif %} <span class="sem-dado">({{ v.get_status_display }})</span>{% if not forloop.last %} · {% endif %}{% endfor %}
+</p>
+{% endif %}
+
+<div class="barra">
+  <button class="btn" onclick="preVisualizar()">Pré-visualizar</button>
+  {% if editavel %}
+  <button class="btn" onclick="salvar()">Salvar</button>
+  {% if pode_aprovar %}<button class="btn btn-primary" onclick="aprovar()">Salvar e aprovar</button>{% endif %}
+  {% else %}
+  <button class="btn" onclick="novaVersao()">Nova versão a partir desta</button>
+  {% endif %}
+  <span id="msg"></span>
+</div>
+
+<div id="avisos"></div>
+
+<div class="colunas">
+  <div>
+    <div class="bloco">
+      <h2>Descrição</h2>
+      <input type="text" id="descricao" maxlength="500">
+    </div>
+    <div class="bloco">
+      <h2>Campos únicos <button class="mini" data-so-edicao onclick="addCampo()">+ campo</button></h2>
+      <p class="ajuda">Valores que aparecem uma vez (vencimento, total). Campo sem exemplo fica declarado, mas o parser ainda não sabe onde buscá-lo.</p>
+      <div id="campos"></div>
+    </div>
+    <div class="bloco">
+      <h2>Listas <button class="mini" data-so-edicao onclick="addLista()">+ lista</button></h2>
+      <p class="ajuda">Dados que se repetem. “Seções”: a lista é dividida por linhas-título (Restaurantes, Supermercados) e cada item ganha a sua.</p>
+      <div id="listas"></div>
+    </div>
+    <div class="bloco">
+      <h2>Conferências <button class="mini" data-so-edicao onclick="addInvariante()">+ conferência</button></h2>
+      <p class="ajuda">Soma de uma coluna da lista, mais campos únicos opcionais, igual a um campo (ex.: saldo anterior + lançamentos = total da fatura). É o que pega um parser que deixou de funcionar.</p>
+      <div id="invariantes"></div>
+    </div>
+  </div>
+  <div class="bloco" id="previa-bloco">
+    <h2>Prévia na amostra</h2>
+    <div id="previa"><p class="sem-dado">Clique em “Pré-visualizar”.</p></div>
+  </div>
+</div>
+
+{{ schema_inicial|json_script:"schema-inicial" }}
+{{ tipos|json_script:"tipos" }}
+{{ registro.avisos|json_script:"avisos-iniciais" }}
+
+<script>
+  const SCHEMA_ID = "{{ registro.pk }}";
+  const EDITAVEL = {{ editavel|yesno:"true,false" }};
+  const TIPOS = JSON.parse(document.getElementById('tipos').textContent);
+  const CSRF = "{{ csrf_token }}";
+  let estado = JSON.parse(document.getElementById('schema-inicial').textContent);
+  estado.campos = estado.campos || []; estado.listas = estado.listas || []; estado.invariantes = estado.invariantes || [];
+
+  function el(tag, props = {}, ...filhos) {
+    const e = document.createElement(tag);
+    for (const [k, v] of Object.entries(props)) {
+      if (k === 'on') for (const [ev, fn] of Object.entries(v)) e.addEventListener(ev, fn);
+      else if (k in e) e[k] = v; else e.setAttribute(k, v);
+    }
+    filhos.flat().forEach(f => e.append(f instanceof Node ? f : document.createTextNode(f ?? '')));
+    return e;
+  }
+  function mover(arr, i, d) { const j = i + d; if (j < 0 || j >= arr.length) return; [arr[i], arr[j]] = [arr[j], arr[i]]; render(); }
+  function novoCampo() { return {nome: '', tipo: 'texto', descricao: '', obrigatorio: false, exemplo: ''}; }
+
+  // Renomear um campo leva junto as conferências que o citam.
+  function renomear(antigo, novo, lista) {
+    estado.invariantes.forEach(inv => {
+      if (lista === undefined) {
+        if (inv.igual_a === antigo) inv.igual_a = novo;
+        inv.mais = (inv.mais || []).map(m => m === antigo ? novo : m);
+      } else if (lista === null) {
+        if (inv.lista === antigo) inv.lista = novo;
+      } else if (inv.lista === lista && inv.campo === antigo) inv.campo = novo;
+    });
+  }
+
+  function tabelaCampos(arr, nomeLista) {
+    if (!arr.length) return el('p', {className: 'sem-dado'}, 'Nenhum.');
+    const t = el('table', {className: 't'},
+      el('tr', {}, el('th', {}, 'Nome'), el('th', {}, 'Tipo'), el('th', {title: 'Obrigatório'}, 'Obr.'),
+         el('th', {}, 'Exemplo (da amostra)'), el('th', {}, 'Descrição'), el('th', {})));
+    arr.forEach((c, i) => {
+      const tipo = el('select', {disabled: !EDITAVEL, on: {change: e => { c.tipo = e.target.value; }}},
+        TIPOS.map(tp => el('option', {value: tp, selected: tp === c.tipo}, tp)));
+      t.append(el('tr', {},
+        el('td', {}, el('input', {type: 'text', value: c.nome, disabled: !EDITAVEL, on: {
+          change: e => { const antigo = c.nome; c.nome = e.target.value; renomear(antigo, c.nome, nomeLista); renderInvariantes(); }}})),
+        el('td', {}, tipo),
+        el('td', {className: 'ck'}, el('input', {type: 'checkbox', checked: !!c.obrigatorio, disabled: !EDITAVEL,
+          on: {change: e => { c.obrigatorio = e.target.checked; }}})),
+        el('td', {}, el('input', {type: 'text', value: c.exemplo ?? '', disabled: !EDITAVEL,
+          on: {input: e => { c.exemplo = e.target.value; }}})),
+        el('td', {}, el('input', {type: 'text', value: c.descricao ?? '', disabled: !EDITAVEL,
+          on: {input: e => { c.descricao = e.target.value; }}})),
+        el('td', {className: 'ops'}, EDITAVEL ? [
+          el('button', {title: 'Subir', on: {click: () => mover(arr, i, -1)}}, '↑'),
+          el('button', {title: 'Descer', on: {click: () => mover(arr, i, 1)}}, '↓'),
+          el('button', {title: 'Remover', on: {click: () => { arr.splice(i, 1); render(); }}}, '✕'),
+        ] : [])));
+    });
+    return t;
+  }
+
+  function renderCampos() {
+    const box = document.getElementById('campos');
+    box.replaceChildren(tabelaCampos(estado.campos));
+  }
+
+  function renderListas() {
+    const box = document.getElementById('listas');
+    box.replaceChildren();
+    if (!estado.listas.length) { box.append(el('p', {className: 'sem-dado'}, 'Nenhuma.')); return; }
+    estado.listas.forEach((l, i) => {
+      l.campos = l.campos || [];
+      box.append(el('div', {className: 'lista'},
+        el('div', {className: 'lista-cab'},
+          el('input', {type: 'text', value: l.nome, placeholder: 'nome da lista', disabled: !EDITAVEL, on: {
+            change: e => { const antigo = l.nome; l.nome = e.target.value; renomear(antigo, l.nome, null); renderInvariantes(); }}}),
+          el('label', {}, el('input', {type: 'checkbox', checked: !!l.secoes, disabled: !EDITAVEL,
+            on: {change: e => { l.secoes = e.target.checked; }}}), 'seções'),
+          el('input', {type: 'text', value: l.descricao ?? '', placeholder: 'descrição', disabled: !EDITAVEL,
+            on: {input: e => { l.descricao = e.target.value; }}}),
+          EDITAVEL ? [
+            el('button', {className: 'mini', on: {click: () => { l.campos.push(novoCampo()); render(); }}}, '+ coluna'),
+            el('button', {className: 'mini', on: {click: () => { estado.listas.splice(i, 1); render(); }}}, 'remover lista'),
+          ] : []),
+        tabelaCampos(l.campos, l.nome)));
+    });
+  }
+
+  function renderInvariantes() {
+    const box = document.getElementById('invariantes');
+    box.replaceChildren();
+    if (!estado.invariantes.length) { box.append(el('p', {className: 'sem-dado'}, 'Nenhuma.')); return; }
+    const nomesCampos = estado.campos.map(c => c.nome);
+    const t = el('table', {className: 't'},
+      el('tr', {}, el('th', {}, 'Soma de'), el('th', {}, 'Mais'), el('th', {}, 'Igual a'), el('th', {}, 'Descrição'), el('th', {})));
+    estado.invariantes.forEach((inv, i) => {
+      inv.mais = inv.mais || [];
+      const colunas = estado.listas.flatMap(l => l.campos.map(c => `${l.nome}.${c.nome}`));
+      const atual = `${inv.lista}.${inv.campo}`;
+      const soma = el('select', {disabled: !EDITAVEL, on: {change: e => { [inv.lista, inv.campo] = e.target.value.split('.'); }}},
+        colunas.includes(atual) ? [] : el('option', {value: atual, selected: true}, `${atual} (não existe)`),
+        colunas.map(c => el('option', {value: c, selected: c === atual}, c)));
+      const mais = el('select', {multiple: true, size: Math.min(4, Math.max(2, nomesCampos.length)), disabled: !EDITAVEL,
+        on: {change: e => { inv.mais = [...e.target.selectedOptions].map(o => o.value); }}},
+        nomesCampos.map(n => el('option', {value: n, selected: inv.mais.includes(n)}, n)));
+      const igual = el('select', {disabled: !EDITAVEL, on: {change: e => { inv.igual_a = e.target.value; }}},
+        nomesCampos.includes(inv.igual_a) ? [] : el('option', {value: inv.igual_a ?? '', selected: true}, `${inv.igual_a ?? '—'} (não existe)`),
+        nomesCampos.map(n => el('option', {value: n, selected: n === inv.igual_a}, n)));
+      t.append(el('tr', {},
+        el('td', {}, soma), el('td', {}, mais), el('td', {}, igual),
+        el('td', {}, el('input', {type: 'text', value: inv.descricao ?? '', disabled: !EDITAVEL,
+          on: {input: e => { inv.descricao = e.target.value; }}})),
+        el('td', {className: 'ops'}, EDITAVEL ? el('button', {title: 'Remover', on: {click: () => { estado.invariantes.splice(i, 1); render(); }}}, '✕') : [])));
+    });
+    box.append(t);
+  }
+
+  function render() {
+    const desc = document.getElementById('descricao');
+    desc.value = estado.descricao ?? ''; desc.disabled = !EDITAVEL;
+    desc.oninput = e => { estado.descricao = e.target.value; };
+    renderCampos(); renderListas(); renderInvariantes();
+    document.querySelectorAll('[data-so-edicao]').forEach(b => { b.style.display = EDITAVEL ? '' : 'none'; });
+  }
+  function addCampo() { estado.campos.push(novoCampo()); render(); }
+  function addLista() { estado.listas.push({nome: '', descricao: '', secoes: false, estrutura: null, campos: [novoCampo()]}); render(); }
+  function addInvariante() {
+    const l = estado.listas[0], c = l && l.campos.find(x => x.tipo === 'valor') || (l && l.campos[0]);
+    estado.invariantes.push({tipo: 'soma', lista: l ? l.nome : '', campo: c ? c.nome : '', mais: [],
+                             igual_a: estado.campos[0] ? estado.campos[0].nome : '', descricao: ''});
+    render();
+  }
+
+  function mostrarAvisos(avisos) {
+    const box = document.getElementById('avisos');
+    box.replaceChildren();
+    if (avisos && avisos.length) box.append(el('div', {className: 'aviso'}, 'Avisos:', el('ul', {}, avisos.map(a => el('li', {}, a)))));
+  }
+
+  function msg(texto) { document.getElementById('msg').textContent = texto; }
+
+  async function post(url, corpo) {
+    const r = await fetch(url, {method: 'POST', headers: {'Content-Type': 'application/json', 'X-CSRFToken': CSRF},
+                                body: corpo ? JSON.stringify(corpo) : null});
+    let data = {};
+    try { data = await r.json(); } catch (e) {}
+    return {ok: r.ok, data};
+  }
+
+  function renderPrevia(p) {
+    const box = document.getElementById('previa');
+    box.replaceChildren();
+    const r = p.resultado, v = r.validacao;
+    box.append(v.ok ? el('div', {className: 'ok'}, 'Valida na amostra: nenhum problema.')
+                    : el('div', {className: 'nao'}, 'Não valida:', el('ul', {}, v.problemas.map(x => el('li', {}, x)))));
+    r.invariantes.forEach(inv => box.append(el('div', {className: inv.ok ? 'ok' : 'nao'},
+      `${inv.ok ? '✓' : '✗'} ${inv.descricao}: esperado ${inv.esperado ?? '—'}, obtido ${inv.obtido}`)));
+
+    box.append(el('h3', {style: 'font-size:.95rem;margin:.8rem 0 .3rem'}, 'Campos únicos'));
+    const tc = el('table', {className: 't'}, el('tr', {}, el('th', {}, 'Campo'), el('th', {}, 'Valor'), el('th', {}, 'Achado por')));
+    Object.entries(r.campos).forEach(([nome, valor]) => {
+      const loc = p.localizados[nome];
+      tc.append(el('tr', {}, el('td', {}, nome), el('td', {}, valor || '—'),
+        el('td', {className: 'sem-dado'}, loc ? `${loc.strategy}${loc.label ? ` “${loc.label}”` : ''}` : 'não localizado')));
+    });
+    box.append(tc);
+
+    Object.entries(r.listas).forEach(([nome, l]) => {
+      box.append(el('h3', {style: 'font-size:.95rem;margin:.9rem 0 .3rem'},
+        `${nome}: ${l.total_itens} itens · ${l.secoes.length} seções · ${l.informativas} linhas informativas · ${l.especiais.length} especiais`));
+      if (l.secoes.length) box.append(el('p', {className: 'ajuda'}, 'Seções: ' + l.secoes.join(' · ')));
+      if (l.especiais.length) box.append(el('p', {className: 'ajuda'}, 'Especiais (fora dos itens): ' +
+        l.especiais.map(e => Object.values(e).filter(Boolean).join(' ')).join(' · ')));
+      if (!l.itens.length) return;
+      const cols = Object.keys(l.itens[0]);
+      const t = el('table', {className: 't'}, el('tr', {}, cols.map(c => el('th', {}, c))));
+      l.itens.forEach(it => t.append(el('tr', {}, cols.map(c => el('td', {}, it[c] ?? '')))));
+      box.append(el('div', {className: 'previa-tabela'}, t));
+      if (l.total_itens > l.itens.length) box.append(el('p', {className: 'sem-dado'}, `mostrando ${l.itens.length} de ${l.total_itens}`));
+    });
+  }
+
+  async function preVisualizar() {
+    msg('Montando o parser na amostra…');
+    const {ok, data} = await post(`/artifacts/schemas/${SCHEMA_ID}/previa/`, {schema: estado});
+    if (!ok) { msg(data.error || 'falhou'); return; }
+    msg('');
+    mostrarAvisos(data.avisos);
+    renderPrevia(data);
+  }
+
+  async function salvar(silencioso) {
+    msg('Salvando…');
+    const {ok, data} = await post(`/artifacts/schemas/${SCHEMA_ID}/salvar/`, {schema: estado});
+    if (!ok) { msg(data.error || 'falhou ao salvar'); return false; }
+    estado = data.schema; render(); mostrarAvisos(data.avisos);
+    if (!silencioso) msg('Salvo.');
+    return true;
+  }
+
+  async function aprovar() {
+    if (!(await salvar(true))) return;
+    msg('Validando na amostra…');
+    const {ok, data} = await post(`/artifacts/schemas/${SCHEMA_ID}/aprovar/`);
+    if (!ok) {
+      msg(data.error || 'falhou');
+      if (data.problemas) mostrarAvisos(data.problemas);
+      return;
+    }
+    location.reload();
+  }
+
+  async function novaVersao() {
+    const {ok, data} = await post(`/artifacts/schemas/${SCHEMA_ID}/nova-versao/`);
+    if (ok) location.href = data.url; else msg(data.error || 'falhou');
+  }
+
+  mostrarAvisos(JSON.parse(document.getElementById('avisos-iniciais').textContent));
+  render();
+</script>
+{% endblock %}

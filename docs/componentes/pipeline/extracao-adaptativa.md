@@ -292,11 +292,23 @@ são extraídas por um parser determinístico, sem chamar LLM. Chave do tipo: a 
    invariante só se aponta para campos existentes) e o que descarta vira aviso. Cada pedido
    é uma versão nova (`rascunho`), nada é sobrescrito; o nível de classificação é o da amostra,
    porque os exemplos são dados dela; LLM externo segue `permite_llm_externo`.
-2. **Revisão** — tela para renomear, reordenar, remover e marcar seção/invariante. A fazer.
-3. **Parser** — listas ligadas aos registros verificados do `dom2parser`; campos únicos
-   por `dom2parser.parser.scalars` (locator ancorado no rótulo, sintetizado do exemplo). A fazer.
-4. **Execução com validação** a cada captura (obrigatórios, tipos, invariantes); falha avisa
-   e oferece o LLM, nunca congela em silêncio. A fazer.
+2. **Revisão (feito)** — `/artifacts/schemas/<id>/` (`views_schema.py`,
+   `templates/artifacts/schema_revisao.html`): renomear (as conferências acompanham),
+   reordenar, remover e acrescentar campos e colunas, marcar seções, editar conferências e
+   **pré-visualizar** na amostra o que o parser extrai com o schema da tela, sem salvar. Só
+   rascunho se edita; aprovado é fixo e "Nova versão a partir desta" copia para um rascunho.
+   **Aprovar** é de dono/administrador e só acontece se a amostra **valida**; grava o parser e
+   o aprovado anterior do mesmo tipo vira `substituido` (no máximo um aprovado por tipo).
+3. **Parser (feito)** — `extractors/parser_pagina.py`. `montar_parser`: campos únicos por
+   `dom2parser.parser.scalars` (locator ancorado no rótulo, sintetizado do exemplo; valor que
+   também está numa linha de lista vem de fora dela); listas ligadas ao registro verificado do
+   `dom2parser` pelas **colunas e exemplos**, não pelo nome; lista com seções ganha a captura da
+   classe da célula de rótulo (título de seção e linha informativa só diferem pela marcação).
+   `executar` extrai e valida: obrigatório vazio, coluna sem ligação, lista vazia e conferência
+   que não fecha são problemas (`ok: False` com o motivo). Na fatura BB: 4 campos, 134 itens,
+   11 seções, conferência fechando.
+4. **Execução com validação** a cada captura; falha avisa e oferece o LLM, nunca congela em
+   silêncio. A fazer.
 
 **Por que não repete o erro de `c6d8d1c`** (o reuso de schema removido em 2026-09-17): lá o
 schema era *inferido* dos valores presentes na primeira captura, então um campo vazio nela

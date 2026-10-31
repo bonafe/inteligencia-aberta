@@ -20,12 +20,13 @@ import re
 import unicodedata
 from dataclasses import dataclass
 from datetime import date, timedelta
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 from urllib.parse import urlsplit
 
 from django.db import transaction
 
 from apps.artifacts.alegacoes import LITERAL_MAXIMO, EvidenciaEntrada, registrar_alegacao, retratar, truncar_trecho
+from apps.artifacts.extractors.valores import parse_valor
 from apps.artifacts.models import Claim, EstruturacaoLLM
 from config.conteudo_hash import formato_valido as hash_valido
 
@@ -128,25 +129,6 @@ def extrair_linhas(structured_data) -> tuple[list[Linha], str]:
 
     visitar(structured_data, "")
     return linhas, periodo
-
-
-def parse_valor(texto: str) -> Decimal | None:
-    """"R$ -9.964,56" → Decimal("-9964.56"). Aceita sinal antes, depois ou entre parênteses."""
-    if not texto:
-        return None
-    negativo = "-" in texto or "−" in texto or ("(" in texto and ")" in texto)
-    numero = re.sub(r"[^\d.,]", "", texto)
-    if not re.search(r"\d", numero):
-        return None
-    if "," in numero:
-        numero = numero.replace(".", "").replace(",", ".")
-    elif numero.count(".") > 1 or re.search(r"\.\d{3}$", numero):
-        numero = numero.replace(".", "")
-    try:
-        valor = Decimal(numero).quantize(Decimal("0.01"))
-    except InvalidOperation:
-        return None
-    return -valor if negativo else valor
 
 
 def data_referencia(periodo: str) -> date | None:

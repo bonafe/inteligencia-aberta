@@ -409,6 +409,8 @@
         .llm-badge-falhou { background: #3d1212; color: var(--json-null); }
         .llm-badge-cancelado { background: #2a2a2a; color: var(--text-muted); }
         .llm-badge-rascunho { background: #3d2f12; color: #ffb86b; }
+        .llm-badge-aprovado { background: #123d1e; color: var(--json-string); }
+        .llm-badge-substituido { background: #2a2a2a; color: var(--text-muted); }
         .llm-card-body { margin-top: 0.6rem; }
         .llm-card-error { color: var(--json-null); font-size: 0.8rem; margin-top: 0.4rem; }
         .llm-elapsed { font-size: 0.78rem; color: var(--text-muted); }
@@ -1124,6 +1126,15 @@
             card.innerHTML = header;
             const erro = card.querySelector('.llm-card-error');
             if (erro) erro.textContent = s.error_message;
+            if (s.schema) {
+                const revisar = document.createElement('a');
+                revisar.href = s.url;
+                revisar.target = '_blank';
+                revisar.textContent = s.status === 'rascunho' || s.status === 'vazio' ? 'Revisar e aprovar →' : 'Abrir →';
+                revisar.style.display = 'inline-block';
+                revisar.style.marginTop = '.4rem';
+                card.appendChild(revisar);
+            }
             if (s.avisos && s.avisos.length) {
                 const avisos = document.createElement('div');
                 avisos.className = 'llm-card-meta';

@@ -343,9 +343,14 @@ class SchemaPagina(models.Model):
         PENDENTE = "pendente", "Pendente"
         EXECUTANDO = "executando", "Executando"
         RASCUNHO = "rascunho", "Rascunho (a revisar)"
+        APROVADO = "aprovado", "Aprovado"
+        SUBSTITUIDO = "substituido", "Substituído"
         VAZIO = "vazio", "Vazio"
         FALHOU = "falhou", "Falhou"
         CANCELADO = "cancelado", "Cancelado"
+
+    #: Só um rascunho (ou um vazio, que a pessoa pode completar) se edita; o aprovado é fixo.
+    EDITAVEIS = (Status.RASCUNHO, Status.VAZIO)
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     tenant = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="schemas_pagina")
@@ -357,6 +362,14 @@ class SchemaPagina(models.Model):
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDENTE)
     schema = models.JSONField(null=True, blank=True)
     avisos = models.JSONField(default=list, blank=True)
+    #: O parser montado na aprovação (`extractors/parser_pagina.py`): dado, nunca código.
+    parser = models.JSONField(null=True, blank=True)
+    #: A versão de que esta foi copiada para edição ("Nova versão a partir desta").
+    derivado_de = models.ForeignKey("self", null=True, blank=True, on_delete=models.SET_NULL, related_name="derivados")
+    aprovado_por = models.ForeignKey(
+        User, null=True, blank=True, on_delete=models.SET_NULL, related_name="schemas_pagina_aprovados",
+    )
+    aprovado_em = models.DateTimeField(null=True, blank=True)
     classification_level = models.CharField(max_length=20, choices=Artifact.ClassificationLevel.choices)
     provider = models.CharField(max_length=20, choices=Provider.choices)
     model_name = models.CharField(max_length=255)
@@ -373,7 +386,11 @@ class SchemaPagina(models.Model):
 
     class Meta:
         db_table = "artifacts_schema_pagina"
-        constraints = [models.UniqueConstraint(fields=["padrao", "versao"], name="uniq_schema_padrao_versao")]
+        constraints = [
+            models.UniqueConstraint(fields=["padrao", "versao"], name="uniq_schema_padrao_versao"),
+            # Um tipo de página tem no máximo um schema valendo.
+            models.UniqueConstraint(fields=["padrao"], condition=Q(status="aprovado"), name="uniq_schema_aprovado_por_padrao"),
+        ]
         indexes = [Index(fields=["padrao", "-versao"])]
 
     def __str__(self):

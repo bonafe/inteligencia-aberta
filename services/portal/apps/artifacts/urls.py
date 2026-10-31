@@ -21,6 +21,11 @@ urlpatterns = [
         "<uuid:artifact_id>/schemas-pagina/<uuid:schema_id>/cancelar/",
         views_schema.SchemaCancelarView.as_view(), name="schema_cancelar",
     ),
+    path("schemas/<uuid:schema_id>/", views_schema.RevisarSchemaView.as_view(), name="schema_revisar"),
+    path("schemas/<uuid:schema_id>/previa/", views_schema.PreviaSchemaView.as_view(), name="schema_previa"),
+    path("schemas/<uuid:schema_id>/salvar/", views_schema.SalvarSchemaView.as_view(), name="schema_salvar"),
+    path("schemas/<uuid:schema_id>/aprovar/", views_schema.AprovarSchemaView.as_view(), name="schema_aprovar"),
+    path("schemas/<uuid:schema_id>/nova-versao/", views_schema.NovaVersaoSchemaView.as_view(), name="schema_nova_versao"),
     path("<uuid:artifact_id>/comparar/", views.CompararView.as_view(), name="comparar"),
     path("<uuid:artifact_id>/comparacoes/", views.ComparacoesListView.as_view(), name="comparacoes_list"),
     path(
