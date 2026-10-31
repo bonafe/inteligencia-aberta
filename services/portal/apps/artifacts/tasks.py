@@ -886,6 +886,106 @@ def estruturar_llm_manual(self, estruturacao_id: str, maquina_id: str | None = N
 
 
 @shared_task(bind=True, max_retries=1)
+def gerar_schema_pagina(self, schema_id: str, maquina_id: str | None = None):
+    """Executa um SchemaPagina(status=pendente): o LLM declara o schema do tipo de página a
+    partir da amostra (HTML enxuto + estruturas verificadas do dom2parser) e o resultado vira
+    `rascunho`, a revisar. Mesmas regras de `estruturar_llm_manual`: sem retry, falha gravada
+    na hora, interrupção só manual, e nunca LLM externo para amostra restrita/confidencial.
+    """
+    import dom2parser
+
+    from .extractors.html_enxuto import enxugar
+    from .extractors.schema_pagina import gerar_schema, resumo_estruturas, schema_vazio
+    from .models import SchemaPagina
+    from .policy import permite_llm_externo
+
+    try:
+        registro = SchemaPagina.objects.select_related("amostra").get(id=schema_id)
+    except SchemaPagina.DoesNotExist:
+        logger.warning("[%s] SchemaPagina não encontrado", schema_id)
+        return {"status": "error", "reason": "não encontrado"}
+
+    artifact = registro.amostra
+    if artifact is not None:
+        set_correlation_id(correlacao_do_artefato(artifact.id))
+    set_tenant_id(registro.tenant_id)
+
+    def evento(stage, status, **kw):
+        kw.setdefault("subject_type", "artifact")
+        kw.setdefault("subject_id", artifact.id if artifact else None)
+        kw.setdefault("tenant_id", registro.tenant_id)
+        payload = kw.setdefault("payload", {})
+        payload.update(provider=registro.provider, model_name=registro.model_name,
+                       schema_id=str(registro.id), versao=registro.versao)
+        return emit(stage, status, **kw)
+
+    CANCELADO = SchemaPagina.Status.CANCELADO
+
+    def falhar(msg, **campos):
+        if _gravar_se_nao_cancelado(SchemaPagina, registro.id, CANCELADO, status=SchemaPagina.Status.FALHOU,
+                                    error_message=msg, updated_at=timezone.now(), **campos):
+            evento("schema_pagina.falhou", "falhou", message=msg, duration_ms=campos.get("duration_ms"))
+        return {"status": "error", "reason": msg}
+
+    if artifact is None:
+        return falhar("a captura de amostra não existe mais")
+    if registro.provider == SchemaPagina.Provider.ANTHROPIC and not permite_llm_externo(artifact.classification_level):
+        msg = f"LLM externo não permitido para classificação '{artifact.classification_level}'"
+        _gravar_se_nao_cancelado(SchemaPagina, registro.id, CANCELADO, status=SchemaPagina.Status.FALHOU,
+                                 error_message=msg, updated_at=timezone.now())
+        evento("schema_pagina.bloqueado", "ignorado", message=msg)
+        return {"status": "blocked"}
+
+    if not _gravar_se_nao_cancelado(SchemaPagina, registro.id, CANCELADO, status=SchemaPagina.Status.EXECUTANDO,
+                                    started_at=timezone.now(), updated_at=timezone.now()):
+        return {"status": "cancelled"}
+    evento("schema_pagina.iniciado", "iniciado",
+           message=f"geração de schema iniciada — {registro.provider}:{registro.model_name}")
+
+    content = artifact.content or {}
+    try:
+        html, _ = _html_do_mhtml(_ler_mhtml(content.get("mhtml_bucket", "inteligencia-aberta-mhtml"),
+                                            content.get("mhtml_path", "")))
+    except Exception as exc:
+        return falhar(f"MHTML da amostra indisponível: {exc}")
+    if not html:
+        return falhar("a amostra não tem HTML")
+
+    doc_text = getattr(artifact, "extracted_text", None)
+    t0 = perf_counter()
+    try:
+        estruturas = resumo_estruturas(dom2parser.compress(html).parser, html)
+        resultado = gerar_schema(
+            registro.provider, registro.model_name, enxugar(html), estruturas,
+            (doc_text.source_url if doc_text else "") or content.get("url", ""),
+            titulo=doc_text.title if doc_text else "", subject_id=artifact.id, tenant_id=registro.tenant_id,
+            maquina_id=maquina_id,
+        )
+    except Exception as exc:
+        return falhar(str(exc), duration_ms=int((perf_counter() - t0) * 1000))
+
+    duration_ms = int((perf_counter() - t0) * 1000)
+    schema, avisos = resultado["schema"], resultado["avisos"]
+    vazio = schema_vazio(schema)
+    gravou = _gravar_se_nao_cancelado(
+        SchemaPagina, registro.id, CANCELADO,
+        status=SchemaPagina.Status.VAZIO if vazio else SchemaPagina.Status.RASCUNHO,
+        schema=schema, avisos=avisos, duration_ms=duration_ms, maquina_id=resultado.get("maquina_id"),
+        updated_at=timezone.now(),
+    )
+    if gravou:
+        if vazio:
+            evento("schema_pagina.vazio", "vazio", message="o LLM respondeu sem campos nem listas",
+                   duration_ms=duration_ms, payload={"avisos": len(avisos)})
+        else:
+            evento("schema_pagina.gerado", "ok", message="schema gerado, aguardando revisão",
+                   duration_ms=duration_ms,
+                   payload={"campos": len(schema["campos"]), "listas": len(schema["listas"]),
+                            "invariantes": len(schema["invariantes"]), "avisos": len(avisos)})
+    return {"status": "done", "schema_id": str(registro.id)}
+
+
+@shared_task(bind=True, max_retries=1)
 def comparar_llm(self, comparacao_id: str, maquina_id: str | None = None):
     """Executa uma Comparacao(status=pendente): resolve as referências, monta o
     snapshot das seções e chama o LLM-juiz.

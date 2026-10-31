@@ -408,6 +408,7 @@
         .llm-badge-vazio { background: #2a2a2a; color: var(--text-muted); }
         .llm-badge-falhou { background: #3d1212; color: var(--json-null); }
         .llm-badge-cancelado { background: #2a2a2a; color: var(--text-muted); }
+        .llm-badge-rascunho { background: #3d2f12; color: #ffb86b; }
         .llm-card-body { margin-top: 0.6rem; }
         .llm-card-error { color: var(--json-null); font-size: 0.8rem; margin-top: 0.4rem; }
         .llm-elapsed { font-size: 0.78rem; color: var(--text-muted); }
@@ -643,8 +644,10 @@
                     <select id="llm-machine-select" onchange="atualizarModelSelect()" title="Máquina do cluster"></select>
                     <select id="llm-model-select"></select>
                     <button class="btn-primary" id="btn-estruturar" onclick="dispararEstruturacao()">Estruturar com LLM</button>
+                    <button class="btn-primary" id="btn-schema" onclick="dispararSchema()" title="Declara os campos deste tipo de página para um parser reutilizável">Gerar schema</button>
                     <span class="llm-status-msg" id="llm-status-msg"></span>
                 </div>
+                <div id="llm-schemas-list"></div>
                 <div id="llm-execucoes-list"></div>
             </div>
         </div>
@@ -708,6 +711,7 @@
         currentClassificationLevel = classificationLevel || '';
         limparSelecao();
         document.getElementById('llm-execucoes-list').innerHTML = '';
+        document.getElementById('llm-schemas-list').innerHTML = '';
         document.getElementById('comparacao-atual').innerHTML = '';
         document.getElementById('comparacao-historico').innerHTML = '';
         setTabState('tab-llm', true);
@@ -779,7 +783,7 @@
         if (tab !== 'mhtml' && currentArtifactId && contentCache[currentArtifactId]) {
             renderContent(contentCache[currentArtifactId]);
         }
-        if (tab === 'llm' && currentArtifactId) carregarExecucoes();
+        if (tab === 'llm' && currentArtifactId) { carregarExecucoes(); carregarSchemas(); }
         if (tab === 'comparacao' && currentArtifactId) carregarComparacoes();
     }
 
@@ -1035,6 +1039,106 @@
         fetch(`/artifacts/${currentArtifactId}/estruturacoes/${id}/cancelar/`, {
             method: 'POST', headers: {'X-CSRFToken': CSRF_TOKEN},
         }).then(() => carregarExecucoes()).catch(() => {});
+    }
+
+    // ─── Schema do tipo de página (SchemaPagina) ────────────────────────────────
+    // O LLM declara os campos deste tipo de página uma vez; a revisão e o parser
+    // vêm depois. Cada geração é uma versão nova, de qualquer captura do mesmo tipo.
+    function dispararSchema() {
+        if (!currentArtifactId) return;
+        const provider = document.getElementById('llm-provider-select').value;
+        const modelName = document.getElementById('llm-model-select').value;
+        if (!modelName) return;
+        const btn = document.getElementById('btn-schema');
+        const msg = document.getElementById('llm-status-msg');
+        btn.disabled = true;
+        msg.textContent = 'Enfileirando…';
+        fetch(`/artifacts/${currentArtifactId}/schema-pagina/`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json', 'X-CSRFToken': CSRF_TOKEN},
+            body: JSON.stringify({provider, model_name: modelName, maquina: maquinaEscolhida('llm-provider-select', 'llm-machine-select')}),
+        })
+            .then(r => r.json().then(data => ({ok: r.ok, data})))
+            .then(({ok, data}) => {
+                msg.textContent = ok ? '' : (data.error || 'erro ao enfileirar');
+                if (ok) carregarSchemas();
+            })
+            .catch(() => { msg.textContent = 'erro de rede'; })
+            .finally(() => { btn.disabled = false; });
+    }
+
+    function carregarSchemas() {
+        if (!currentArtifactId) return;
+        const artifactId = currentArtifactId;
+        fetch(`/artifacts/${artifactId}/schemas-pagina/`)
+            .then(r => r.json())
+            .then(data => {
+                if (artifactId !== currentArtifactId || currentTab !== 'llm') return;
+                const schemas = data.schemas || [];
+                renderSchemasList(data.padrao, schemas);
+                if (schemas.some(s => EM_ANDAMENTO.has(s.status))) setTimeout(carregarSchemas, 3000);
+            })
+            .catch(() => {});
+    }
+
+    function cancelarSchema(id) {
+        if (!currentArtifactId) return;
+        fetch(`/artifacts/${currentArtifactId}/schemas-pagina/${id}/cancelar/`, {
+            method: 'POST', headers: {'X-CSRFToken': CSRF_TOKEN},
+        }).then(() => carregarSchemas()).catch(() => {});
+    }
+
+    function renderSchemasList(padrao, schemas) {
+        const container = document.getElementById('llm-schemas-list');
+        container.innerHTML = '';
+        if (!schemas.length) return;
+        const titulo = document.createElement('div');
+        titulo.className = 'metadata-muted';
+        titulo.style.margin = '.5rem 0';
+        titulo.textContent = `Schemas do tipo de página ${padrao.dominio}${padrao.caminho}`;
+        container.appendChild(titulo);
+        schemas.forEach(s => {
+            const card = document.createElement('div');
+            card.className = 'llm-card';
+            const duracao = s.duration_ms != null ? ` · ${formatarDuracao(s.duration_ms)}` : '';
+            const daqui = s.amostra === currentArtifactId ? '' : ' · amostra: outra captura';
+            let header = `
+                <div class="llm-card-header">
+                    <div>
+                        <span class="llm-card-title">Schema v${s.versao} · ${s.provider}:${s.model_name}</span>
+                        <span class="llm-card-meta"> · ${new Date(s.created_at).toLocaleString('pt-BR')}${duracao}${daqui}</span>
+                    </div>
+                    <span class="llm-badge llm-badge-${s.status}">${s.status}</span>
+                </div>`;
+            if (EM_ANDAMENTO.has(s.status)) {
+                const desde = s.status === 'executando' && s.started_at ? s.started_at : s.created_at;
+                const rotulo = s.status === 'executando' ? 'rodando há' : 'na fila há';
+                header += `<div style="display:flex;align-items:center;gap:.6rem;margin-top:.4rem">
+                    <span class="llm-elapsed">${rotulo} ${formatarElapsed(desde)}</span>
+                    <button class="btn-parar" onclick="cancelarSchema('${s.id}')">Parar</button>
+                </div>`;
+            }
+            if ((s.status === 'falhou' || s.status === 'cancelado') && s.error_message) {
+                header += `<div class="llm-card-error"></div>`;
+            }
+            card.innerHTML = header;
+            const erro = card.querySelector('.llm-card-error');
+            if (erro) erro.textContent = s.error_message;
+            if (s.avisos && s.avisos.length) {
+                const avisos = document.createElement('div');
+                avisos.className = 'llm-card-meta';
+                avisos.style.marginTop = '.4rem';
+                avisos.textContent = 'Avisos: ' + s.avisos.join(' · ');
+                card.appendChild(avisos);
+            }
+            if (s.schema && (s.status === 'rascunho' || s.status === 'vazio')) {
+                const body = document.createElement('div');
+                body.className = 'llm-card-body json-tree';
+                body.appendChild(renderJsonNode(s.schema));
+                card.appendChild(body);
+            }
+            container.appendChild(card);
+        });
     }
 
     // A estruturação escolhida vira alegações e lançamentos (apps/financeiro); outra

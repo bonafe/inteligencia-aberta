@@ -1,5 +1,5 @@
 from django.urls import path
-from . import views
+from . import views, views_schema
 
 app_name = "artifacts"
 
@@ -14,6 +14,12 @@ urlpatterns = [
     path(
         "<uuid:artifact_id>/estruturacoes/<uuid:estruturacao_id>/cancelar/",
         views.EstruturacaoCancelarView.as_view(), name="estruturacao_cancelar",
+    ),
+    path("<uuid:artifact_id>/schema-pagina/", views_schema.GerarSchemaView.as_view(), name="gerar_schema"),
+    path("<uuid:artifact_id>/schemas-pagina/", views_schema.SchemasListView.as_view(), name="schemas_list"),
+    path(
+        "<uuid:artifact_id>/schemas-pagina/<uuid:schema_id>/cancelar/",
+        views_schema.SchemaCancelarView.as_view(), name="schema_cancelar",
     ),
     path("<uuid:artifact_id>/comparar/", views.CompararView.as_view(), name="comparar"),
     path("<uuid:artifact_id>/comparacoes/", views.ComparacoesListView.as_view(), name="comparacoes_list"),

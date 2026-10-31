@@ -276,6 +276,38 @@ O campo `hints` é opcional — o LLM o inclui quando consegue identificar selet
 
 ---
 
+## Parser por tipo de página (em construção, 2026-10-30)
+
+Objetivo: o LLM ajuda **uma vez por tipo de página** e as capturas seguintes do mesmo tipo
+são extraídas por um parser determinístico, sem chamar LLM. Chave do tipo: a do
+`URLPatternCache` (organização, domínio, padrão de path, impressão estrutural).
+
+1. **Schema (feito)** — `SchemaPagina` (`apps/artifacts/models.py`), gerado em
+   `extractors/schema_pagina.py` pela task `gerar_schema_pagina`, disparada por
+   "Gerar schema" na aba LLM do visualizador (`views_schema.py`). Entrada: HTML enxuto da
+   amostra + as estruturas repetidas verificadas do `dom2parser` com linhas reais. Saída
+   **declarada**: campos únicos (com exemplo copiado da amostra), listas (com `secoes` e a
+   estrutura correspondente) e invariantes de soma (`lista.campo` + `mais` = `igual_a`).
+   `normalizar_schema` é determinística (snake_case, nomes únicos, tipos conhecidos,
+   invariante só se aponta para campos existentes) e o que descarta vira aviso. Cada pedido
+   é uma versão nova (`rascunho`), nada é sobrescrito; o nível de classificação é o da amostra,
+   porque os exemplos são dados dela; LLM externo segue `permite_llm_externo`.
+2. **Revisão** — tela para renomear, reordenar, remover e marcar seção/invariante. A fazer.
+3. **Parser** — listas ligadas aos registros verificados do `dom2parser`; campos únicos
+   por `dom2parser.parser.scalars` (locator ancorado no rótulo, sintetizado do exemplo). A fazer.
+4. **Execução com validação** a cada captura (obrigatórios, tipos, invariantes); falha avisa
+   e oferece o LLM, nunca congela em silêncio. A fazer.
+
+**Por que não repete o erro de `c6d8d1c`** (o reuso de schema removido em 2026-09-17): lá o
+schema era *inferido* dos valores presentes na primeira captura, então um campo vazio nela
+sumia para sempre, e nenhuma captura seguinte era conferida. Aqui o schema é declarado e
+revisado por uma pessoa (campo sem valor na amostra continua no schema) e cada execução é
+validada contra invariantes que a própria página oferece. Medição na fatura BB
+(`manage.py medir_parser_pagina`): o parser verificado deu os mesmos 134 lançamentos da
+leitura do qwen2.5:7b e o total declarado fechou.
+
+---
+
 ## Estratégia C (histórico) — Extração por LLM, hoje manual
 
 Até 2026-09-17 esta estratégia rodava automaticamente na primeira captura de um

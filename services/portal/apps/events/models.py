@@ -249,6 +249,7 @@ class Finalidade(models.TextChoices):
     CLASSIFICACAO_AUTOMATICA = "classificacao_automatica", "Classificação automática (page_type)"
     EXTRACAO_AUTOMATICA = "extracao_automatica", "Extração automática (schema+dados)"
     ESTRUTURACAO_MANUAL = "estruturacao_manual", "Estruturação manual"
+    SCHEMA_PAGINA = "schema_pagina", "Schema de tipo de página"
     COMPARACAO_JUIZ = "comparacao_juiz", "Comparação (juiz)"
     GATEWAY_EXTERNO = "gateway_externo", "Gateway OpenAI-compatível"
     CHAT = "chat", "Chat do Ultima Agora"

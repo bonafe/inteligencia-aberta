@@ -325,6 +325,61 @@ class EstruturacaoLLM(models.Model):
         return f"{self.provider}:{self.model_name} — {self.status} ({self.document_text_id})"
 
 
+class SchemaPagina(models.Model):
+    """O schema declarado de um tipo de página (`URLPatternCache`): campos únicos, listas e
+    invariantes que um parser determinístico vai extrair de toda página desse tipo.
+
+    Gerado por LLM a partir de uma captura de amostra (`extractors/schema_pagina.py`) e
+    revisado por uma pessoa antes de valer. Cada geração é uma versão nova do mesmo tipo;
+    nada é sobrescrito. Os exemplos do schema são dados da amostra, por isso a linha leva o
+    nível de classificação dela.
+    """
+
+    class Provider(models.TextChoices):
+        ANTHROPIC = "anthropic", "Claude (externo)"
+        OLLAMA = "ollama", "Ollama (local)"
+
+    class Status(models.TextChoices):
+        PENDENTE = "pendente", "Pendente"
+        EXECUTANDO = "executando", "Executando"
+        RASCUNHO = "rascunho", "Rascunho (a revisar)"
+        VAZIO = "vazio", "Vazio"
+        FALHOU = "falhou", "Falhou"
+        CANCELADO = "cancelado", "Cancelado"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    tenant = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="schemas_pagina")
+    padrao = models.ForeignKey(URLPatternCache, on_delete=models.CASCADE, related_name="schemas")
+    amostra = models.ForeignKey(
+        Artifact, null=True, blank=True, on_delete=models.SET_NULL, related_name="schemas_pagina",
+    )
+    versao = models.PositiveIntegerField()
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDENTE)
+    schema = models.JSONField(null=True, blank=True)
+    avisos = models.JSONField(default=list, blank=True)
+    classification_level = models.CharField(max_length=20, choices=Artifact.ClassificationLevel.choices)
+    provider = models.CharField(max_length=20, choices=Provider.choices)
+    model_name = models.CharField(max_length=255)
+    maquina = models.ForeignKey(
+        "cluster.Maquina", null=True, blank=True, on_delete=models.SET_NULL, related_name="schemas_pagina",
+    )
+    error_message = models.TextField(blank=True)
+    triggered_by = models.ForeignKey(User, null=True, on_delete=models.SET_NULL, related_name="schemas_pagina")
+    celery_task_id = models.CharField(max_length=155, blank=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    duration_ms = models.IntegerField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "artifacts_schema_pagina"
+        constraints = [models.UniqueConstraint(fields=["padrao", "versao"], name="uniq_schema_padrao_versao")]
+        indexes = [Index(fields=["padrao", "-versao"])]
+
+    def __str__(self):
+        return f"schema v{self.versao} de {self.padrao_id} — {self.status}"
+
+
 class Comparacao(models.Model):
     """Comparação de 2+ seções de dado estruturado, julgada por um LLM.
 
