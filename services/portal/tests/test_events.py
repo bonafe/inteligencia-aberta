@@ -193,18 +193,32 @@ def test_falha_em_etapa_critica_marca_execucao_como_falhou(tenant):
 
 # ── Canal ao vivo ────────────────────────────────────────────────────────────
 
+def _comunicador(application):
+    """Cliente do /ws/eventos/ com Origin de um host aceito.
+
+    Sem Origin, o AllowedHostsOriginValidator só deixa passar com ALLOWED_HOSTS=["*"]
+    (dev): num container de produção a conexão seria recusada antes do consumer.
+    """
+    from channels.testing import WebsocketCommunicator
+    from django.conf import settings
+
+    host = next((h.lstrip(".") for h in settings.ALLOWED_HOSTS if h != "*"), "localhost")
+    return WebsocketCommunicator(
+        application, "/ws/eventos/", headers=[(b"origin", f"http://{host}".encode())]
+    )
+
 @pytest.mark.django_db(transaction=True)
 async def test_websocket_recusa_anonimo():
     """O painel é multi-tenant: ninguém entra sem sessão."""
-    from channels.testing import WebsocketCommunicator
     from django.contrib.auth.models import AnonymousUser
 
     from config.asgi import application
 
-    com = WebsocketCommunicator(application, "/ws/eventos/")
+    com = _comunicador(application)
     com.scope["user"] = AnonymousUser()
-    conectou, _ = await com.connect()
+    conectou, codigo = await com.connect()
     assert conectou is False
+    assert codigo == 4401  # recusado pelo consumer, não pelo validador de origem
     await com.disconnect()
 
 
@@ -212,7 +226,6 @@ async def test_websocket_recusa_anonimo():
 async def test_websocket_so_entrega_eventos_do_proprio_tenant():
     """Isolamento feito na assinatura dos grupos, não na apresentação."""
     from asgiref.sync import sync_to_async
-    from channels.testing import WebsocketCommunicator
 
     from apps.accounts.models import Membership
     from config.asgi import application
@@ -233,7 +246,7 @@ async def test_websocket_so_entrega_eventos_do_proprio_tenant():
 
     alice, org_a, org_b = await montar()
 
-    com = WebsocketCommunicator(application, "/ws/eventos/")
+    com = _comunicador(application)
     com.scope["user"] = alice
     conectou, _ = await com.connect()
     assert conectou is True
