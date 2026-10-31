@@ -20,6 +20,21 @@ fases: ADR 021 (movimentos de contas); a fase 1 está implementada.
   lida da descrição (`PARC 08/12`). **Gasto** = saídas de consumo (`Movimento.CONSUMO`), mostradas
   positivas; a soma de um mês por competência bate com o total das faturas daquele mês.
 
+## Compras parceladas (ADR 021, fase 2)
+
+- **`CompraParcelada`** (projeção, refeita por `agrupar_parceladas` a cada registro, reconstrução
+  ou junção de contas): parcelas de faturas diferentes se juntam por conta + descritor do
+  estabelecimento + data da compra + número de parcelas — **não pelo valor** (a primeira parcela
+  traz os centavos do arredondamento). Valor = soma das parcelas vistas; faltando alguma
+  (anterior à primeira fatura capturada), mais as que faltam pelo valor típico, com `estimado`.
+  Duas compras iguais no mesmo dia e lugar se separam pelo número repetido. Estorno de parcela
+  (ex.: desconto de anuidade) não vira compra.
+- **Visões** em `/gastos/`: **por competência** (padrão; cada parcela no mês da fatura que a
+  cobrou) e **por compra** (`?visao=compra`: a parcelada inteira, uma vez, na data da compra; o
+  resto pela data).
+- **Compromisso futuro**: as parcelas por vir depois da última fatura capturada de cada conta,
+  mês a mês. A que devia ter vindo numa fatura já capturada e não veio não conta.
+
 ## Fluxo
 
 ```

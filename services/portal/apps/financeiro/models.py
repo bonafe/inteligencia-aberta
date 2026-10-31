@@ -117,6 +117,47 @@ class Conta(models.Model):
         return self.nome
 
 
+class CompraParcelada(models.Model):
+    """Uma compra parcelada, montada das parcelas que as faturas cobraram (ADR 021, seção 3a).
+    Projeção dos `Movimento`, refeita por `lancamentos.agrupar_parceladas`; nunca editar à mão.
+
+    As parcelas de faturas diferentes se juntam por conta + descritor do estabelecimento + data da
+    compra + número de parcelas — **não pelo valor**: a primeira parcela costuma vir com centavos
+    de arredondamento (Vindi Catum: 01/12 = R$ 10,52, as outras R$ 10,43). `valor` é o gasto da
+    compra (positivo): a soma das parcelas vistas, ou, faltando alguma, essa soma mais as que
+    faltam pelo valor típico da parcela, com `estimado`.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    tenant = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="compras_parceladas")
+    conta = models.ForeignKey(Conta, null=True, blank=True, on_delete=models.CASCADE, related_name="compras_parceladas")
+    estabelecimento = models.ForeignKey(
+        Estabelecimento, null=True, blank=True, on_delete=models.SET_NULL, related_name="compras_parceladas",
+    )
+    descritor = models.CharField(max_length=300)
+    data = models.DateField()
+    parcelas = models.PositiveSmallIntegerField()
+    vistas = models.PositiveSmallIntegerField()
+    #: A maior parcela já cobrada e o mês dela: o que vem depois é compromisso futuro.
+    ultima_parcela = models.PositiveSmallIntegerField()
+    ultima_competencia = models.DateField(null=True, blank=True)
+    valor_parcela = models.DecimalField(max_digits=14, decimal_places=2)
+    valor = models.DecimalField(max_digits=14, decimal_places=2)
+    estimado = models.BooleanField(default=False)
+    classification_level = models.CharField(max_length=20, choices=Artifact.ClassificationLevel.choices)
+
+    class Meta:
+        db_table = "financeiro_compra_parcelada"
+        ordering = ["-data", "descritor"]
+
+    @property
+    def faltam(self) -> int:
+        return self.parcelas - self.ultima_parcela
+
+    def __str__(self):
+        return f"{self.descritor} {self.data} {self.parcelas}x"
+
+
 class Movimento(models.Model):
     """Um movimento de uma conta, projetado das alegações da leitura escolhida do documento.
     Nunca editar à mão: reconstruir (`reconstruir_lancamentos`).
@@ -169,6 +210,9 @@ class Movimento(models.Model):
     parcelas = models.PositiveSmallIntegerField(null=True, blank=True)
     estabelecimento = models.ForeignKey(
         Estabelecimento, null=True, blank=True, on_delete=models.SET_NULL, related_name="movimentos",
+    )
+    compra = models.ForeignKey(
+        CompraParcelada, null=True, blank=True, on_delete=models.SET_NULL, related_name="movimentos",
     )
     classification_level = models.CharField(max_length=20, choices=Artifact.ClassificationLevel.choices)
 

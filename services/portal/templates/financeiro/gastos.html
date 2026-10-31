@@ -51,9 +51,15 @@
     </select>
   </label>
   {% endif %}
+  <label>Visão
+    <select name="visao">
+      <option value="competencia" {% if visao != "compra" %}selected{% endif %}>por competência (mês da fatura)</option>
+      <option value="compra" {% if visao == "compra" %}selected{% endif %}>por compra (data da compra)</option>
+    </select>
+  </label>
   <button type="submit" class="btn btn-primary">Filtrar</button>
   <div style="margin-left:auto; text-align:right">
-    <div class="ajuda">Total no período</div>
+    <div class="ajuda">Total no período{% if visao == "compra" %} (por compra){% endif %}</div>
     <div class="total">R$ {{ total|floatformat:"2g" }}</div>
   </div>
 </form>
@@ -172,9 +178,46 @@
   </div>
 </div>
 
+{% if compras_total or compromisso %}
+<div class="colunas">
+  <div class="bloco">
+    <h2>Compras parceladas{% if titulo_lista %} — {{ titulo_lista }}{% endif %} <span class="sem-dado">· {{ compras_total }}</span></h2>
+    <p class="ajuda">Cada compra junta as parcelas que as faturas cobraram. O total é a soma das parcelas vistas; com parcela
+      ainda não vista (anterior à primeira fatura capturada), é estimado pelo valor típico.</p>
+    {% if compras %}
+    <table class="t">
+      <tr><th>Compra</th><th>Estabelecimento</th><th class="num">Parcelas</th><th class="num">Parcela</th><th class="num">Total</th></tr>
+      {% for c in compras %}
+      <tr>
+        <td>{{ c.data|date:"d/m/Y" }}</td>
+        <td>{{ c.estabelecimento.nome|default:c.descritor }}{% if conta_filtrada is None and contas|length > 1 %} <span class="sem-dado">· {{ c.conta.nome }}</span>{% endif %}</td>
+        <td class="num">{{ c.ultima_parcela }}/{{ c.parcelas }}{% if c.vistas != c.parcelas %} <span class="sem-dado">({{ c.vistas }} vistas)</span>{% endif %}</td>
+        <td class="num">{{ c.valor_parcela|floatformat:"2g" }}</td>
+        <td class="num">{{ c.valor|floatformat:"2g" }}{% if c.estimado %} <span class="tipo tarifa" title="falta parcela não capturada">estimado</span>{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </table>
+    {% if compras_total > compras|length %}<p class="sem-dado">mostrando as {{ compras|length }} mais recentes</p>{% endif %}
+    {% else %}<p class="sem-dado">Nenhuma.</p>{% endif %}
+  </div>
+  <div class="bloco">
+    <h2>Compromisso futuro</h2>
+    <p class="ajuda">Parcelas que ainda vão ser cobradas depois da última fatura capturada{% if conta_filtrada %} desta conta{% endif %}.</p>
+    {% if compromisso %}
+    <table class="t">
+      <tr><th>Mês</th><th class="num">Compras</th><th class="num">Valor</th></tr>
+      {% for m in compromisso %}
+      <tr><td>{{ m.mes|date:"m/Y" }}</td><td class="num">{{ m.compras }}</td><td class="num">{{ m.valor|floatformat:"2g" }}</td></tr>
+      {% endfor %}
+    </table>
+    {% else %}<p class="sem-dado">Nenhuma parcela por vir.</p>{% endif %}
+  </div>
+</div>
+{% endif %}
+
 {% if lista is not None %}
 <div class="bloco">
-  <h2>Movimentos — {{ titulo_lista }}</h2>
+  <h2>Movimentos — {{ titulo_lista }}{% if visao == "compra" %} <span class="sem-dado">(fora das parceladas, que estão acima)</span>{% endif %}</h2>
   <table class="t">
     <tr><th>Mês</th><th>Data</th><th>Descrição</th><th>Natureza</th><th>Conta</th><th>Documento</th><th class="num">Valor</th></tr>
     {% for l in lista %}

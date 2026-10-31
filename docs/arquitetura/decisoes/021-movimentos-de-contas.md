@@ -1,7 +1,7 @@
 # ADR 021 — Movimentos de contas: cartões, contas correntes e outros bancos
 
 **Status:** aceita — 2026-10-31 (o dono concordou com as propostas das questões em aberto).
-**Fase 1 implementada em 2026-10-31**; as demais são o plano.
+**Fases 1 e 2 implementadas em 2026-10-31**; as demais são o plano.
 
 ## Contexto
 

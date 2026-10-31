@@ -37,7 +37,8 @@ from apps.artifacts.models import Claim, EstruturacaoLLM, ExtracaoPagina
 from config.conteudo_hash import formato_valido as hash_valido
 
 from .models import (
-    CategoriaGasto, Conta, DescritorEstabelecimento, Estabelecimento, LeituraLancamentos, Movimento,
+    CategoriaGasto, CompraParcelada, Conta, DescritorEstabelecimento, Estabelecimento, LeituraLancamentos,
+    Movimento,
 )
 
 PRODUTOR = "estruturacao-llm"
@@ -405,6 +406,7 @@ def _registrar(document_text, linhas: list[Linha], contexto: dict, leitura: _Lei
                       "fonte_id": leitura.fonte_id},
         )
         projetar_artefato(artefato)
+        agrupar_parceladas(artefato.tenant_id)
 
     emit("financeiro.lancamentos", "ok",
          message=f"{resultado.lancamentos} lançamentos registrados ({leitura.rotulo})",
@@ -574,7 +576,94 @@ def reconstruir(tenant=None) -> int:
         movimentos.exclude(artefato_id__in=ids).delete()
         for artefato in Artifact.objects.filter(id__in=ids):
             total += projetar_artefato(artefato)
+        tenants = [tenant.pk] if tenant is not None else set(leituras.values_list("tenant_id", flat=True))
+        for tenant_id in tenants:
+            agrupar_parceladas(tenant_id)
     return total
+
+
+# ── compras parceladas (ADR 021, seção 3a) ──────────────────────────────────
+
+def _somar_meses(d: date, meses: int) -> date:
+    total = d.year * 12 + d.month - 1 + meses
+    return date(total // 12, total % 12 + 1, 1)
+
+
+def _montar_compra(tenant_id, conta_id, descritor, data, parcelas, parte) -> CompraParcelada:
+    from collections import Counter
+
+    gastos = {m.parcela: -m.valor for m in parte}
+    # Valor típico: o mais comum fora da primeira parcela, que costuma ter os centavos do arredondamento.
+    tipicos = [v for n, v in gastos.items() if n != 1] or list(gastos.values())
+    valor_parcela = Counter(tipicos).most_common(1)[0][0]
+    faltando = parcelas - len(gastos)
+    ultima = max(parte, key=lambda m: m.parcela)
+    return CompraParcelada(
+        tenant_id=tenant_id, conta_id=conta_id, descritor=descritor, data=data, parcelas=parcelas,
+        vistas=len(gastos), ultima_parcela=ultima.parcela, ultima_competencia=ultima.competencia,
+        estabelecimento_id=next((m.estabelecimento_id for m in parte if m.estabelecimento_id), None),
+        valor_parcela=valor_parcela, valor=sum(gastos.values(), Decimal(0)) + faltando * valor_parcela,
+        estimado=faltando > 0, classification_level=parte[0].classification_level,
+    )
+
+
+def agrupar_parceladas(tenant_id) -> int:
+    """Refaz as `CompraParcelada` da organização a partir das parcelas dos movimentos.
+
+    Mesma conta, mesmo descritor de estabelecimento, mesma data da compra e mesmo número de
+    parcelas são a mesma compra. Quando a mesma parcela aparece mais de uma vez no grupo (duas
+    compras iguais no mesmo dia e lugar), o grupo se divide: a i-ésima de cada número, pelo
+    valor, vai para a i-ésima compra. Devolve quantas compras.
+    """
+    from collections import defaultdict
+
+    with transaction.atomic():
+        CompraParcelada.objects.filter(tenant_id=tenant_id).delete()
+        grupos = defaultdict(list)
+        for m in (Movimento.objects.filter(tenant_id=tenant_id, parcelas__isnull=False, data__isnull=False,
+                                           valor__isnull=False,
+                                           natureza__in=(Movimento.Natureza.COMPRA, Movimento.Natureza.TARIFA))
+                  .order_by("valor", "id")):
+            grupos[(m.conta_id, normalizar_descritor(m.descricao), m.data, m.parcelas)].append(m)
+        criadas = 0
+        for (conta_id, descritor, data, parcelas), movimentos in grupos.items():
+            por_numero = defaultdict(list)
+            for m in movimentos:
+                por_numero[m.parcela].append(m)
+            for i in range(max(len(lista) for lista in por_numero.values())):
+                parte = [lista[i] for lista in por_numero.values() if i < len(lista)]
+                compra = _montar_compra(tenant_id, conta_id, descritor, data, parcelas, parte)
+                compra.save()
+                Movimento.objects.filter(pk__in=[m.pk for m in parte]).update(compra=compra)
+                criadas += 1
+    return criadas
+
+
+def compromisso_futuro(tenant_id, conta_id=None) -> list[dict]:
+    """As parcelas que ainda vão ser cobradas, mês a mês: [{"mes", "valor", "compras"}].
+
+    "Ainda" é depois da última fatura capturada de cada conta. Uma parcela que devia ter vindo
+    numa fatura já capturada e não veio não é compromisso (a compra acabou, ou houve estorno).
+    """
+    from collections import defaultdict
+
+    from django.db.models import Max
+
+    compras = CompraParcelada.objects.filter(tenant_id=tenant_id, ultima_competencia__isnull=False)
+    if conta_id:
+        compras = compras.filter(conta_id=conta_id)
+    ultimas = dict(Movimento.objects.filter(tenant_id=tenant_id).values("conta_id")
+                   .annotate(m=Max("competencia")).values_list("conta_id", "m"))
+    meses: dict = defaultdict(lambda: {"valor": Decimal(0), "compras": 0})
+    for c in compras:
+        limite = ultimas.get(c.conta_id)
+        for i in range(1, c.faltam + 1):
+            mes = _somar_meses(c.ultima_competencia, i)
+            if limite and mes <= limite:
+                continue
+            meses[mes]["valor"] += c.valor_parcela
+            meses[mes]["compras"] += 1
+    return [{"mes": mes, **v} for mes, v in sorted(meses.items())]
 
 
 # ── estado da pessoa ────────────────────────────────────────────────────────
@@ -616,3 +705,4 @@ def juntar_contas(destino: Conta, origem: Conta) -> None:
         destino.save(update_fields=["identificadores", "titular", "apelido"])
         Movimento.objects.filter(conta=origem).update(conta=destino)
         origem.delete()
+        agrupar_parceladas(destino.tenant_id)

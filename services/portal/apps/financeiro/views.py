@@ -1,8 +1,9 @@
 """Tela `/gastos/`: quanto se gastou por categoria, por estabelecimento e por conta, e o registro
 dos movimentos.
 
-Gasto é a saída de consumo (`Movimento.CONSUMO`), mostrada positiva; o mês é a **competência** —
-o da fatura que cobrou —, então a soma de um mês bate com o total das faturas daquele mês.
+Gasto é a saída de consumo (`Movimento.CONSUMO`), mostrada positiva. Na visão padrão o mês é a
+**competência** — o da fatura que cobrou —, então a soma de um mês bate com o total das faturas
+daquele mês; na visão por compra, a compra parcelada entra inteira na data da compra.
 Isolada por organização (`orgs_do_usuario`); objeto de outra organização é 404. Nada aqui chama
 LLM: os movimentos já vieram das leituras, e somar e categorizar é determinístico.
 """
@@ -20,7 +21,7 @@ from apps.accounts.views import orgs_do_usuario
 from apps.artifacts.models import EstruturacaoLLM, ExtracaoPagina
 
 from . import lancamentos
-from .models import CategoriaGasto, Conta, Estabelecimento, Movimento
+from .models import CategoriaGasto, CompraParcelada, Conta, Estabelecimento, Movimento
 
 #: Gasto mostrado positivo: a soma das saídas de consumo com o sinal invertido.
 GASTO = Sum(-F("valor"))
@@ -52,61 +53,97 @@ def _mes(texto: str, fim: bool = False) -> date | None:
     return date.fromordinal(proximo.toordinal() - 1)
 
 
+def _juntar(*listas, chave):
+    """Soma linhas de agregação vindas de consultas diferentes (movimentos avulsos e compras)."""
+    juntas: dict = {}
+    for linha in (l for lista in listas for l in lista):
+        atual = juntas.setdefault(linha[chave], {**linha, "total": 0, "n": 0})
+        atual["total"] += linha["total"] or 0
+        atual["n"] += linha["n"]
+    return sorted(juntas.values(), key=lambda l: -l["total"])
+
+
 class GastosView(View):
+    """Duas visões do mesmo dinheiro (ADR 021):
+
+    - **competência** (padrão): cada parcela no mês da fatura que a cobrou — bate com as faturas;
+    - **compra**: a compra parcelada inteira, uma vez, na data da compra; o resto, na data.
+    """
+
     def get(self, request):
         org = _org(request, request.GET.get("organizacao"))
         lancamentos.garantir_categorias(org)
         de, ate = request.GET.get("de", ""), request.GET.get("ate", "")
+        visao = "compra" if request.GET.get("visao") == "compra" else "competencia"
         contas = Conta.objects.filter(tenant=org)
         filtro_conta = request.GET.get("conta", "")
         conta = get_object_or_404(Conta, pk=filtro_conta, tenant=org) if filtro_conta else None
 
         gastos = Movimento.objects.filter(tenant=org, natureza__in=Movimento.CONSUMO, valor__isnull=False)
+        compras = CompraParcelada.objects.filter(tenant=org)
         if conta:
-            gastos = gastos.filter(conta=conta)
+            gastos, compras = gastos.filter(conta=conta), compras.filter(conta=conta)
+        campo_data = "data" if visao == "compra" else "competencia"
+        if visao == "compra":
+            gastos = gastos.filter(compra__isnull=True)     # a parcelada entra pela compra, não pelas parcelas
         if inicio := _mes(de):
-            gastos = gastos.filter(competencia__gte=inicio)
+            gastos = gastos.filter(**{f"{campo_data}__gte": inicio})
+            compras = compras.filter(data__gte=inicio) if visao == "compra" else compras
         if fim := _mes(ate, fim=True):
-            gastos = gastos.filter(competencia__lte=fim)
+            gastos = gastos.filter(**{f"{campo_data}__lte": fim})
+            compras = compras.filter(data__lte=fim) if visao == "compra" else compras
+        somadas = compras if visao == "compra" else CompraParcelada.objects.none()
 
-        por_categoria = list(
-            gastos.values("estabelecimento__categoria_id", "estabelecimento__categoria__nome")
-            .annotate(total=GASTO, n=Count("id")).order_by("-total"))
-        por_estabelecimento = list(
-            gastos.values("estabelecimento_id", "estabelecimento__nome", "estabelecimento__categoria_id")
-            .annotate(total=GASTO, n=Count("id")).order_by("-total"))
-        por_conta = {c["conta_id"]: c for c in gastos.values("conta_id").annotate(total=GASTO, n=Count("id"))}
+        def agrupar(campos, chave):
+            return _juntar(
+                gastos.values(*campos).annotate(total=GASTO, n=Count("id")),
+                somadas.values(*campos).annotate(total=Sum("valor"), n=Count("id")),
+                chave=chave)
+
+        por_categoria = agrupar(("estabelecimento__categoria_id", "estabelecimento__categoria__nome"),
+                                "estabelecimento__categoria_id")
+        por_estabelecimento = agrupar(("estabelecimento_id", "estabelecimento__nome", "estabelecimento__categoria_id"),
+                                      "estabelecimento_id")
+        por_conta = {c["conta_id"]: c for c in agrupar(("conta_id",), "conta_id")}
+        total = (gastos.aggregate(t=GASTO)["t"] or 0) + (somadas.aggregate(t=Sum("valor"))["t"] or 0)
 
         filtro_est, filtro_cat = request.GET.get("estabelecimento", ""), request.GET.get("categoria", "")
         lista, titulo_lista, est = None, "", None
         if filtro_est:
             est = get_object_or_404(Estabelecimento, pk=filtro_est, tenant=org)
-            lista, titulo_lista = gastos.filter(estabelecimento=est), est.nome
+            lista, compras, titulo_lista = gastos.filter(estabelecimento=est), compras.filter(estabelecimento=est), est.nome
         elif filtro_cat == "sem":
-            lista, titulo_lista = gastos.filter(estabelecimento__categoria__isnull=True), "Sem categoria"
+            lista, compras = gastos.filter(estabelecimento__categoria__isnull=True), compras.filter(
+                estabelecimento__categoria__isnull=True)
+            titulo_lista = "Sem categoria"
         elif filtro_cat:
             cat = get_object_or_404(CategoriaGasto, pk=filtro_cat, tenant=org)
-            lista, titulo_lista = gastos.filter(estabelecimento__categoria=cat), cat.nome
+            lista, compras, titulo_lista = (gastos.filter(estabelecimento__categoria=cat),
+                                            compras.filter(estabelecimento__categoria=cat), cat.nome)
         if lista is not None:
             lista = (lista.select_related("estabelecimento", "conta", "artefato__extracted_text")
-                     .order_by("competencia", "data", "indice"))
+                     .order_by(campo_data, "data", "indice"))
 
         return render(request, "financeiro/gastos.html", {
             "org": org,
             "organizacoes": list(orgs_do_usuario(request.user).order_by("name")),
-            "de": de, "ate": ate,
+            "de": de, "ate": ate, "visao": visao,
             "contas": [{"conta": c, "total": por_conta.get(c.pk, {}).get("total") or 0,
                         "n": por_conta.get(c.pk, {}).get("n") or 0} for c in contas],
             "conta_filtrada": conta,
-            "total": gastos.aggregate(t=GASTO)["t"] or 0,
+            "total": total,
             "por_categoria": por_categoria,
             "por_estabelecimento": por_estabelecimento,
             "categorias": CategoriaGasto.objects.filter(tenant=org),
             "estabelecimentos": Estabelecimento.objects.filter(tenant=org),
             "lista": lista, "titulo_lista": titulo_lista, "est_filtrado": est,
+            "compras": compras.select_related("estabelecimento", "conta").order_by("-data")[:60],
+            "compras_total": compras.count(),
+            "compromisso": lancamentos.compromisso_futuro(org.id, conta.id if conta else None),
             "pagamentos": Movimento.objects.filter(tenant=org, natureza=Movimento.Natureza.PAGAMENTO_FATURA).count(),
             "filtros": urlencode({k: v for k, v in (("organizacao", org.pk), ("de", de), ("ate", ate),
-                                                    ("conta", filtro_conta)) if v}),
+                                                    ("conta", filtro_conta),
+                                                    ("visao", visao if visao == "compra" else "")) if v}),
         })
 
     def post(self, request):
