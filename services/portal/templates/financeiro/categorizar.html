@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% block title %}Categorizar — Gastos — Inteligência Aberta{% endblock %}
+
+{% block content %}
+<style>
+  .bloco { background:#fff; border:1px solid #e5e7eb; border-radius:8px; padding:1.25rem 1.5rem; margin-top:1.25rem; box-shadow:0 1px 3px rgba(0,0,0,.05); }
+  .bloco h2 { font-size:1.05rem; margin-bottom:.5rem; }
+  table.t { width:100%; border-collapse:collapse; font-size:.86rem; }
+  table.t th, table.t td { text-align:left; padding:.35rem .5rem; border-top:1px solid #f1f5f9; vertical-align:middle; }
+  table.t td.num, table.t th.num { text-align:right; font-variant-numeric: tabular-nums; white-space:nowrap; }
+  .ajuda { font-size:.88rem; color:#475569; margin:.4rem 0; }
+  .sem-dado { color:#9ca3af; font-size:.9rem; }
+  .descritor { font-size:.74rem; color:#64748b; font-family: ui-monospace, monospace; }
+  .filtros { display:flex; flex-wrap:wrap; gap:.6rem; align-items:center; }
+  .filtros label { margin:0; }
+  select.inline { width:auto; padding:.2rem .3rem; font-size:.82rem; }
+  .btn-mini { padding:.15rem .55rem; font-size:.8rem; }
+  .conf { font-size:.72rem; padding:.1rem .45rem; border-radius:999px; white-space:nowrap; }
+  .conf.alta { background:#ecfdf5; color:#047857; }
+  .conf.media { background:#fef3c7; color:#92400e; }
+  .aviso { background:#ecfdf5; border:1px solid #a7f3d0; color:#065f46; border-radius:6px; padding:.5rem .75rem; margin-top:1rem; font-size:.9rem; }
+</style>
+
+<p class="ajuda"><a href="{% url 'financeiro:gastos' %}?organizacao={{ org.pk }}">← Gastos</a></p>
+<h1>Categorizar estabelecimentos</h1>
+<p class="ajuda">
+  Os estabelecimentos ainda sem categoria, do maior gasto para o menor. A sugestão vem do que você já categorizou
+  (um lugar com o mesmo começo de nome) e de palavras do ramo (“posto”, “drogaria”, “hotel”); nada aqui usa LLM.
+  <span class="conf alta">alta</span> é a sugestão que pode ser aplicada de uma vez; <span class="conf media">média</span>
+  só grava quando você confirma. A categoria vale para todos os lançamentos do estabelecimento.
+</p>
+
+{% if organizacoes|length > 1 %}
+<form method="get" class="filtros">
+  <label>Organização
+    <select name="organizacao" class="inline" onchange="this.form.requestSubmit()">
+      {% for o in organizacoes %}<option value="{{ o.pk }}" {% if o.pk == org.pk %}selected{% endif %}>{{ o.name }}</option>{% endfor %}
+    </select>
+  </label>
+</form>
+{% endif %}
+
+{% if aplicadas is not None %}<div class="aviso">{{ aplicadas }} estabelecimento{{ aplicadas|pluralize }} categorizado{{ aplicadas|pluralize }} pelas sugestões de alta confiança.</div>{% endif %}
+
+<div class="bloco">
+  <div class="filtros">
+    <div>
+      <strong>{{ linhas|length }}</strong> sem categoria (R$ {{ total_pendente|floatformat:"2g" }} em gastos);
+      <strong>{{ categorizados }}</strong> já categorizado{{ categorizados|pluralize }}.
+    </div>
+    {% if n_alta %}
+    <form method="post" style="margin-left:auto">{% csrf_token %}
+      <input type="hidden" name="organizacao" value="{{ org.pk }}">
+      <input type="hidden" name="acao" value="aplicar_alta">
+      <button type="submit" class="btn btn-primary">Aplicar as {{ n_alta }} sugestões de alta confiança</button>
+    </form>
+    {% endif %}
+  </div>
+</div>
+
+<div class="bloco">
+  {% if linhas %}
+  <table class="t">
+    <tr><th>Estabelecimento</th><th>Sugestão</th><th>Categoria</th><th class="num">Lanç.</th><th class="num">Total</th></tr>
+    {% for l in linhas %}
+    <tr>
+      <td>
+        <a href="{% url 'financeiro:gastos' %}?organizacao={{ org.pk }}&estabelecimento={{ l.estabelecimento.pk }}">{{ l.estabelecimento.nome }}</a>
+        {% for d in l.descritores %}<div class="descritor">{{ d }}</div>{% endfor %}
+      </td>
+      <td>{% if l.sugestao %}<span class="conf {{ l.sugestao.confianca }}" title="{{ l.sugestao.motivo }}">{{ l.sugestao.confianca }}</span>{% else %}<span class="sem-dado">—</span>{% endif %}</td>
+      <td>
+        <form method="post" class="filtros">{% csrf_token %}
+          <input type="hidden" name="organizacao" value="{{ org.pk }}">
+          <input type="hidden" name="acao" value="categoria">
+          <input type="hidden" name="estabelecimento" value="{{ l.estabelecimento.pk }}">
+          <select name="categoria" class="inline">
+            <option value="">—</option>
+            {% for c in categorias %}<option value="{{ c.pk }}" {% if l.sugestao and c.nome == l.sugestao.categoria %}selected{% endif %}>{{ c.nome }}</option>{% endfor %}
+          </select>
+          <button type="submit" class="btn btn-mini">Gravar</button>
+        </form>
+      </td>
+      <td class="num">{{ l.n }}</td>
+      <td class="num">{{ l.total|floatformat:"2g" }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}<p class="sem-dado">Todos os estabelecimentos têm categoria.</p>{% endif %}
+</div>
+{% endblock %}

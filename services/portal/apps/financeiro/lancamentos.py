@@ -241,6 +241,7 @@ def normalizar_descritor(descricao: str) -> str:
     "OPENAI CHATGPT SUBSCR"."""
     texto = _sem_acento(descricao).upper().replace("*", " ")
     texto = re.sub(r"\bPARC(ELA)?\s*\d{1,2}\s*/\s*\d{1,2}\b", " ", texto)
+    texto = re.sub(r"\b\d{1,2}\s+DE\s+\d{1,2}\b", " ", texto)                # "ALLIANZ SEGU 02 de 10"
     texto = re.sub(r"\b\d{2,4}[-.]\d{3,4}[-.]\d{4}\b", " ", texto)       # telefone
     texto = re.sub(r"\b\d{5,}\b", " ", texto)                               # pedido, assinatura
     texto = re.sub(r"\b\d{1,2}/\d{1,2}\b\s*$", " ", texto)                  # parcela solta no fim
@@ -292,15 +293,15 @@ def natureza_do_movimento(descricao: str, valor: Decimal | None, tipo_documento:
     return N.TARIFA if _TARIFA.search(texto) else N.COMPRA
 
 
-_PARCELA = re.compile(r"\bPARC(?:ELA)?\.?\s*(\d{1,2})\s*(?:/|DE)\s*(\d{1,2})\b")
+_PARCELA = re.compile(r"\bPARC(?:ELA)?\.?\s*(\d{1,2})\s*(?:/|DE)\s*(\d{1,2})\b|\b(\d{1,2})\s+DE\s+(\d{1,2})\b")
 
 
 def parcela_da_descricao(descricao: str) -> tuple[int, int] | None:
-    """"Vindi Catum PARC 08/12 Campinas BR" → (8, 12); "PARCELA 8 DE 12" também."""
+    """"Vindi Catum PARC 08/12 Campinas BR" → (8, 12); "PARCELA 8 DE 12" e "ALLIANZ SEGU 02 de 10" também."""
     m = _PARCELA.search(_sem_acento(descricao).upper())
     if not m:
         return None
-    n, total = int(m.group(1)), int(m.group(2))
+    n, total = (int(g) for g in (m.groups()[:2] if m.group(1) else m.groups()[2:]))
     return (n, total) if 0 < n <= total else None
 
 
@@ -573,6 +574,7 @@ def reconstruir(tenant=None) -> int:
     ids = set(leituras.values_list("artefato_id", flat=True))
     total = 0
     with transaction.atomic():
+        renormalizar_descritores(movimentos)
         movimentos.exclude(artefato_id__in=ids).delete()
         for artefato in Artifact.objects.filter(id__in=ids):
             total += projetar_artefato(artefato)
@@ -580,6 +582,42 @@ def reconstruir(tenant=None) -> int:
         for tenant_id in tenants:
             agrupar_parceladas(tenant_id)
     return total
+
+
+def renormalizar_descritores(movimentos) -> int:
+    """Liga o descritor que a normalização **atual** tira de cada movimento ao estabelecimento que
+    o movimento já tem, antes de a projeção ser refeita: mudar `normalizar_descritor` não perde a
+    categoria nem o nome. Dois estabelecimentos que passam a ter o mesmo descritor ("ALLIANZ SEGU
+    02 de 10" e "03 de 10") se fundem no mais antigo. Os descritores antigos ficam: não atrapalham.
+    Devolve quantas fusões."""
+    fundidos: dict = {}
+
+    def atual(est_id):
+        while est_id in fundidos:
+            est_id = fundidos[est_id]
+        return est_id
+
+    fusoes = 0
+    for tenant_id, descricao, est_id in (movimentos.filter(estabelecimento__isnull=False)
+                                         .values_list("tenant_id", "descricao", "estabelecimento_id")
+                                         .order_by("estabelecimento__criado_em", "estabelecimento_id", "descricao")
+                                         .distinct()):
+        descritor = normalizar_descritor(descricao)
+        if not descritor:
+            continue
+        est = Estabelecimento.objects.prefetch_related("descritores").get(pk=atual(est_id))
+        existente = DescritorEstabelecimento.objects.filter(tenant_id=tenant_id, descritor=descritor).first()
+        if existente is None:
+            # Nome automático (o de um descritor antigo) acompanha o descritor novo.
+            if est.nome in {nome_legivel(d.descritor)[:200] for d in est.descritores.all()}:
+                est.nome = nome_legivel(descritor)[:200]
+                est.save(update_fields=["nome"])
+            DescritorEstabelecimento.objects.create(tenant_id=tenant_id, descritor=descritor, estabelecimento=est)
+        elif existente.estabelecimento_id != est.pk:
+            fundir(existente.estabelecimento, est)
+            fundidos[est.pk] = existente.estabelecimento_id
+            fusoes += 1
+    return fusoes
 
 
 # ── compras parceladas (ADR 021, seção 3a) ──────────────────────────────────
@@ -685,6 +723,7 @@ def fundir(destino: Estabelecimento, origem: Estabelecimento) -> None:
     with transaction.atomic():
         DescritorEstabelecimento.objects.filter(estabelecimento=origem).update(estabelecimento=destino)
         Movimento.objects.filter(estabelecimento=origem).update(estabelecimento=destino)
+        CompraParcelada.objects.filter(estabelecimento=origem).update(estabelecimento=destino)
         if destino.categoria_id is None and origem.categoria_id is not None:
             destino.categoria_id = origem.categoria_id
             destino.save(update_fields=["categoria"])

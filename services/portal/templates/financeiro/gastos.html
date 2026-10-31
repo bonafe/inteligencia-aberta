@@ -32,6 +32,10 @@
   A categoria é do <strong>estabelecimento</strong>: escolha uma vez e ela vale para todos os documentos. Variantes do mesmo
   lugar (“NAKAYOSHI” e “NAKAYOSHI PRODUTOS ORI”) se juntam em “Juntar”.
 </p>
+<p class="ajuda">
+  <a href="{% url 'financeiro:categorizar' %}?organizacao={{ org.pk }}">Categorizar os que estão sem categoria, com sugestão</a>
+  · <a href="{% url 'financeiro:estado' %}?organizacao={{ org.pk }}">Exportar e importar categorias, estabelecimentos e contas</a>
+</p>
 
 <form method="get" class="bloco filtros">
   {% if organizacoes|length > 1 %}

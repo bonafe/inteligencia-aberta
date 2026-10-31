@@ -90,6 +90,28 @@ visita) e escolhida por estabelecimento. `Estabelecimento.empresa_ref` guarda um
 pessoa souber; usar o CNAE (BrasilAPI, `services/mcp/tools/cnpj.py`) como sugestão de categoria é o
 próximo passo, não feito.
 
+**Sugestão** (`apps/financeiro/categorias.py`, tela `/gastos/categorizar/`): os estabelecimentos sem
+categoria, do maior gasto para o menor, cada um com uma categoria sugerida, sem LLM. A sugestão vem do
+que a pessoa já categorizou (um estabelecimento cujo descritor começa pela mesma palavra; genéricas
+como "CASA" e prefixos de maquininha como "MP" e "IFD" não contam) e de palavras do ramo ("POSTO",
+"DROGARIA", "HOTEL"), que apontam categorias candidatas; vale a candidata que a pessoa mais usa.
+`alta` (vizinho que casa nas duas primeiras palavras sem discordância, vizinho confirmado pelo ramo,
+ou ramo inequívoco) pode ser aplicada de uma vez; `media` só grava com confirmação. Na primeira
+medição (deixando de fora cada estabelecimento já categorizado), as de alta acertaram 142 de 142.
+
+**Exportar e importar** (`apps/financeiro/estado.py`, tela `/gastos/estado/`): um JSON com as
+categorias, os estabelecimentos (nome, categoria, descritores juntados) e as contas (apelido,
+titular, própria, identificadores juntados), para voltar ao mesmo ponto depois de zerar o sistema.
+Sem UUID: o estabelecimento é reconhecido pelo descritor e a conta pelo identificador dentro do
+tipo e da instituição, como a projeção os encontra; por isso importar antes ou depois de
+reprocessar dá no mesmo, e importar de novo não muda nada. O arquivo acrescenta e corrige, não apaga
+(um campo vazio nele não limpa o que se preencheu depois). Exportar é de qualquer membro; importar,
+de dono ou administrador.
+
+**Descritor renormalizado**: `reconstruir` começa por `renormalizar_descritores`, que liga o descritor
+da normalização atual de cada movimento ao estabelecimento que ele já tinha (fundindo, no mais antigo,
+os que passam a coincidir). Mudar `normalizar_descritor` não perde categoria nem nome.
+
 ## Limites
 
 - Só faturas de cartão; a qualidade depende da estruturação escolhida (o 7B às vezes omite linhas).

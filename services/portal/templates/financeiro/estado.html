@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block title %}Exportar e importar — Gastos — Inteligência Aberta{% endblock %}
+
+{% block content %}
+<style>
+  .bloco { background:#fff; border:1px solid #e5e7eb; border-radius:8px; padding:1.25rem 1.5rem; margin-top:1.25rem; box-shadow:0 1px 3px rgba(0,0,0,.05); }
+  .bloco h2 { font-size:1.05rem; margin-bottom:.5rem; }
+  .ajuda { font-size:.88rem; color:#475569; margin:.4rem 0; }
+  .filtros { display:flex; flex-wrap:wrap; gap:.6rem; align-items:center; }
+  .filtros label { margin:0; }
+  .filtros input, .filtros select { width:auto; }
+  ul.numeros { margin:.4rem 0 .8rem 1.2rem; font-size:.9rem; }
+  .erro { background:#fef2f2; border:1px solid #fecaca; color:#991b1b; border-radius:6px; padding:.5rem .75rem; margin-top:1rem; font-size:.9rem; }
+  .aviso { background:#ecfdf5; border:1px solid #a7f3d0; color:#065f46; border-radius:6px; padding:.5rem .75rem; margin-top:1rem; font-size:.9rem; }
+</style>
+
+<p class="ajuda"><a href="{% url 'financeiro:gastos' %}?organizacao={{ org.pk }}">← Gastos</a></p>
+<h1>Exportar e importar o que você preencheu</h1>
+<p class="ajuda">
+  O que as faturas não trazem e você preencheu: as categorias, os estabelecimentos (nome, categoria e quais descritores
+  de maquininha foram juntados) e as contas (apelido, titular, se é sua e quais foram juntadas). Os lançamentos não vão
+  no arquivo: eles voltam reprocessando as capturas. Depois de zerar o sistema, importar antes ou depois de reprocessar
+  dá no mesmo, e importar o mesmo arquivo de novo não muda nada.
+</p>
+
+{% if organizacoes|length > 1 %}
+<form method="get" class="filtros">
+  <label>Organização
+    <select name="organizacao" onchange="this.form.requestSubmit()">
+      {% for o in organizacoes %}<option value="{{ o.pk }}" {% if o.pk == org.pk %}selected{% endif %}>{{ o.name }}</option>{% endfor %}
+    </select>
+  </label>
+</form>
+{% endif %}
+
+{% if erro %}<div class="erro">{{ erro }}</div>{% endif %}
+{% if resumo %}
+<div class="aviso">
+  Importado.
+  Categorias criadas: {{ resumo.categorias_criadas }}.
+  Estabelecimentos: {{ resumo.estabelecimentos_criados }} criados, {{ resumo.estabelecimentos_atualizados }} atualizados,
+  {{ resumo.estabelecimentos_juntados }} juntados a outro.
+  Contas: {{ resumo.contas_criadas }} criadas, {{ resumo.contas_atualizadas }} atualizadas, {{ resumo.contas_juntadas }} juntadas.
+  {% if resumo.avisos %}<ul class="numeros">{% for a in resumo.avisos %}<li>{{ a }}</li>{% endfor %}</ul>{% endif %}
+</div>
+{% endif %}
+
+<div class="bloco">
+  <h2>Exportar</h2>
+  <ul class="numeros">
+    <li>{{ n_categorias }} categorias</li>
+    <li>{{ n_estabelecimentos }} estabelecimentos ({{ n_categorizados }} com categoria), {{ n_descritores }} descritores</li>
+    <li>{{ n_contas }} contas</li>
+  </ul>
+  <a class="btn btn-primary" href="?organizacao={{ org.pk }}&baixar=1">Baixar o arquivo (JSON)</a>
+</div>
+
+<div class="bloco">
+  <h2>Importar</h2>
+  {% if pode_importar %}
+  <p class="ajuda">
+    O arquivo acrescenta e corrige, não apaga: o nome, a categoria e o apelido que estão nele valem, mas um campo vazio no
+    arquivo não limpa o que você preencheu depois de exportar. Estabelecimentos e contas são reconhecidos pelos
+    descritores e pelos números, não por ID, porque depois de zerar os IDs mudam.
+  </p>
+  <form method="post" enctype="multipart/form-data" class="filtros">{% csrf_token %}
+    <input type="hidden" name="organizacao" value="{{ org.pk }}">
+    <input type="file" name="arquivo" accept="application/json,.json" required>
+    <button type="submit" class="btn btn-primary">Importar</button>
+  </form>
+  {% else %}
+  <p class="ajuda">Importar é do dono ou de um administrador da organização.</p>
+  {% endif %}
+</div>
+{% endblock %}

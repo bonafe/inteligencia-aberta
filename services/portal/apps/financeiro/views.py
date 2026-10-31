@@ -8,20 +8,22 @@ Isolada por organização (`orgs_do_usuario`); objeto de outra organização é 
 LLM: os movimentos já vieram das leituras, e somar e categorizar é determinístico.
 """
 
+import json
 from datetime import date
 from urllib.parse import urlencode
 
 from django.db.models import Count, F, Sum
-from django.http import Http404, JsonResponse
+from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views import View
 
 from apps.accounts.models import Organization
+from apps.accounts.permissoes import eh_admin, exige_admin
 from apps.accounts.views import orgs_do_usuario
 from apps.artifacts.models import EstruturacaoLLM, ExtracaoPagina
 
-from . import lancamentos
-from .models import CategoriaGasto, CompraParcelada, Conta, Estabelecimento, Movimento
+from . import categorias, estado, lancamentos
+from .models import CategoriaGasto, CompraParcelada, Conta, DescritorEstabelecimento, Estabelecimento, Movimento
 
 #: Gasto mostrado positivo: a soma das saídas de consumo com o sinal invertido.
 GASTO = Sum(-F("valor"))
@@ -219,3 +221,85 @@ class RegistrarExtracaoView(View):
             "alegacoes_criadas": resultado.alegacoes_criadas,
             "substituiu": resultado.substituiu,
         })
+
+
+class CategorizarView(View):
+    """Os estabelecimentos sem categoria, do maior gasto para o menor, cada um com a categoria
+    sugerida (`categorias.Sugeridor`): a pessoa confirma uma a uma, ou aplica de uma vez as de
+    alta confiança."""
+
+    def get(self, request):
+        org = _org(request, request.GET.get("organizacao"))
+        lancamentos.garantir_categorias(org)
+        linhas = categorias.pendentes(org)
+        return render(request, "financeiro/categorizar.html", {
+            "org": org,
+            "organizacoes": list(orgs_do_usuario(request.user).order_by("name")),
+            "linhas": linhas,
+            "categorias": CategoriaGasto.objects.filter(tenant=org),
+            "n_alta": sum(1 for l in linhas if l["sugestao"] and l["sugestao"].confianca == categorias.ALTA),
+            "total_pendente": sum(l["total"] for l in linhas),
+            "categorizados": Estabelecimento.objects.filter(tenant=org, categoria__isnull=False).count(),
+            "aplicadas": request.GET.get("aplicadas"),
+        })
+
+    def post(self, request):
+        org = _org(request, request.POST.get("organizacao"))
+        destino = f"{request.path}?{urlencode({'organizacao': org.pk})}"
+        if request.POST.get("acao") == "aplicar_alta":
+            destino += f"&aplicadas={categorias.aplicar_alta(org)}"
+        elif request.POST.get("acao") == "categoria":
+            est = get_object_or_404(Estabelecimento, pk=request.POST.get("estabelecimento"), tenant=org)
+            if cat_id := request.POST.get("categoria"):
+                est.categoria = get_object_or_404(CategoriaGasto, pk=cat_id, tenant=org)
+                est.save(update_fields=["categoria"])
+        return redirect(destino)
+
+
+class EstadoView(View):
+    """Exportar (qualquer membro) e importar (dono ou administrador) categorias, estabelecimentos
+    e contas num JSON, para voltar ao mesmo ponto depois de zerar o sistema (`estado.py`)."""
+
+    TAMANHO_MAXIMO = 10 * 1024 * 1024
+
+    def _contexto(self, request, org, **extra):
+        return {
+            "org": org,
+            "organizacoes": list(orgs_do_usuario(request.user).order_by("name")),
+            "n_categorias": CategoriaGasto.objects.filter(tenant=org).count(),
+            "n_estabelecimentos": Estabelecimento.objects.filter(tenant=org).count(),
+            "n_categorizados": Estabelecimento.objects.filter(tenant=org, categoria__isnull=False).count(),
+            "n_descritores": DescritorEstabelecimento.objects.filter(tenant=org).count(),
+            "n_contas": Conta.objects.filter(tenant=org).count(),
+            "pode_importar": eh_admin(request.user, org),
+            **extra,
+        }
+
+    def get(self, request):
+        org = _org(request, request.GET.get("organizacao"))
+        if request.GET.get("baixar"):
+            corpo = json.dumps(estado.exportar(org), ensure_ascii=False, indent=2)
+            resp = HttpResponse(corpo, content_type="application/json; charset=utf-8")
+            nome = f"gastos-estado-{org.slug or org.pk}-{date.today().isoformat()}.json"
+            resp["Content-Disposition"] = f'attachment; filename="{nome}"'
+            return resp
+        return render(request, "financeiro/estado.html", self._contexto(request, org))
+
+    def post(self, request):
+        org = _org(request, request.POST.get("organizacao"))
+        exige_admin(request.user, org)
+        arquivo = request.FILES.get("arquivo")
+        erro, resumo = "", None
+        if arquivo is None:
+            erro = "Escolha o arquivo exportado."
+        elif arquivo.size > self.TAMANHO_MAXIMO:
+            erro = "Arquivo grande demais para um estado dos Gastos (máximo 10 MB)."
+        else:
+            try:
+                resumo = estado.importar(org, json.loads(arquivo.read().decode("utf-8")))
+            except (UnicodeDecodeError, json.JSONDecodeError):
+                erro = "O arquivo não é um JSON válido."
+            except ValueError as exc:
+                erro = f"Arquivo recusado: {exc}."
+        return render(request, "financeiro/estado.html", self._contexto(request, org, erro=erro, resumo=resumo),
+                      status=400 if erro else 200)
