@@ -33,4 +33,5 @@ urlpatterns = [
     path("cluster/", include("apps.cluster.urls")),
     path("federacao/", include("apps.federacao.urls")),
     path("agora/", include("apps.agora.urls")),
+    path("gastos/", include("apps.financeiro.urls")),
 ]

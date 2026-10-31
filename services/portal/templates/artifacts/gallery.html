@@ -1037,6 +1037,24 @@
         }).then(() => carregarExecucoes()).catch(() => {});
     }
 
+    // A estruturação escolhida vira alegações e lançamentos (apps/financeiro); outra
+    // estruturação do mesmo documento registrada antes deixa de valer.
+    function registrarLancamentos(id, botao) {
+        const saida = document.getElementById(`lanc-${id}`);
+        botao.disabled = true;
+        saida.textContent = 'registrando…';
+        fetch(`/gastos/registrar/${id}/`, {method: 'POST', headers: {'X-CSRFToken': CSRF_TOKEN}})
+            .then(r => r.json().then(data => ({ok: r.ok, data})))
+            .then(({ok, data}) => {
+                botao.disabled = false;
+                if (!ok) { saida.textContent = data.error || 'falhou'; return; }
+                saida.innerHTML = `${data.lancamentos} lançamentos registrados` +
+                    (data.retratadas ? ` (a leitura anterior deixou de valer)` : '') +
+                    ` · <a href="/gastos/">ver gastos</a>`;
+            })
+            .catch(() => { botao.disabled = false; saida.textContent = 'falhou'; });
+    }
+
     function renderExecucoesList(execucoes) {
         const container = document.getElementById('llm-execucoes-list');
         const idsSelecionados = new Set(selecaoComparacao.filter(s => s.tipo === 'estruturacao_llm').map(s => s.id));
@@ -1083,7 +1101,11 @@
                 header += `<label class="selecao-checkbox" style="margin-top:.4rem">
                     <input type="checkbox" data-tipo="estruturacao_llm" data-id="${e.id}" data-label="${label}" ${checked} onchange="toggleSelecao(this)">
                     Selecionar para comparar
-                </label>`;
+                </label>
+                <div style="display:flex;align-items:center;gap:.6rem;margin-top:.4rem">
+                    <button class="btn-parar" onclick="registrarLancamentos('${e.id}', this)">Registrar lançamentos</button>
+                    <span class="llm-card-meta" id="lanc-${e.id}"></span>
+                </div>`;
             }
             if ((e.status === 'falhou' || e.status === 'cancelado') && e.error_message) {
                 header += `<div class="llm-card-error">${e.error_message}</div>`;

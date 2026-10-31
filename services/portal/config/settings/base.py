@@ -45,6 +45,7 @@ INSTALLED_APPS = [
     "apps.federacao.apps.FederacaoConfig",
     "apps.forense.apps.ForenseConfig",
     "apps.agora.apps.AgoraConfig",
+    "apps.financeiro.apps.FinanceiroConfig",
 ]
 
 MIDDLEWARE = [

@@ -1,0 +1,172 @@
+{% extends "base.html" %}
+{% block title %}Gastos — Inteligência Aberta{% endblock %}
+
+{% block content %}
+<style>
+  .bloco { background:#fff; border:1px solid #e5e7eb; border-radius:8px; padding:1.25rem 1.5rem; margin-top:1.25rem; box-shadow:0 1px 3px rgba(0,0,0,.05); }
+  .bloco h2 { font-size:1.05rem; margin-bottom:.5rem; }
+  table.t { width:100%; border-collapse:collapse; font-size:.86rem; }
+  table.t th, table.t td { text-align:left; padding:.35rem .5rem; border-top:1px solid #f1f5f9; vertical-align:middle; }
+  table.t td.num, table.t th.num { text-align:right; font-variant-numeric: tabular-nums; white-space:nowrap; }
+  .ajuda { font-size:.88rem; color:#475569; margin:.4rem 0; }
+  .sem-dado { color:#9ca3af; font-size:.9rem; }
+  .total { font-size:1.4rem; font-weight:700; }
+  .filtros { display:flex; flex-wrap:wrap; gap:.75rem; align-items:end; }
+  .filtros label { margin:0; }
+  .filtros input, .filtros select { width:auto; }
+  .colunas { display:grid; grid-template-columns: 1fr 2fr; gap:1.25rem; }
+  @media (max-width: 900px) { .colunas { grid-template-columns: 1fr; } }
+  .colunas .bloco { margin-top:1.25rem; }
+  select.inline { width:auto; padding:.2rem .3rem; font-size:.82rem; }
+  .tipo { font-size:.72rem; padding:.1rem .45rem; border-radius:999px; background:#eef2ff; color:#4338ca; }
+  .tipo.estorno { background:#ecfdf5; color:#047857; }
+  .tipo.tarifa { background:#fef3c7; color:#92400e; }
+  .negativo { color:#047857; }
+</style>
+
+<h1>Gastos</h1>
+<p class="ajuda">
+  Somas dos lançamentos registrados a partir das faturas (no visualizador: aba LLM, “Registrar lançamentos”).
+  Pagamentos da fatura ficam fora; estornos abatem. A categoria é do <strong>estabelecimento</strong>: escolha uma vez e ela
+  vale para todas as faturas. Variantes do mesmo lugar (“NAKAYOSHI” e “NAKAYOSHI PRODUTOS ORI”) se juntam em “Juntar”.
+</p>
+
+<form method="get" class="bloco filtros">
+  {% if organizacoes|length > 1 %}
+  <label>Organização
+    <select name="organizacao">
+      {% for o in organizacoes %}<option value="{{ o.pk }}" {% if o.pk == org.pk %}selected{% endif %}>{{ o.name }}</option>{% endfor %}
+    </select>
+  </label>
+  {% else %}<input type="hidden" name="organizacao" value="{{ org.pk }}">{% endif %}
+  <label>De <input type="month" name="de" value="{{ de }}"></label>
+  <label>Até <input type="month" name="ate" value="{{ ate }}"></label>
+  <button type="submit" class="btn btn-primary">Filtrar</button>
+  <div style="margin-left:auto; text-align:right">
+    <div class="ajuda">Total no período</div>
+    <div class="total">R$ {{ total|floatformat:"2g" }}</div>
+  </div>
+</form>
+
+<div class="colunas">
+  <div class="bloco">
+    <h2>Por categoria</h2>
+    {% if por_categoria %}
+    <table class="t">
+      <tr><th>Categoria</th><th class="num">Lanç.</th><th class="num">Total</th></tr>
+      {% for c in por_categoria %}
+      <tr>
+        <td><a href="?{{ filtros }}&categoria={{ c.estabelecimento__categoria_id|default:'sem' }}">{{ c.estabelecimento__categoria__nome|default:"Sem categoria" }}</a></td>
+        <td class="num">{{ c.n }}</td>
+        <td class="num">{{ c.total|floatformat:"2g" }}</td>
+      </tr>
+      {% endfor %}
+    </table>
+    {% else %}<p class="sem-dado">Nenhum lançamento no período.</p>{% endif %}
+
+    <h2 style="margin-top:1.25rem">Nova categoria</h2>
+    <form method="post" class="filtros">{% csrf_token %}
+      <input type="hidden" name="organizacao" value="{{ org.pk }}">
+      <input type="hidden" name="volta" value="{{ filtros }}">
+      <input type="hidden" name="acao" value="nova_categoria">
+      <input name="nome" placeholder="ex.: Pet" maxlength="80">
+      <button type="submit" class="btn">Criar</button>
+    </form>
+  </div>
+
+  <div class="bloco">
+    <h2>Por estabelecimento</h2>
+    {% if por_estabelecimento %}
+    <table class="t">
+      <tr><th>Estabelecimento</th><th>Categoria</th><th class="num">Lanç.</th><th class="num">Total</th></tr>
+      {% for e in por_estabelecimento %}
+      <tr>
+        <td>{% if e.estabelecimento_id %}<a href="?{{ filtros }}&estabelecimento={{ e.estabelecimento_id }}">{{ e.estabelecimento__nome }}</a>{% else %}<span class="sem-dado">(sem descrição)</span>{% endif %}</td>
+        <td>
+          {% if e.estabelecimento_id %}
+          <form method="post">{% csrf_token %}
+            <input type="hidden" name="organizacao" value="{{ org.pk }}">
+            <input type="hidden" name="volta" value="{{ filtros }}">
+            <input type="hidden" name="acao" value="categoria">
+            <input type="hidden" name="estabelecimento" value="{{ e.estabelecimento_id }}">
+            <select name="categoria" class="inline" onchange="this.form.requestSubmit()">
+              <option value="">—</option>
+              {% for c in categorias %}<option value="{{ c.pk }}" {% if c.pk == e.estabelecimento__categoria_id %}selected{% endif %}>{{ c.nome }}</option>{% endfor %}
+            </select>
+          </form>
+          {% endif %}
+        </td>
+        <td class="num">{{ e.n }}</td>
+        <td class="num">{{ e.total|floatformat:"2g" }}</td>
+      </tr>
+      {% endfor %}
+    </table>
+    {% else %}<p class="sem-dado">Nenhum lançamento no período.</p>{% endif %}
+
+    {% if estabelecimentos|length > 1 %}
+    <h2 style="margin-top:1.25rem">Juntar estabelecimentos</h2>
+    <form method="post" class="filtros">{% csrf_token %}
+      <input type="hidden" name="organizacao" value="{{ org.pk }}">
+      <input type="hidden" name="volta" value="{{ filtros }}">
+      <input type="hidden" name="acao" value="fundir">
+      <label>Este
+        <select name="origem" class="inline">{% for e in estabelecimentos %}<option value="{{ e.pk }}">{{ e.nome }}</option>{% endfor %}</select>
+      </label>
+      <label>passa a ser
+        <select name="destino" class="inline">{% for e in estabelecimentos %}<option value="{{ e.pk }}">{{ e.nome }}</option>{% endfor %}</select>
+      </label>
+      <button type="submit" class="btn">Juntar</button>
+    </form>
+    {% endif %}
+  </div>
+</div>
+
+{% if lista is not None %}
+<div class="bloco">
+  <h2>Lançamentos — {{ titulo_lista }}</h2>
+  <table class="t">
+    <tr><th>Data</th><th>Descrição na fatura</th><th>Tipo</th><th>Fatura</th><th class="num">Valor</th></tr>
+    {% for l in lista %}
+    <tr>
+      <td>{{ l.data|date:"d/m/Y"|default:l.data_texto }}</td>
+      <td>{{ l.descricao }}{% if l.secao %} <span class="sem-dado">· {{ l.secao }}</span>{% endif %}</td>
+      <td><span class="tipo {{ l.tipo }}">{{ l.get_tipo_display }}</span></td>
+      <td><a href="{% url 'artifacts:serve_mhtml' l.artefato_id %}" target="_blank" rel="noopener">{{ l.artefato.extracted_text.title|default:"captura"|truncatechars:40 }}</a></td>
+      <td class="num {% if l.valor < 0 %}negativo{% endif %}">{{ l.valor|floatformat:"2g" }}</td>
+    </tr>
+    {% empty %}
+    <tr><td colspan="5" class="sem-dado">Nenhum lançamento.</td></tr>
+    {% endfor %}
+  </table>
+  {% if est_filtrado %}
+  <form method="post" class="filtros" style="margin-top:1rem">{% csrf_token %}
+    <input type="hidden" name="organizacao" value="{{ org.pk }}">
+    <input type="hidden" name="volta" value="{{ filtros }}&estabelecimento={{ est_filtrado.pk }}">
+    <input type="hidden" name="acao" value="renomear">
+    <input type="hidden" name="estabelecimento" value="{{ est_filtrado.pk }}">
+    <label>Nome do estabelecimento <input name="nome" value="{{ est_filtrado.nome }}" maxlength="200"></label>
+    <button type="submit" class="btn">Renomear</button>
+  </form>
+  {% endif %}
+</div>
+{% endif %}
+
+{% if pagamentos %}<p class="ajuda" style="margin-top:1rem">{{ pagamentos }} pagamento(s) de fatura registrado(s), fora das somas.</p>{% endif %}
+<script>
+  // Os formulários desta tela recarregam a página; volta para onde a pessoa estava.
+  (function () {
+    const CHAVE = 'gastos-scroll';
+    document.addEventListener('submit', (ev) => {
+      if (ev.target.method.toLowerCase() !== 'post') return;
+      try { sessionStorage.setItem(CHAVE, String(window.scrollY)); } catch (e) {}
+    });
+    try {
+      const y = sessionStorage.getItem(CHAVE);
+      if (y !== null) {
+        sessionStorage.removeItem(CHAVE);
+        window.scrollTo(0, parseInt(y, 10) || 0);
+      }
+    } catch (e) {}
+  })();
+</script>
+{% endblock %}
