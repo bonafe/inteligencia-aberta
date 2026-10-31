@@ -118,8 +118,9 @@ reprocessar dá no mesmo, e importar de novo não registra nada. O arquivo acres
 apaga (um campo vazio nele não desfaz o que se decidiu depois). Exportar é de qualquer membro;
 importar, de dono ou administrador.
 
-**Descritor renormalizado**: a projeção passa o descritor do sujeito de cada decisão de novo por
-`normalizar_descritor`; a decisão tomada sobre "ALLIANZ SEGU 1 DE 10 SAO PAULO" vale para "ALLIANZ
+**Descritor renormalizado**: o descritor do sujeito de uma decisão que nenhum movimento tem mais
+passa de novo por `normalizar_descritor` (o que ainda bate fica como está: a normalização não é
+idempotente); a decisão tomada sobre "ALLIANZ SEGU 1 DE 10 SAO PAULO" vale para "ALLIANZ
 SEGU SAO PAULO" quando a normalização passa a tirar a parcela. Mudar a normalização não perde nada.
 
 ## Limites

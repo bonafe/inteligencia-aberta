@@ -98,6 +98,18 @@ def test_decisao_sobre_descritor_antigo_vale_com_a_normalizacao_nova(org):
     assert Movimento.objects.get(pk=m.pk).estabelecimento == est
 
 
+def test_decisao_sobre_descritor_atual_nao_e_normalizada_de_novo(org):
+    # A normalização não é idempotente: "... SANTA CRUZ DO" perderia o "DO" como se fosse UF.
+    assert L.normalizar_descritor("ANNE CAFETERIA SANTA CRUZ DO") != "ANNE CAFETERIA SANTA CRUZ DO"
+    L.registrar(_estruturacao(org))
+    m = Movimento.objects.filter(tenant=org, estabelecimento__isnull=False).first()
+    Movimento.objects.filter(pk=m.pk).update(descricao="ANNE CAFETERIA SANTA CRUZ DO RS")
+    D.projetar(org.pk)
+    D.Decisor(org, org.owner, tela="teste").categorizar_descritores(["ANNE CAFETERIA SANTA CRUZ DO"], "Restaurante")
+    D.projetar(org.pk)
+    assert Movimento.objects.get(pk=m.pk).estabelecimento.categoria.nome == "Restaurante"
+
+
 # ── decisões como alegações ─────────────────────────────────────────────────
 
 def _decisoes(org, predicado=None):

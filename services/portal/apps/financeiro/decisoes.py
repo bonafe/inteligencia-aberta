@@ -17,8 +17,9 @@ O sujeito é o que sobrevive a zerar e o que outra instância entende — nunca 
 
 `projetar` refaz `Estabelecimento`, `DescritorEstabelecimento`, `CategoriaGasto` e o apelido e a
 fusão das `Conta` a partir das decisões vigentes e dos descritores dos movimentos. O descritor do
-sujeito passa de novo por `normalizar_descritor` na projeção: mudar a normalização ("ALLIANZ SEGU
-02 DE 10" → "ALLIANZ SEGU") não perde a decisão. Num estabelecimento com vários descritores vale a
+sujeito que nenhum movimento tem mais passa de novo por `normalizar_descritor`: mudar a
+normalização ("ALLIANZ SEGU 02 DE 10" → "ALLIANZ SEGU") não perde a decisão. Só vira
+estabelecimento o que algum movimento usa; as decisões dos outros ficam esperando. Num estabelecimento com vários descritores vale a
 decisão mais recente entre eles. A projeção junta, nunca separa: não há decisão de separar.
 """
 
@@ -337,14 +338,20 @@ def _projetar_estabelecimentos(tenant_id, vig, categorias) -> None:
             descritor_do_movimento[mid] = (d, est_id)
             contagem[d] += 1
             uniao.achar(d)
-    # Decisões de cada descritor (normalizado de novo: vários sujeitos antigos podem dar o mesmo).
+    def de_hoje(bruto: str | None) -> str:
+        """O descritor da decisão como é hoje: ele mesmo, se algum movimento ainda o tem; senão,
+        normalizado de novo (a normalização mudou). Não normaliza o que já bate: ela não é
+        idempotente ("SANTA CRUZ DO" perderia o "DO" como se fosse UF)."""
+        return bruto if not bruto or bruto in contagem else normalizar_descritor(bruto)
+
+    # Decisões de cada descritor (vários sujeitos antigos podem dar no mesmo descritor de hoje).
     decisoes: dict[str, dict[str, Claim]] = defaultdict(dict)
     for (sujeito, predicado), c in vig.items():
-        if not (d := normalizar_descritor(_valor(sujeito, "descritor") or "")):
+        if not (d := de_hoje(_valor(sujeito, "descritor"))):
             continue
         uniao.achar(d)
         if predicado == MESMO_LUGAR:
-            if outro := normalizar_descritor(_valor(c.objeto_ref, "descritor") or ""):
+            if outro := de_hoje(_valor(c.objeto_ref, "descritor")):
                 uniao.unir(d, outro)
         elif (atual := decisoes[d].get(predicado)) is None or _mais_recente([atual, c]) is c:
             decisoes[d][predicado] = c
