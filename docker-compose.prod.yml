@@ -13,7 +13,11 @@ services:
   # único do compose: roda a cada `up`, termina e sai. Quem precisa do banco migrado
   # só sobe depois dele concluir com sucesso — a automação não tem passo manual.
   bootstrap:
-    build: ./services/portal
+    build:
+      context: ./services/portal
+      # O .git, só leitura, para o Dockerfile gravar o commit do build em /etc/ia-version.
+      additional_contexts:
+        git: ./.git
     command: python manage.py bootstrap_instancia
     restart: "no"
     env_file: .env

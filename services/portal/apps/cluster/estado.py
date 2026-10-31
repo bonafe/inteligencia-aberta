@@ -20,7 +20,7 @@ def montar_estado_local() -> dict:
     estado = {
         "v": VERSAO_PROTOCOLO,
         "nome": maquina.apelido if maquina else (os.environ.get("INSTANCIA_NOME") or ""),
-        "versao": os.environ.get("IA_VERSION", ""),
+        "versao": settings.IA_VERSION,
         "ollama": {
             "configurado": bool(getattr(settings, "OLLAMA_HOST", "")),
             "disponivel": status.ollama_disponivel if status else None,

@@ -116,7 +116,7 @@ Extensão Chrome → POST orchestrator:8001/api/v1/capture/mhtml
 **Implantação** (ver `docs/deploy.md` e `docs/arquitetura/decisoes/007-implantacao-por-instancia.md`; o Agora em tempo real é opcional e tem seção própria no `deploy.md`: `--profile agora`, `AGORA_SYNC_*`, `CHAT_RETENTION_DAYS`, `AGORA_OFFLINE_CACHE_NIVEL`):
 - `docker-compose.prod.yml` — restart, portas em `BIND_ADDR`, serviço `bootstrap` (one-shot) e `caddy` (profile `publico`). `infra/caddy/Caddyfile` publica só o portal, `/api/v1/capture/*` e o WebSocket `/agora-sync/*` (sem o `/admin/`).
 - `config/settings/production.py` — `TLS_MODE` (`proxy`|`none`), `ALLOWED_HOSTS`, `CSRF_TRUSTED_ORIGINS`; valida segredos na subida (`config/segredos.py`, com cópias em `orchestrator/` e `mcp/`).
-- `config/health.py` — `/health` do portal (checa o banco); orchestrator e mcp têm o seu. Devolvem `INSTANCIA_NOME` e `IA_VERSION`.
+- `config/health.py` — `/health` do portal (checa o banco); orchestrator e mcp têm o seu. Devolvem `INSTANCIA_NOME` e a versão: o commit do checkout, gravado na imagem no build (`/etc/ia-version`, a partir do `.git` passado como `additional_contexts`), sem variável de ambiente.
 - `apps/accounts/management/commands/bootstrap_instancia.py` — migrations, buckets do Garage (S3) e superusuário inicial opcional (`DJANGO_SUPERUSER_*`), idempotente.
 - Registro: `/registro/` é **aberto por padrão** (ADR 007, emenda de 2026-10-04): o primeiro cadastro vira o administrador, quem vem depois ganha uma organização só sua (isolamento por organização). Sem nenhum usuário, `/entrar/` vai direto ao cadastro. `REGISTRO_ABERTO=false` é o travão opcional (fecha após o primeiro usuário). `DJANGO_SUPERUSER_*` é opcional.
 

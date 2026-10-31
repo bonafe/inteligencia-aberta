@@ -188,6 +188,12 @@ LLM_EXTRACTOR_MODEL = os.environ.get("LLM_EXTRACTOR_MODEL", "claude-sonnet-5")
 #   nativo    → http://host.docker.internal:11434 (padrão; Macs, onde o Docker não
 #               acessa a GPU Metal; exige `extra_hosts: host-gateway` no Linux)
 #   nenhum    → vazio: esta máquina não tem LLM local e depende dos peers do cluster
+# Commit do build, gravado na imagem pelo Dockerfile (não vem do ambiente). Exposto em /health e aos pares.
+try:
+    IA_VERSION = Path("/etc/ia-version").read_text().strip()
+except OSError:
+    IA_VERSION = ""
+
 OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://host.docker.internal:11434")
 # O que esta máquina ANUNCIA aos peers no heartbeat (`Maquina.ollama_endpoint`): precisa
 # ser alcançável por outro nó (IP da VPN), ao contrário de `http://ollama:11434`, que só

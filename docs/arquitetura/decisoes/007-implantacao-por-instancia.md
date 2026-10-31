@@ -16,7 +16,7 @@ O repositório só tinha o modo de desenvolvimento: `docker compose up` carregav
 3. **Host público: Caddy** (profile `publico`, domínio próprio, Let's Encrypt), publicando **apenas** o portal e `/api/v1/capture/*`. Os canais serviço-a-serviço (`X-Internal-Token`) são bloqueados no proxy; o orchestrator inteiro e o MCP nunca saem.
 4. ~~**Registro público fecha após o primeiro usuário**~~ *(revisto em 2026-10-04, ver a emenda abaixo)*: **Registro público fecha após o primeiro usuário**, e em produção o dono nasce de um `bootstrap_instancia` idempotente (serviço one-shot do compose) antes de qualquer porta abrir. Isso elimina a corrida do "primeiro cadastro vira superusuário".
 5. **Segredos obrigatórios são validados na subida**: vazio ou `CHANGE_ME` impede o serviço de iniciar, listando tudo de uma vez.
-6. **Cada instância se identifica** em `/health` (`INSTANCIA_NOME`, `IA_VERSION`), base para a futura comunicação entre instâncias.
+6. **Cada instância se identifica** em `/health` (`INSTANCIA_NOME` e a versão, que é o commit gravado no build), base para a futura comunicação entre instâncias.
 7. **A extensão aceita a URL da instância**, em vez de `localhost` fixo.
 
 ## Emenda de 2026-10-04: cadastro aberto e o primeiro usuário como administrador

@@ -1,5 +1,6 @@
 import os
 
+from django.conf import settings
 from django.db import connection
 from django.http import JsonResponse
 
@@ -14,7 +15,7 @@ def health(request):
         "status": "ok",
         "servico": "portal",
         "instancia": os.environ.get("INSTANCIA_NOME", ""),
-        "versao": os.environ.get("IA_VERSION", ""),
+        "versao": settings.IA_VERSION,
     }
     try:
         with connection.cursor() as cursor:

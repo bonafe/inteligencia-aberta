@@ -34,7 +34,7 @@ Resumo operacional para quem implanta por código. O restante deste documento ex
    - **o administrador — uma decisão do dono, em duas formas** (ver "Cadastro de usuários"): **(A)** definir as três `DJANGO_SUPERUSER_USERNAME`, `DJANGO_SUPERUSER_EMAIL`, `DJANGO_SUPERUSER_PASSWORD` com os valores que o dono escolheu (o `bootstrap` cria o dono no primeiro boot, idempotente); ou **(B)** deixar as três **vazias**, e o primeiro cadastro em `/registro/` vira o administrador. Nos dois casos o cadastro continua **aberto** para os demais (`REGISTRO_ABERTO`; num host público, `false`)
    - `ALLOWED_HOSTS` e `CSRF_TRUSTED_ORIGINS` (os nomes pelos quais o host é acessado; origens com `https://`)
    - `TLS_MODE` (`proxy` com `tailscale serve`/Caddy na frente; `none` só se HTTP puro for decisão consciente)
-   - `BIND_ADDR`, `DATA_DIR`, `INSTANCIA_NOME`, `IA_VERSION` (sugestão: `git rev-parse --short HEAD`)
+   - `BIND_ADDR`, `DATA_DIR`, `INSTANCIA_NOME` (a versão não se configura: o build grava o commit do checkout)
    - LLM do nó (opcional; ver "LLM por nó e entre nós"): `OLLAMA_HOST`/`COMPOSE_PROFILES`/`OLLAMA_MODELOS` conforme o modo, e, no cluster, `LLM_GATEWAY_TOKEN` + `LLM_GATEWAY_ENDPOINT_ANUNCIADO`
    - **Ultima Agora com colaboração em tempo real** (opcional; ver "Ultima Agora"): `AGORA_SYNC_SECRET` (aleatório, ≥ 32 caracteres, **por host**), `AGORA_SYNC_URL` (o endereço **como o navegador o vê**), `AGORA_SYNC_ADMIN_URL` + `AGORA_SYNC_ADMIN_TOKEN` (≥ 16 caracteres) e `--profile agora` no comando; opcionais `CHAT_RETENTION_DAYS` e `AGORA_OFFLINE_CACHE_NIVEL`
    - host com domínio público: também `IA_DOMINIO` e `ACME_EMAIL`, e `--profile publico` no comando
@@ -52,7 +52,7 @@ curl -fsS -H 'Host: localhost' http://${BIND_ADDR:-127.0.0.1}:8000/health   # po
 curl -fsS http://${BIND_ADDR:-127.0.0.1}:8001/health                         # orchestrator
 ```
 
-Ambos devolvem JSON com `"status": "ok"`, `servico`, `instancia` (= `INSTANCIA_NOME`) e `versao` (= `IA_VERSION`). O portal responde `503` se não alcança o banco. Conferir `instancia`/`versao` confirma que a instância certa subiu na versão esperada. O MCP não publica porta; sua saúde aparece em `docker compose ps`. O `agora-sync` (se ligado) responde `/health` na 8787 (`curl -fsS http://${BIND_ADDR:-127.0.0.1}:8787/health`).
+Ambos devolvem JSON com `"status": "ok"`, `servico`, `instancia` (= `INSTANCIA_NOME`) e `versao` (o commit do checkout no momento do build, gravado na imagem em `/etc/ia-version` a partir do `.git`; mudança não commitada não aparece). O portal responde `503` se não alcança o banco. Conferir `instancia`/`versao` confirma que a instância certa subiu na versão esperada. O MCP não publica porta; sua saúde aparece em `docker compose ps`. O `agora-sync` (se ligado) responde `/health` na 8787 (`curl -fsS http://${BIND_ADDR:-127.0.0.1}:8787/health`).
 
 **Armadilhas:**
 
@@ -122,7 +122,7 @@ A instalação de modelos roda no serviço **`worker-ollama`** (fila `ollama_adm
 | Variável | Padrão | Função |
 |---|---|---|
 | `DJANGO_SETTINGS_MODULE` | `config.settings.development` | **Em produção: `config.settings.production`** |
-| `INSTANCIA_NOME`, `IA_VERSION` | vazio | Identidade e versão (ex.: git sha), expostas em `/health` |
+| `INSTANCIA_NOME` | vazio | Identidade, exposta em `/health` (a versão vem do build) |
 | `ALLOWED_HOSTS` | vazio | Nomes pelos quais o portal é acessado, separados por vírgula |
 | `CSRF_TRUSTED_ORIGINS` | vazio | Origens com esquema (`https://…`); necessário para login/registro atrás de proxy |
 | `TLS_MODE` | `proxy` | `proxy`: HTTPS terminado na frente (redirect, cookies seguros). `none`: HTTP puro |
@@ -284,7 +284,6 @@ No popup, campo **Instância (URL)**: `https://ia.exemplo.com.br`. Vazio = ambie
 
 ```bash
 git pull
-# opcional: IA_VERSION=$(git rev-parse --short HEAD) no .env
 docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
 ```
 

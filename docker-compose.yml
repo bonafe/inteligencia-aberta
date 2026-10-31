@@ -1,6 +1,10 @@
 services:
   portal:
-    build: ./services/portal
+    build:
+      context: ./services/portal
+      # O .git, só leitura, para o Dockerfile gravar o commit do build em /etc/ia-version.
+      additional_contexts:
+        git: ./.git
     # Sobe sob daphne (ASGI) — ver Dockerfile. O painel de eventos usa WebSocket,
     # que o servidor WSGI não atende.
     # Portas não são publicadas aqui: dev em docker-compose.override.yml, produção
@@ -26,7 +30,11 @@ services:
       start_period: 30s
 
   orchestrator:
-    build: ./services/orchestrator
+    build:
+      context: ./services/orchestrator
+      # O .git, só leitura, para o Dockerfile gravar o commit do build em /etc/ia-version.
+      additional_contexts:
+        git: ./.git
     depends_on:
       db:
         condition: service_healthy
@@ -43,7 +51,11 @@ services:
       start_period: 30s
 
   mcp:
-    build: ./services/mcp
+    build:
+      context: ./services/mcp
+      # O .git, só leitura, para o Dockerfile gravar o commit do build em /etc/ia-version.
+      additional_contexts:
+        git: ./.git
     # /docs (Swagger) é publicado só em dev, para fins didáticos. As ferramentas
     # em si (/tools/*) exigem X-Mcp-Token — ver main.py.
     env_file: .env
@@ -80,7 +92,11 @@ services:
       start_period: 10s
 
   worker:
-    build: ./services/portal
+    build:
+      context: ./services/portal
+      # O .git, só leitura, para o Dockerfile gravar o commit do build em /etc/ia-version.
+      additional_contexts:
+        git: ./.git
     command: celery -A config worker -l info
     depends_on:
       db:
@@ -104,7 +120,11 @@ services:
   # Worker dedicado à instalação/remoção de modelos do Ollama (fila `ollama_admin`): um pull leva horas,
   # então não compete com o worker das extrações. Concorrência baixa de propósito.
   worker-ollama:
-    build: ./services/portal
+    build:
+      context: ./services/portal
+      # O .git, só leitura, para o Dockerfile gravar o commit do build em /etc/ia-version.
+      additional_contexts:
+        git: ./.git
     command: celery -A config worker -l info -Q ollama_admin -c 2 -n ollama@%h
     depends_on:
       db:
@@ -152,7 +172,11 @@ services:
       - ${DATA_DIR:-./data}/iped/tmp:/tmp
 
   worker-iped:
-    build: ./services/portal
+    build:
+      context: ./services/portal
+      # O .git, só leitura, para o Dockerfile gravar o commit do build em /etc/ia-version.
+      additional_contexts:
+        git: ./.git
     profiles: ["iped"]
     command: celery -A config worker -l info -Q iped -c 1 -n iped@%h
     depends_on:
@@ -172,7 +196,11 @@ services:
       - ${DATA_DIR:-./data}/iped/saida:/saida:ro
 
   beat:
-    build: ./services/portal
+    build:
+      context: ./services/portal
+      # O .git, só leitura, para o Dockerfile gravar o commit do build em /etc/ia-version.
+      additional_contexts:
+        git: ./.git
     command: celery -A config beat -l info
     depends_on:
       db:

@@ -324,11 +324,24 @@ async def capture_mhtml(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+
+def _versao_do_build() -> str:
+    """Commit do build, gravado na imagem pelo Dockerfile (não vem do ambiente)."""
+    try:
+        with open("/etc/ia-version") as f:
+            return f.read().strip()
+    except OSError:
+        return ""
+
+
+IA_VERSION = _versao_do_build()
+
+
 @app.get("/health")
 async def health():
     return {
         "status": "ok",
         "servico": "orchestrator",
         "instancia": os.getenv("INSTANCIA_NOME", ""),
-        "versao": os.getenv("IA_VERSION", ""),
+        "versao": IA_VERSION,
     }
