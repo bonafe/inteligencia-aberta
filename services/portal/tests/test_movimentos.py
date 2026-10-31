@@ -7,6 +7,7 @@ import pytest
 from apps.accounts.models import Membership, Organization, User
 from apps.artifacts.extractors.schema_pagina import normalizar_schema
 from apps.artifacts.models import Artifact, DocumentText, ExtracaoPagina, SchemaPagina, URLPatternCache
+from apps.financeiro import decisoes as D
 from apps.financeiro import lancamentos as L
 from apps.financeiro.models import Conta, Movimento
 
@@ -154,7 +155,8 @@ def test_o_mesmo_identificador_cai_na_mesma_conta_e_juntar_leva_os_movimentos(or
     assert Conta.objects.count() == 2
     numerada = Conta.objects.get(identificadores__contains=["Nº 6516.XXXX.XXXX.1402"])
     sem = Conta.objects.exclude(pk=numerada.pk).get()
-    L.juntar_contas(numerada, sem)
+    D.Decisor(org, org.owner, tela="teste").juntar_contas(numerada, sem)
+    D.projetar(org.pk)
     assert Conta.objects.count() == 1 and Movimento.objects.filter(conta=numerada).count() == 6
     assert L.reconstruir(org) == 6 and Conta.objects.count() == 1    # a reconstrução respeita a junção
 

@@ -10,14 +10,15 @@ Três passos, cada um com seu lugar:
 2. **Registro**: a leitura escolhida de um documento vira alegações pelo serviço único
    `registrar_alegacao`, com evidência apontando para a linha. Duas fontes, intercambiáveis:
    uma estruturação por LLM (`registrar`) ou uma extração **válida** do parser aprovado do tipo
-   de página (`registrar_extracao`, sem LLM; automática quando o schema tem `alimenta_gastos`).
+   de página (`registrar_extracao`, sem LLM; automática quando o schema tem o consumidor `fin.movimentos`).
    A leitura registrada passa a ser a escolhida do documento (`LeituraLancamentos`); as
    alegações das outras leituras continuam ativas (ninguém as desmentiu), só não alimentam os
    Gastos. Trocar e voltar não perde nada, e a fatura nunca é somada duas vezes.
 3. **Projeção** (`projetar_artefato`, `reconstruir`): das alegações ativas para `Movimento`, com
    a conta, o valor com o sinal da conta (negativo = saída), a natureza (compra, pagamento de
    fatura, entrada...), a competência (o mês em que o dinheiro saiu: o vencimento da fatura) e a
-   parcela n/m. Apagar e refazer é seguro; contas, fusões e categorias são estado da pessoa.
+   parcela n/m. Apagar e refazer é seguro: categorias, fusões e apelidos são decisões da pessoa,
+   também alegações (`decisoes.py`), e o estado delas é projetado de novo no fim.
 """
 
 import calendar
@@ -36,8 +37,9 @@ from apps.artifacts.extractors.valores import parse_valor
 from apps.artifacts.models import Claim, EstruturacaoLLM, ExtracaoPagina
 from config.conteudo_hash import formato_valido as hash_valido
 
+from . import decisoes
 from .models import (
-    CategoriaGasto, CompraParcelada, Conta, DescritorEstabelecimento, Estabelecimento, LeituraLancamentos,
+    CategoriaGasto, CompraParcelada, Conta, DescritorEstabelecimento, LeituraLancamentos,
     Movimento,
 )
 
@@ -56,6 +58,9 @@ CATEGORIAS_PADRAO = (
 #: Se a data cair mais que isto depois da referência da fatura, é do ano anterior. Curta de
 #: propósito: parcela traz a data da compra original ("15/12 ... PARC 10/10" numa fatura de outubro).
 FOLGA_ANO = timedelta(days=10)
+#: Naturezas cujo movimento tem estabelecimento (o lugar onde se gastou ou que estornou).
+COM_ESTABELECIMENTO = (Movimento.Natureza.COMPRA, Movimento.Natureza.TARIFA, Movimento.Natureza.ESTORNO,
+                       Movimento.Natureza.SAIDA_TERCEIROS)
 
 _SUJEITO = re.compile(r"#(estruturacao|parser)/([0-9a-f-]{36})/lancamento/(\d+)$")
 _LISTAS_GENERICAS = {"lancamentos", "itens", "transacoes", "linhas", "movimentacoes", "compras"}
@@ -407,6 +412,7 @@ def _registrar(document_text, linhas: list[Linha], contexto: dict, leitura: _Lei
                       "fonte_id": leitura.fonte_id},
         )
         projetar_artefato(artefato)
+        decisoes.projetar(artefato.tenant_id)
         agrupar_parceladas(artefato.tenant_id)
 
     emit("financeiro.lancamentos", "ok",
@@ -462,19 +468,15 @@ def registrar_extracao(extracao: ExtracaoPagina, *, user_id=None) -> Resultado:
 
 # ── projeção ────────────────────────────────────────────────────────────────
 
-def _estabelecimento(tenant_id, descricao: str, cache: dict) -> Estabelecimento | None:
+def _estabelecimento(tenant_id, descricao: str, cache: dict):
+    """O estabelecimento que a projeção do estado já deu a este descritor; o novo fica sem, até
+    `decisoes.projetar` (que cria e junta conforme as decisões da pessoa)."""
     descritor = normalizar_descritor(descricao)
     if not descritor:
         return None
     if descritor not in cache:
-        existente = (DescritorEstabelecimento.objects.select_related("estabelecimento")
-                     .filter(tenant_id=tenant_id, descritor=descritor).first())
-        if existente:
-            cache[descritor] = existente.estabelecimento
-        else:
-            est = Estabelecimento.objects.create(tenant_id=tenant_id, nome=nome_legivel(descritor)[:200])
-            DescritorEstabelecimento.objects.create(tenant_id=tenant_id, descritor=descritor, estabelecimento=est)
-            cache[descritor] = est
+        cache[descritor] = (DescritorEstabelecimento.objects.filter(tenant_id=tenant_id, descritor=descritor)
+                            .values_list("estabelecimento_id", flat=True).first())
     return cache[descritor]
 
 
@@ -535,8 +537,6 @@ def projetar_artefato(artefato) -> int:
     referencia = vencimento or artefato.created_at.date()
 
     cache: dict = {}
-    com_estabelecimento = {Movimento.Natureza.COMPRA, Movimento.Natureza.TARIFA, Movimento.Natureza.ESTORNO,
-                           Movimento.Natureza.SAIDA_TERCEIROS}
     novos = []
     for sujeito, campos in sujeitos.items():
         m = _SUJEITO.search(sujeito)
@@ -554,8 +554,8 @@ def projetar_artefato(artefato) -> int:
             valor=valor, valor_texto=campos["fin:valor"][:100], descricao=descricao[:500],
             documento=campos.get("fin:documento", "")[:100], secao=campos.get("fin:secao", "")[:200],
             natureza=natureza, parcela=parcela[0] if parcela else None, parcelas=parcela[1] if parcela else None,
-            estabelecimento=(_estabelecimento(artefato.tenant_id, descricao, cache)
-                             if natureza in com_estabelecimento else None),
+            estabelecimento_id=(_estabelecimento(artefato.tenant_id, descricao, cache)
+                                if natureza in COM_ESTABELECIMENTO else None),
             classification_level=artefato.classification_level,
         ))
     Movimento.objects.bulk_create(novos)
@@ -574,50 +574,14 @@ def reconstruir(tenant=None) -> int:
     ids = set(leituras.values_list("artefato_id", flat=True))
     total = 0
     with transaction.atomic():
-        renormalizar_descritores(movimentos)
         movimentos.exclude(artefato_id__in=ids).delete()
         for artefato in Artifact.objects.filter(id__in=ids):
             total += projetar_artefato(artefato)
         tenants = [tenant.pk] if tenant is not None else set(leituras.values_list("tenant_id", flat=True))
         for tenant_id in tenants:
+            decisoes.projetar(tenant_id)
             agrupar_parceladas(tenant_id)
     return total
-
-
-def renormalizar_descritores(movimentos) -> int:
-    """Liga o descritor que a normalização **atual** tira de cada movimento ao estabelecimento que
-    o movimento já tem, antes de a projeção ser refeita: mudar `normalizar_descritor` não perde a
-    categoria nem o nome. Dois estabelecimentos que passam a ter o mesmo descritor ("ALLIANZ SEGU
-    02 de 10" e "03 de 10") se fundem no mais antigo. Os descritores antigos ficam: não atrapalham.
-    Devolve quantas fusões."""
-    fundidos: dict = {}
-
-    def atual(est_id):
-        while est_id in fundidos:
-            est_id = fundidos[est_id]
-        return est_id
-
-    fusoes = 0
-    for tenant_id, descricao, est_id in (movimentos.filter(estabelecimento__isnull=False)
-                                         .values_list("tenant_id", "descricao", "estabelecimento_id")
-                                         .order_by("estabelecimento__criado_em", "estabelecimento_id", "descricao")
-                                         .distinct()):
-        descritor = normalizar_descritor(descricao)
-        if not descritor:
-            continue
-        est = Estabelecimento.objects.prefetch_related("descritores").get(pk=atual(est_id))
-        existente = DescritorEstabelecimento.objects.filter(tenant_id=tenant_id, descritor=descritor).first()
-        if existente is None:
-            # Nome automático (o de um descritor antigo) acompanha o descritor novo.
-            if est.nome in {nome_legivel(d.descritor)[:200] for d in est.descritores.all()}:
-                est.nome = nome_legivel(descritor)[:200]
-                est.save(update_fields=["nome"])
-            DescritorEstabelecimento.objects.create(tenant_id=tenant_id, descritor=descritor, estabelecimento=est)
-        elif existente.estabelecimento_id != est.pk:
-            fundir(existente.estabelecimento, est)
-            fundidos[est.pk] = existente.estabelecimento_id
-            fusoes += 1
-    return fusoes
 
 
 # ── compras parceladas (ADR 021, seção 3a) ──────────────────────────────────
@@ -711,37 +675,3 @@ def garantir_categorias(tenant) -> None:
     if not CategoriaGasto.objects.filter(tenant=tenant).exists():
         CategoriaGasto.objects.bulk_create(
             [CategoriaGasto(tenant=tenant, nome=n) for n in CATEGORIAS_PADRAO], ignore_conflicts=True)
-
-
-def fundir(destino: Estabelecimento, origem: Estabelecimento) -> None:
-    """Junta `origem` em `destino`: descritores e movimentos passam para ele, valendo para os
-    documentos futuros. A categoria do destino prevalece; sem ela, herda a da origem."""
-    if destino.tenant_id != origem.tenant_id:
-        raise ValueError("estabelecimentos de organizações diferentes")
-    if destino.pk == origem.pk:
-        return
-    with transaction.atomic():
-        DescritorEstabelecimento.objects.filter(estabelecimento=origem).update(estabelecimento=destino)
-        Movimento.objects.filter(estabelecimento=origem).update(estabelecimento=destino)
-        CompraParcelada.objects.filter(estabelecimento=origem).update(estabelecimento=destino)
-        if destino.categoria_id is None and origem.categoria_id is not None:
-            destino.categoria_id = origem.categoria_id
-            destino.save(update_fields=["categoria"])
-        origem.delete()
-
-
-def juntar_contas(destino: Conta, origem: Conta) -> None:
-    """Junta `origem` em `destino` (o cartão "sem número" e o 1402 são o mesmo): identificadores
-    e movimentos passam para ele, e os documentos futuros com aqueles identificadores também."""
-    if destino.tenant_id != origem.tenant_id:
-        raise ValueError("contas de organizações diferentes")
-    if destino.pk == origem.pk:
-        return
-    with transaction.atomic():
-        destino.identificadores = list(dict.fromkeys((destino.identificadores or []) + (origem.identificadores or [])))
-        destino.titular = destino.titular or origem.titular
-        destino.apelido = destino.apelido or origem.apelido
-        destino.save(update_fields=["identificadores", "titular", "apelido"])
-        Movimento.objects.filter(conta=origem).update(conta=destino)
-        origem.delete()
-        agrupar_parceladas(destino.tenant_id)

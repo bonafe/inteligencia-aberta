@@ -6,6 +6,7 @@ import pytest
 
 from apps.accounts.models import Membership, Organization, User
 from apps.artifacts.models import Artifact
+from apps.financeiro import decisoes as D
 from apps.financeiro import lancamentos as L
 from apps.financeiro.models import CompraParcelada, Conta, LeituraLancamentos, Movimento
 
@@ -126,7 +127,8 @@ def test_reconstruir_e_juntar_contas_reagrupam(org, conta):
         mov(org, c, f"TV PARC {n:02d}/02", "50.00", date(2026, 8, 1), date(2026, 8 + n, 1), n, 2)
     L.agrupar_parceladas(org.pk)
     assert CompraParcelada.objects.count() == 2                         # uma em cada conta
-    L.juntar_contas(conta, outra)
+    D.Decisor(org, org.owner, tela="teste").juntar_contas(conta, outra)
+    D.projetar(org.pk)
     c = CompraParcelada.objects.get()
     assert c.vistas == 2 and c.valor == Decimal("100.00")
 

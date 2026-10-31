@@ -12,6 +12,7 @@ diferentes ao mesmo `Artifact`.
 | `url:` | URL http(s) | página, perfil ou documento |
 | `dominio:` | domínio normalizado | autor que é um site |
 | `mencao:` | `ni:…#localizador` | algo citado numa captura, sem identificador estável |
+| `<prefixo>:` | sem espaço (percent-encoded) | indivíduo do vocabulário de uma extensão instalada (ADR 022), ex. `fin:descritor/IFD%20MERCADO` |
 """
 
 import re
@@ -75,4 +76,10 @@ def normalizar_referencia(ref: str) -> str:
         if not sep or not localizador or not hash_valido(blob):
             raise ValueError("mencao: exige `ni:///sha-256;…#localizador`")
         return f"mencao:{blob}#{localizador}"
+    from apps.extensoes.registro import prefixos
+
+    if tipo in prefixos():
+        if not valor or any(c.isspace() for c in valor):
+            raise ValueError(f"{tipo}: exige um valor sem espaço (percent-encoded)")
+        return f"{tipo}:{valor}"
     raise ValueError(f"tipo de referência desconhecido: {tipo!r}")

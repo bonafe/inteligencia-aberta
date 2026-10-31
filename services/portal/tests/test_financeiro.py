@@ -6,6 +6,7 @@ import pytest
 
 from apps.accounts.models import Membership, Organization, User
 from apps.artifacts.models import Artifact, Claim, DocumentText, EstruturacaoLLM
+from apps.financeiro import decisoes as D
 from apps.financeiro import lancamentos as L
 from apps.financeiro.models import CategoriaGasto, Conta, Estabelecimento, Movimento
 
@@ -254,16 +255,16 @@ def test_reconstruir_mantem_fusao_e_categoria(org):
     L.registrar(_estruturacao(org))
     naka = Estabelecimento.objects.get(nome__startswith="Nakayoshi Indaiatuba")
     variante = Estabelecimento.objects.get(nome__startswith="Nakayoshi Produtos")
-    mercado = CategoriaGasto.objects.create(tenant=org, nome="Mercado")
-    naka.categoria = mercado
-    naka.save()
-    L.fundir(naka, variante)
+    decisor = D.Decisor(org, org.owner, tela="teste")
+    decisor.categorizar(naka, "Mercado")
+    decisor.fundir(naka, variante)
+    D.projetar(org.pk)
 
     Movimento.objects.all().delete()
     assert L.reconstruir(org) == 7
     gastos_naka = Movimento.objects.filter(estabelecimento=naka)
     assert gastos_naka.count() == 2
-    assert {l.estabelecimento.categoria for l in gastos_naka} == {mercado}
+    assert {l.estabelecimento.categoria.nome for l in gastos_naka} == {"Mercado"}
 
 
 def test_fundir_recusa_outra_organizacao(org):
@@ -272,7 +273,7 @@ def test_fundir_recusa_outra_organizacao(org):
     a = Estabelecimento.objects.create(tenant=org, nome="A")
     b = Estabelecimento.objects.create(tenant=org2, nome="B")
     with pytest.raises(ValueError):
-        L.fundir(a, b)
+        D.Decisor(org, org.owner).fundir(a, b)
 
 
 # ── tela ────────────────────────────────────────────────────────────────────

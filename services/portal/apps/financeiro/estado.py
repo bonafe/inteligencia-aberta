@@ -1,15 +1,16 @@
 """Exportar e importar o estado da pessoa nos Gastos (tela `/gastos/estado/`).
 
-O que a projeção não refaz sozinha: as categorias, os estabelecimentos (nome, categoria e os
-descritores de maquininha que foram juntados neles) e as contas (apelido, titular, se é própria
-e os identificadores que foram juntados). Serve para zerar o sistema, reprocessar as faturas e
-voltar ao que se tinha.
+As decisões da pessoa já são alegações (`decisoes.py`) e voltam sozinhas quando os lançamentos
+são reconstruídos; o arquivo é a conveniência para zerar o banco inteiro ou levar o estado a
+outra instância antes da federação: as categorias, os estabelecimentos (nome, categoria e os
+descritores de maquininha juntados neles) e as contas (apelido, se é própria e os identificadores
+juntados; o titular vai no arquivo mas vem dos documentos).
 
 Nada de UUID no arquivo: depois de zerar, os IDs são outros. A identidade é o **descritor** (o
 estabelecimento) e o **identificador** dentro do tipo e da instituição (a conta), os mesmos
-critérios com que a projeção os encontra. Por isso importar antes ou depois de reprocessar dá no
-mesmo: antes, cria o estabelecimento e a conta que a projeção vai achar; depois, junta e acerta
-os que a projeção criou. Importar de novo o mesmo arquivo não muda nada.
+sujeitos das decisões. Importar **registra decisões** de quem importa, e só as que mudam algo:
+importar antes ou depois de reprocessar dá no mesmo, e importar de novo o mesmo arquivo não
+registra nada.
 """
 
 from dataclasses import dataclass, field
@@ -17,8 +18,8 @@ from dataclasses import dataclass, field
 from django.db import transaction
 from django.utils import timezone
 
-from . import lancamentos
-from .models import CategoriaGasto, Conta, DescritorEstabelecimento, Estabelecimento
+from . import decisoes, lancamentos
+from .models import CategoriaGasto, Conta, Estabelecimento
 
 FORMATO = "inteligencia-aberta/gastos-estado"
 VERSAO = 1
@@ -48,13 +49,11 @@ def exportar(tenant) -> dict:
 
 @dataclass
 class Resumo:
-    categorias_criadas: int = 0
-    estabelecimentos_criados: int = 0
-    estabelecimentos_atualizados: int = 0
-    estabelecimentos_juntados: int = 0
-    contas_criadas: int = 0
-    contas_atualizadas: int = 0
-    contas_juntadas: int = 0
+    categorias: int = 0
+    estabelecimentos: int = 0
+    contas: int = 0
+    #: Decisões novas registradas (o que já valia não é registrado de novo).
+    decisoes: int = 0
     avisos: list[str] = field(default_factory=list)
 
 
@@ -79,95 +78,62 @@ def validar(dados) -> None:
             raise ValueError(f"'{chave}' deveria ser uma lista")
 
 
-def importar(tenant, dados) -> Resumo:
-    """Aplica o arquivo à organização. Acrescenta e corrige, não apaga: o nome, a categoria e o
-    apelido do arquivo vencem, mas um vazio no arquivo não limpa o que se preencheu depois de
-    exportar. Tudo ou nada."""
+def importar(tenant, dados, autor) -> Resumo:
+    """Registra como decisões de `autor` o que o arquivo diz e projeta o estado. Acrescenta e
+    corrige, não apaga: o nome, a categoria e o apelido do arquivo valem, mas um vazio no arquivo
+    não desfaz o que se decidiu depois de exportar. Tudo ou nada."""
     validar(dados)
     resumo = Resumo()
+    decisor = decisoes.Decisor(tenant, autor, tela="estado", acao="importar")
     with transaction.atomic():
-        categorias = _importar_categorias(tenant, dados, resumo)
+        for nome in _lista_de_textos(dados.get("categorias", []), 80):
+            if nome:
+                decisor.criar_categoria(nome)
+                resumo.categorias += 1
         for item in dados.get("estabelecimentos", []):
             if isinstance(item, dict):
-                _importar_estabelecimento(tenant, item, categorias, resumo)
+                _importar_estabelecimento(decisor, item, resumo)
         for item in dados.get("contas", []):
             if isinstance(item, dict):
-                _importar_conta(tenant, item, resumo)
-        if resumo.contas_juntadas:
-            lancamentos.agrupar_parceladas(tenant.pk)
+                _importar_conta(decisor, item, resumo)
+        resumo.decisoes = decisor.registradas
+        decisoes.projetar(tenant.pk)
     return resumo
 
 
-def _importar_categorias(tenant, dados, resumo) -> dict[str, CategoriaGasto]:
-    nomes = set(_lista_de_textos(dados.get("categorias", []), 80))
-    nomes |= {_texto(e.get("categoria"), 80) for e in dados.get("estabelecimentos", []) if isinstance(e, dict)}
-    for nome in sorted(n for n in nomes if n):
-        _, criada = CategoriaGasto.objects.get_or_create(tenant=tenant, nome=nome)
-        resumo.categorias_criadas += criada
-    return {c.nome: c for c in CategoriaGasto.objects.filter(tenant=tenant)}
-
-
-def _importar_estabelecimento(tenant, item, categorias, resumo) -> None:
+def _importar_estabelecimento(decisor, item, resumo) -> None:
     descritores = [d for d in _lista_de_textos(item.get("descritores"), 300) if d]
     nome = _texto(item.get("nome"), 200)
     if not descritores:
         resumo.avisos.append(f"estabelecimento sem descritor ignorado: {nome or '(sem nome)'}")
         return
-    existentes = list(Estabelecimento.objects.filter(
-        tenant=tenant, descritores__descritor__in=descritores).distinct().order_by("criado_em", "id"))
-    categoria = categorias.get(_texto(item.get("categoria"), 80))
-    if existentes:
-        est, *outros = existentes
-        for origem in outros:
-            lancamentos.fundir(est, origem)
-            resumo.estabelecimentos_juntados += 1
-        est.refresh_from_db()
-    else:
-        est = Estabelecimento(tenant=tenant, nome=lancamentos.nome_legivel(descritores[0])[:200])
-        resumo.estabelecimentos_criados += 1
-    antes = (est.nome, est.categoria_id, est.empresa_ref)
-    est.nome = nome or est.nome
-    est.categoria = categoria or est.categoria
-    est.empresa_ref = _texto(item.get("empresa_ref"), 500) or est.empresa_ref
-    if existentes and (est.nome, est.categoria_id, est.empresa_ref) != antes:
-        resumo.estabelecimentos_atualizados += 1
-    est.save()
-    ja_ligados = set(DescritorEstabelecimento.objects.filter(tenant=tenant, descritor__in=descritores)
-                     .values_list("descritor", flat=True))
-    DescritorEstabelecimento.objects.bulk_create([
-        DescritorEstabelecimento(tenant=tenant, descritor=d, estabelecimento=est)
-        for d in descritores if d not in ja_ligados
-    ])
+    resumo.estabelecimentos += 1
+    alvo, *outros = descritores
+    decisor.juntar_descritores(alvo, outros)
+    # O nome automático (o do próprio descritor) não é decisão: a projeção chega nele sozinha.
+    if nome and nome not in {lancamentos.nome_legivel(d)[:200] for d in descritores}:
+        decisor.renomear_descritores(descritores, nome)
+    if categoria := _texto(item.get("categoria"), 80):
+        decisor.categorizar_descritores(descritores, categoria)
+    if empresa := _texto(item.get("empresa_ref"), 500):
+        try:
+            decisor.informar_empresa(descritores, empresa)
+        except ValueError:
+            resumo.avisos.append(f"referência de empresa inválida ignorada: {empresa}")
 
 
-def _importar_conta(tenant, item, resumo) -> None:
+def _importar_conta(decisor, item, resumo) -> None:
     tipo = _texto(item.get("tipo"), 20)
     instituicao = _texto(item.get("instituicao"), 255)
     if tipo not in Conta.Tipo.values or not instituicao:
         resumo.avisos.append(f"conta ignorada: tipo {tipo!r}, instituição {instituicao!r}")
         return
+    resumo.contas += 1
     # "" é o documento que não traz número: identifica a conta "sem número" da instituição.
     identificadores = _lista_de_textos(item.get("identificadores"), 100) or [""]
-    existentes = [c for c in Conta.objects.filter(tenant=tenant, tipo=tipo, instituicao=instituicao)
-                  .order_by("criada_em", "id")
-                  if set(c.identificadores or []) & set(identificadores)]
-    if existentes:
-        conta, *outras = existentes
-        for origem in outras:
-            lancamentos.juntar_contas(conta, origem)
-            resumo.contas_juntadas += 1
-        conta.refresh_from_db()
-    else:
-        conta = Conta(tenant=tenant, tipo=tipo, instituicao=instituicao, identificadores=[])
-        resumo.contas_criadas += 1
-    novo = {
-        "identificadores": list(dict.fromkeys((conta.identificadores or []) + identificadores)),
-        "apelido": _texto(item.get("apelido"), 120) or conta.apelido,
-        "titular": _texto(item.get("titular"), 200) or conta.titular,
-        "propria": item.get("propria") if isinstance(item.get("propria"), bool) else conta.propria,
-    }
-    if conta.pk and any(getattr(conta, k) != v for k, v in novo.items()):
-        resumo.contas_atualizadas += 1
-    for k, v in novo.items():
-        setattr(conta, k, v)
-    conta.save()
+    refs = [decisoes.ref_conta(tipo, instituicao, i) for i in identificadores]
+    decisor.juntar_refs(refs[0], refs[1:])
+    if apelido := _texto(item.get("apelido"), 120):
+        decisor.apelidar_refs(refs, apelido)
+    if isinstance(item.get("propria"), bool):
+        decisor.marcar_propria_refs(refs, item["propria"])

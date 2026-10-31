@@ -22,7 +22,7 @@ from apps.accounts.permissoes import eh_admin, exige_admin
 from apps.accounts.views import orgs_do_usuario
 from apps.artifacts.models import EstruturacaoLLM, ExtracaoPagina
 
-from . import categorias, estado, lancamentos
+from . import categorias, decisoes, estado, lancamentos
 from .models import CategoriaGasto, CompraParcelada, Conta, DescritorEstabelecimento, Estabelecimento, Movimento
 
 #: Gasto mostrado positivo: a soma das saídas de consumo com o sinal invertido.
@@ -149,33 +149,37 @@ class GastosView(View):
         })
 
     def post(self, request):
+        """Cada ação é uma decisão da pessoa (alegação, `decisoes.py`); o estado é projetado depois."""
         org = _org(request, request.POST.get("organizacao"))
         acao = request.POST.get("acao")
-        if acao == "categoria":
-            est = get_object_or_404(Estabelecimento, pk=request.POST.get("estabelecimento"), tenant=org)
-            cat_id = request.POST.get("categoria")
-            est.categoria = get_object_or_404(CategoriaGasto, pk=cat_id, tenant=org) if cat_id else None
-            est.save(update_fields=["categoria"])
-        elif acao == "renomear":
-            est = get_object_or_404(Estabelecimento, pk=request.POST.get("estabelecimento"), tenant=org)
-            if nome := request.POST.get("nome", "").strip():
-                est.nome = nome[:200]
-                est.save(update_fields=["nome"])
-        elif acao == "fundir":
-            destino = get_object_or_404(Estabelecimento, pk=request.POST.get("destino"), tenant=org)
-            origem = get_object_or_404(Estabelecimento, pk=request.POST.get("origem"), tenant=org)
-            lancamentos.fundir(destino, origem)
-        elif acao == "apelido_conta":
-            alvo = get_object_or_404(Conta, pk=request.POST.get("conta"), tenant=org)
-            alvo.apelido = request.POST.get("apelido", "").strip()[:120]
-            alvo.save(update_fields=["apelido"])
-        elif acao == "juntar_contas":
-            destino = get_object_or_404(Conta, pk=request.POST.get("destino"), tenant=org)
-            origem = get_object_or_404(Conta, pk=request.POST.get("origem"), tenant=org)
-            lancamentos.juntar_contas(destino, origem)
-        elif acao == "nova_categoria":
-            if nome := request.POST.get("nome", "").strip():
-                CategoriaGasto.objects.get_or_create(tenant=org, nome=nome[:80])
+        decisor = decisoes.Decisor(org, request.user, tela="gastos", acao=acao or "")
+        try:
+            if acao == "categoria":
+                est = get_object_or_404(Estabelecimento, pk=request.POST.get("estabelecimento"), tenant=org)
+                cat_id = request.POST.get("categoria")
+                decisor.categorizar(est, get_object_or_404(CategoriaGasto, pk=cat_id, tenant=org).nome if cat_id else None)
+            elif acao == "renomear":
+                est = get_object_or_404(Estabelecimento, pk=request.POST.get("estabelecimento"), tenant=org)
+                if nome := request.POST.get("nome", "").strip():
+                    decisor.renomear(est, nome[:200])
+            elif acao == "fundir":
+                destino = get_object_or_404(Estabelecimento, pk=request.POST.get("destino"), tenant=org)
+                origem = get_object_or_404(Estabelecimento, pk=request.POST.get("origem"), tenant=org)
+                decisor.fundir(destino, origem)
+            elif acao == "apelido_conta":
+                alvo = get_object_or_404(Conta, pk=request.POST.get("conta"), tenant=org)
+                decisor.apelidar(alvo, request.POST.get("apelido", "").strip()[:120])
+            elif acao == "juntar_contas":
+                destino = get_object_or_404(Conta, pk=request.POST.get("destino"), tenant=org)
+                origem = get_object_or_404(Conta, pk=request.POST.get("origem"), tenant=org)
+                decisor.juntar_contas(destino, origem)
+            elif acao == "nova_categoria":
+                if nome := request.POST.get("nome", "").strip():
+                    decisor.criar_categoria(nome[:80])
+        except ValueError:
+            pass                                    # contas de tipo ou instituição diferentes: nada a juntar
+        if decisor.registradas:
+            decisoes.projetar(org.pk)
         volta = request.POST.get("volta", "")
         return redirect(f"{request.path}?{volta}" if volta else request.path)
 
@@ -251,12 +255,13 @@ class CategorizarView(View):
         org = _org(request, request.POST.get("organizacao"))
         destino = f"{request.path}?{urlencode({'organizacao': org.pk})}"
         if request.POST.get("acao") == "aplicar_alta":
-            destino += f"&aplicadas={categorias.aplicar_alta(org)}"
+            destino += f"&aplicadas={categorias.aplicar_alta(org, request.user)}"
         elif request.POST.get("acao") == "categoria":
             est = get_object_or_404(Estabelecimento, pk=request.POST.get("estabelecimento"), tenant=org)
             if cat_id := request.POST.get("categoria"):
-                est.categoria = get_object_or_404(CategoriaGasto, pk=cat_id, tenant=org)
-                est.save(update_fields=["categoria"])
+                decisor = decisoes.Decisor(org, request.user, tela="categorizar", acao="categoria")
+                decisor.categorizar(est, get_object_or_404(CategoriaGasto, pk=cat_id, tenant=org).nome)
+                decisoes.projetar(org.pk)
         return redirect(destino)
 
 
@@ -300,7 +305,7 @@ class EstadoView(View):
             erro = "Arquivo grande demais para um estado dos Gastos (máximo 10 MB)."
         else:
             try:
-                resumo = estado.importar(org, json.loads(arquivo.read().decode("utf-8")))
+                resumo = estado.importar(org, json.loads(arquivo.read().decode("utf-8")), request.user)
             except (UnicodeDecodeError, json.JSONDecodeError):
                 erro = "O arquivo não é um JSON válido."
             except ValueError as exc:

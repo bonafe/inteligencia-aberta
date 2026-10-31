@@ -198,16 +198,21 @@ def pendentes(tenant) -> list[dict]:
     return linhas
 
 
-def aplicar_alta(tenant) -> int:
-    """Grava as sugestões de alta confiança. Devolve quantos estabelecimentos ganharam categoria."""
-    por_nome = {c.nome: c for c in CategoriaGasto.objects.filter(tenant=tenant)}
+def aplicar_alta(tenant, autor) -> int:
+    """Registra as sugestões de alta confiança como decisões de `autor`, que pediu para aplicá-las
+    (`decisoes.py`). Devolve quantos estabelecimentos ganharam categoria."""
+    from . import decisoes
+
+    nomes = set(CategoriaGasto.objects.filter(tenant=tenant).values_list("nome", flat=True))
     aplicadas = 0
+    decisor = decisoes.Decisor(tenant, autor, tela="categorizar", acao="aplicar_alta")
     with transaction.atomic():
         for linha in pendentes(tenant):
             s = linha["sugestao"]
-            if s and s.confianca == ALTA and s.categoria in por_nome:
-                est = linha["estabelecimento"]
-                est.categoria = por_nome[s.categoria]
-                est.save(update_fields=["categoria"])
+            if s and s.confianca == ALTA and s.categoria in nomes:
+                decisor.onde["motivo"] = s.motivo
+                decisor.categorizar_descritores(linha["descritores"], s.categoria)
                 aplicadas += 1
+        if aplicadas:
+            decisoes.projetar(tenant.pk)
     return aplicadas

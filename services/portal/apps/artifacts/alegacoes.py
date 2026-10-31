@@ -5,6 +5,11 @@ suas evidências, numa transação**: não existe alegação sem evidência. É
 idempotente por `(artefato, chave)`: repetir a mesma extração devolve a alegação
 que já existe em vez de duplicá-la. Uma versão nova do produtor gera alegações
 novas, e as antigas permanecem (histórico).
+
+A **decisão de uma pessoa** (ADR 022) é alegação sem artefato: informa `tenant` e
+`classificacao` no lugar dele, e a evidência é do tipo `decisao` (sem blob). A
+chave inclui a alegação revisada, então decidir A, depois B e de novo A são três
+alegações, cada uma revisando a anterior.
 """
 
 import hashlib
@@ -16,7 +21,7 @@ from django.utils import timezone
 
 from config.conteudo_hash import formato_valido as hash_valido
 
-from .models import Claim, Evidence
+from .models import Artifact, Claim, Evidence
 from .referencias import normalizar_referencia
 
 PREDICADO = re.compile(r"^([a-z][a-z0-9]*):[A-Za-z][A-Za-z0-9]*$")
@@ -29,6 +34,8 @@ def prefixo_conhecido(prefixo: str) -> bool:
 
     return prefixo in PREFIXOS_NUCLEO or prefixo in prefixos()
 LITERAL_MAXIMO = 2000
+#: Evidência de uma decisão: não aponta para blob; o localizador diz onde a pessoa decidiu.
+EVIDENCIA_DECISAO = "decisao"
 
 
 @dataclass(frozen=True)
@@ -46,21 +53,33 @@ def truncar_trecho(texto: str) -> str:
     return texto if len(texto) <= limite else texto[: limite - 1].rstrip() + "…"
 
 
-def _chave(sujeito, predicado, objeto_ref, objeto_literal, autor, produtor, versao) -> str:
+def _chave(sujeito, predicado, objeto_ref, objeto_literal, autor, produtor, versao, revisa=None) -> str:
     partes = [sujeito, predicado, objeto_ref or "", objeto_literal or "", autor, produtor, versao]
+    if revisa is not None:
+        partes.append(str(revisa.pk))
     return hashlib.sha256("\x1f".join(partes).encode()).hexdigest()
 
 
 def registrar_alegacao(
-    *, artefato, sujeito_ref: str, predicado: str, autor_ref: str, produtor: str, produtor_versao: str,
+    *, artefato=None, sujeito_ref: str, predicado: str, autor_ref: str, produtor: str, produtor_versao: str,
     evidencias: list[EvidenciaEntrada], objeto_ref: str | None = None, objeto_literal: str | None = None,
     modelo: str = "", confianca: float | None = None, revisa: Claim | None = None,
+    tenant=None, classificacao: str | None = None,
 ) -> tuple[Claim, bool]:
     """Cria a alegação com as evidências e devolve `(claim, criada)`.
 
     `ValueError` para qualquer entrada inválida (nada é gravado). `criada=False`
-    quando a mesma alegação já existia para este artefato.
+    quando a mesma alegação já existia para este artefato (ou, sem artefato, na
+    organização).
     """
+    if artefato is not None:
+        tenant_id, classificacao = artefato.tenant_id, artefato.classification_level
+    else:
+        if tenant is None or classificacao not in Artifact.ClassificationLevel.values:
+            raise ValueError("sem artefato, informe tenant e classificacao (decisão de uma pessoa)")
+        tenant_id = tenant.pk
+        if any(ev.localizador_tipo != EVIDENCIA_DECISAO for ev in evidencias):
+            raise ValueError("alegação sem artefato só tem evidência de decisão")
     if (objeto_ref is None) == (objeto_literal is None):
         raise ValueError("informe exatamente um entre objeto_ref e objeto_literal")
     m = PREDICADO.match(predicado or "")
@@ -84,26 +103,32 @@ def registrar_alegacao(
             raise ValueError(f"objeto_literal acima de {LITERAL_MAXIMO} caracteres")
 
     for ev in evidencias:
-        if not hash_valido(ev.blob_hash):
+        if ev.localizador_tipo == EVIDENCIA_DECISAO:
+            if ev.blob_hash:
+                raise ValueError("evidência de decisão não aponta para blob")
+        elif not hash_valido(ev.blob_hash):
             raise ValueError("evidência com blob_hash inválido")
         if not ev.localizador_tipo:
             raise ValueError("evidência sem localizador_tipo")
         if len(ev.trecho) > Evidence.TRECHO_MAXIMO:
             raise ValueError(f"trecho acima de {Evidence.TRECHO_MAXIMO} caracteres (use truncar_trecho)")
 
-    chave = _chave(sujeito, predicado, objeto_ref, objeto_literal, autor, produtor, produtor_versao)
-    existente = Claim.objects.filter(artefato=artefato, chave=chave).first()
+    chave = _chave(sujeito, predicado, objeto_ref, objeto_literal, autor, produtor, produtor_versao, revisa)
+    def mesma():
+        return Claim.objects.filter(artefato=artefato, chave=chave, tenant_id=tenant_id).first()
+
+    existente = mesma()
     if existente:
         return existente, False
 
     try:
         with transaction.atomic():
             claim = Claim.objects.create(
-                tenant_id=artefato.tenant_id, artefato=artefato,
+                tenant_id=tenant_id, artefato=artefato,
                 sujeito_ref=sujeito, predicado=predicado,
                 objeto_ref=objeto_ref, objeto_literal=objeto_literal,
                 autor_ref=autor, produtor=produtor, produtor_versao=produtor_versao, modelo=modelo,
-                extractor_confidence=confianca, classification_level=artefato.classification_level,
+                extractor_confidence=confianca, classification_level=classificacao,
                 revisa=revisa, chave=chave,
             )
             Evidence.objects.bulk_create([
@@ -113,7 +138,7 @@ def registrar_alegacao(
             ])
     except IntegrityError:
         # Corrida: outro processo criou a mesma alegação entre a leitura e o INSERT.
-        existente = Claim.objects.filter(artefato=artefato, chave=chave).first()
+        existente = mesma()
         if existente is None:
             raise
         return existente, False

@@ -17,10 +17,11 @@
 <p class="ajuda"><a href="{% url 'financeiro:gastos' %}?organizacao={{ org.pk }}">← Gastos</a></p>
 <h1>Exportar e importar o que você preencheu</h1>
 <p class="ajuda">
-  O que as faturas não trazem e você preencheu: as categorias, os estabelecimentos (nome, categoria e quais descritores
-  de maquininha foram juntados) e as contas (apelido, titular, se é sua e quais foram juntadas). Os lançamentos não vão
-  no arquivo: eles voltam reprocessando as capturas. Depois de zerar o sistema, importar antes ou depois de reprocessar
-  dá no mesmo, e importar o mesmo arquivo de novo não muda nada.
+  O que as faturas não trazem e você decidiu: as categorias, os estabelecimentos (nome, categoria e quais descritores
+  de maquininha foram juntados) e as contas (apelido, se é sua e quais foram juntadas). Cada decisão já fica guardada
+  como alegação sua e volta sozinha quando os lançamentos são reconstruídos; o arquivo serve para zerar o banco inteiro
+  ou levar o estado a outra instância. Os lançamentos não vão no arquivo: voltam reprocessando as capturas. Importar
+  antes ou depois de reprocessar dá no mesmo, e importar o mesmo arquivo de novo não registra nada.
 </p>
 
 {% if organizacoes|length > 1 %}
@@ -36,11 +37,8 @@
 {% if erro %}<div class="erro">{{ erro }}</div>{% endif %}
 {% if resumo %}
 <div class="aviso">
-  Importado.
-  Categorias criadas: {{ resumo.categorias_criadas }}.
-  Estabelecimentos: {{ resumo.estabelecimentos_criados }} criados, {{ resumo.estabelecimentos_atualizados }} atualizados,
-  {{ resumo.estabelecimentos_juntados }} juntados a outro.
-  Contas: {{ resumo.contas_criadas }} criadas, {{ resumo.contas_atualizadas }} atualizadas, {{ resumo.contas_juntadas }} juntadas.
+  Importado: {{ resumo.categorias }} categorias, {{ resumo.estabelecimentos }} estabelecimentos e {{ resumo.contas }} contas
+  no arquivo; {{ resumo.decisoes }} decisões novas registradas (o que já valia não foi registrado de novo).
   {% if resumo.avisos %}<ul class="numeros">{% for a in resumo.avisos %}<li>{{ a }}</li>{% endfor %}</ul>{% endif %}
 </div>
 {% endif %}
@@ -59,8 +57,8 @@
   <h2>Importar</h2>
   {% if pode_importar %}
   <p class="ajuda">
-    O arquivo acrescenta e corrige, não apaga: o nome, a categoria e o apelido que estão nele valem, mas um campo vazio no
-    arquivo não limpa o que você preencheu depois de exportar. Estabelecimentos e contas são reconhecidos pelos
+    O arquivo vira decisões suas e acrescenta e corrige, não apaga: o nome, a categoria e o apelido que estão nele valem,
+    mas um campo vazio no arquivo não desfaz o que você decidiu depois de exportar. Estabelecimentos e contas são reconhecidos pelos
     descritores e pelos números, não por ID, porque depois de zerar os IDs mudam.
   </p>
   <form method="post" enctype="multipart/form-data" class="filtros">{% csrf_token %}

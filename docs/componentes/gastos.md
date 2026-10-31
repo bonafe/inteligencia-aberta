@@ -63,10 +63,20 @@ captura (MHTML) ─┬→ parser aprovado do tipo de página (sem LLM, validado)
    os Gastos. Trocar e voltar não perde nada; a fatura nunca é somada duas vezes.
 3. **Projeção** — `Lancamento` é derivado das alegações ativas da leitura escolhida e pode ser refeito a qualquer
    momento: `manage.py reconstruir_lancamentos [--organizacao <slug>]`.
-4. **O que a pessoa sabe** — `Estabelecimento` agrupa descritores de maquininha
-   (`DescritorEstabelecimento`, texto normalizado) e tem uma `CategoriaGasto`. Juntar dois
-   estabelecimentos e escolher a categoria vale para todas as faturas, as de antes e as futuras, e
-   sobrevive à reconstrução da projeção.
+4. **O que a pessoa decide** (`apps/financeiro/decisoes.py`, ADR 022, etapa 3) — também é
+   alegação: sem artefato, produtor `pessoa`, autora a pessoa (`urn:uuid:` do usuário), evidência
+   `decisao` (a tela e a ação), no nível do piso do tipo (`interno` para estabelecimento,
+   `restrito` para conta). O sujeito é o descritor (`fin:descritor/<texto>`), a conta
+   (`fin:conta/<tipo>/<instituição>/<identificador>`) ou a categoria (`fin:categoria/<nome>`), nunca
+   o UUID local; os predicados são `fin:categoria`, `fin:nome`, `fin:empresa`, `fin:mesmoLugarQue`,
+   `fin:rotulo`, `fin:apelido`, `fin:contaPropria` e `fin:mesmaContaQue` (`fin:nenhum` desfaz).
+   Decidir de novo **revisa** a decisão vigente; nada se edita. `Estabelecimento`,
+   `DescritorEstabelecimento`, `CategoriaGasto` e o apelido e a fusão das `Conta` são **projeção**
+   (`decisoes.projetar`, chamada no fim da reconstrução e depois de cada decisão; o admin é só
+   leitura): num estabelecimento com vários descritores vale a decisão mais recente entre eles, e o
+   nome automático é o do descritor com mais movimentos. A projeção junta, nunca separa. Juntar,
+   categorizar e apelidar valem para todas as faturas, as de antes e as futuras, e zerar as tabelas
+   e reconstruir não perde nada.
 
 ## Regras do parsing (determinístico, sem LLM)
 
@@ -99,18 +109,18 @@ como "CASA" e prefixos de maquininha como "MP" e "IFD" não contam) e de palavra
 ou ramo inequívoco) pode ser aplicada de uma vez; `media` só grava com confirmação. Na primeira
 medição (deixando de fora cada estabelecimento já categorizado), as de alta acertaram 142 de 142.
 
-**Exportar e importar** (`apps/financeiro/estado.py`, tela `/gastos/estado/`): um JSON com as
-categorias, os estabelecimentos (nome, categoria, descritores juntados) e as contas (apelido,
-titular, própria, identificadores juntados), para voltar ao mesmo ponto depois de zerar o sistema.
-Sem UUID: o estabelecimento é reconhecido pelo descritor e a conta pelo identificador dentro do
-tipo e da instituição, como a projeção os encontra; por isso importar antes ou depois de
-reprocessar dá no mesmo, e importar de novo não muda nada. O arquivo acrescenta e corrige, não apaga
-(um campo vazio nele não limpa o que se preencheu depois). Exportar é de qualquer membro; importar,
-de dono ou administrador.
+**Exportar e importar** (`apps/financeiro/estado.py`, tela `/gastos/estado/`): conveniência, já que
+as decisões voltam sozinhas na reconstrução. Um JSON com as categorias, os estabelecimentos (nome,
+categoria, descritores juntados) e as contas (apelido, própria, identificadores juntados), para zerar
+o banco inteiro ou levar o estado a outra instância. Sem UUID: os mesmos sujeitos das decisões.
+Importar **registra decisões** de quem importa, só as que mudam algo: importar antes ou depois de
+reprocessar dá no mesmo, e importar de novo não registra nada. O arquivo acrescenta e corrige, não
+apaga (um campo vazio nele não desfaz o que se decidiu depois). Exportar é de qualquer membro;
+importar, de dono ou administrador.
 
-**Descritor renormalizado**: `reconstruir` começa por `renormalizar_descritores`, que liga o descritor
-da normalização atual de cada movimento ao estabelecimento que ele já tinha (fundindo, no mais antigo,
-os que passam a coincidir). Mudar `normalizar_descritor` não perde categoria nem nome.
+**Descritor renormalizado**: a projeção passa o descritor do sujeito de cada decisão de novo por
+`normalizar_descritor`; a decisão tomada sobre "ALLIANZ SEGU 1 DE 10 SAO PAULO" vale para "ALLIANZ
+SEGU SAO PAULO" quando a normalização passa a tirar a parcela. Mudar a normalização não perde nada.
 
 ## Limites
 

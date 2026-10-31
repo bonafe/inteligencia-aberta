@@ -549,6 +549,9 @@ class Claim(models.Model):
     permanece. Nasce sempre com ao menos uma `Evidence`, criada na mesma transação
     por `apps.artifacts.alegacoes.registrar_alegacao` (o único caminho a usar).
 
+    Sem `artefato` é a **decisão de uma pessoa** (ADR 022): "este estabelecimento é Mercado" não
+    vem de documento nenhum. A evidência dela é do tipo `decisao` (quem, onde), sem blob.
+
     Sujeito, objeto e autor são referências tipadas (`apps.artifacts.referencias`):
     as entidades ainda não existem como objetos. O objeto é uma referência **ou**
     um valor literal, nunca os dois. `chave` torna o registro idempotente: refazer a
@@ -561,7 +564,7 @@ class Claim(models.Model):
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     tenant = models.ForeignKey(Organization, on_delete=models.PROTECT, related_name="alegacoes")
-    artefato = models.ForeignKey(Artifact, on_delete=models.PROTECT, related_name="alegacoes")
+    artefato = models.ForeignKey(Artifact, null=True, blank=True, on_delete=models.PROTECT, related_name="alegacoes")
     sujeito_ref = models.CharField(max_length=500, db_index=True)
     predicado = models.CharField(max_length=100, db_index=True)
     objeto_ref = models.CharField(max_length=500, null=True, blank=True)
@@ -585,6 +588,8 @@ class Claim(models.Model):
         db_table = "artifacts_claim"
         constraints = [
             models.UniqueConstraint(fields=["artefato", "chave"], name="uniq_claim_artefato_chave"),
+            models.UniqueConstraint(fields=["tenant", "chave"], condition=Q(artefato__isnull=True),
+                                    name="uniq_claim_decisao_chave"),
             models.CheckConstraint(
                 check=(
                     Q(objeto_ref__isnull=False, objeto_literal__isnull=True)
@@ -629,7 +634,8 @@ class Evidence(models.Model):
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     claim = models.ForeignKey(Claim, on_delete=models.CASCADE, related_name="evidencias")
-    blob_hash = models.CharField(max_length=100, db_index=True)
+    #: Vazio só na evidência de uma decisão (`localizador_tipo="decisao"`), que não vem de blob.
+    blob_hash = models.CharField(max_length=100, db_index=True, blank=True)
     localizador_tipo = models.CharField(max_length=50)
     localizador = models.JSONField(default=dict)
     trecho = models.CharField(max_length=TRECHO_MAXIMO, blank=True)

@@ -1,6 +1,6 @@
 # ADR 022 — Domínios como extensões do núcleo
 
-**Status:** aceita — 2026-10-31. **Etapas 1 e 2 implementadas em 2026-10-31**; as demais são o plano.
+**Status:** aceita — 2026-10-31. **Etapas 1 a 3 implementadas em 2026-10-31**; as demais são o plano.
 
 ## Contexto
 
@@ -58,11 +58,31 @@ chaves, parser e schemas de página, federação. **Extensão** é uma app Djang
    `schemas/<id>/consumidores/`, `medir_parser_pagina` movido para o financeiro, predicados
    `ia:` → `fin:` (produtor na versão 2), teste de arquitetura. *(feito)*
 3. **Decisões da pessoa como alegações** (produtor `pessoa`), e as tabelas de estado do financeiro
-   como projeção delas. O exportar/importar fica como conveniência.
+   como projeção delas. O exportar/importar fica como conveniência. *(feito: ver abaixo)*
 4. **Piso de classificação por tipo** aplicado na criação da alegação, e `tipo_objeto` das regras de
    replicação validado contra os tipos do registro.
 5. **Uma segunda extensão pequena** (saúde: exames de laboratório, piso `confidencial`) para provar o
    contrato antes de fixá-lo.
+
+## Etapa 3: como ficou
+
+- **No núcleo**, `Claim.artefato` passou a aceitar nulo: a alegação sem artefato é a decisão de uma
+  pessoa, registrada pelo mesmo `registrar_alegacao` com `tenant` e `classificacao` no lugar do
+  artefato e só com evidência do tipo `decisao` (sem blob; o localizador diz a tela e a ação).
+  A chave de idempotência inclui a alegação revisada, para que decidir A, B e de novo A sejam três
+  alegações encadeadas. `normalizar_referencia` aceita `<prefixo>:<valor>` (sem espaço,
+  percent-encoded) para o vocabulário de uma extensão instalada: os indivíduos do domínio
+  (`fin:descritor/IFD%20MERCADO`) são referências como `cnpj:` e `mencao:`.
+- **Nos Gastos** (`apps/financeiro/decisoes.py`): categoria, nome, empresa e fusão de
+  estabelecimentos têm como sujeito o descritor; apelido, "própria" e junção de contas, a conta por
+  tipo, instituição e identificador; criar categoria, a própria categoria. Vale, por sujeito e
+  predicado, a decisão ativa que nenhuma outra ativa revisa (empate: a mais recente). As telas, a
+  aplicação das sugestões e o importar registram decisões; `projetar` refaz o estado no fim de cada
+  uma e da reconstrução.
+- **Limites**: a projeção junta, nunca separa (não há decisão de separar); o pacote da federação
+  ainda só leva alegações de artefatos, então as decisões sem artefato não viajam até a F1 definir
+  como (provavelmente um evento próprio por decisão, no espaço da pessoa). A escolha da leitura de
+  cada documento (`LeituraLancamentos`) segue como estado local.
 
 ## Consequências
 
