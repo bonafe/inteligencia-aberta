@@ -6,21 +6,30 @@ capturadas. Código em `services/portal/apps/financeiro/`, tela em `/gastos/`.
 ## Fluxo
 
 ```
-captura (MHTML) → estruturação por LLM (manual, aba LLM do visualizador)
-  → "Registrar lançamentos" → alegações (Claim + Evidence)
-  → projeção Lancamento → somas em /gastos/
+captura (MHTML) ─┬→ parser aprovado do tipo de página (sem LLM, validado) ──┐
+                 └→ estruturação por LLM (manual, aba LLM do visualizador) ─┤
+                                                                           ↓
+          "Registrar lançamentos" (ou sozinho, se o schema alimenta os Gastos)
+            → alegações (Claim + Evidence) → leitura escolhida → Lancamento → /gastos/
 ```
 
-1. **A fatura diz** — a estruturação escolhida vira alegações pelo serviço único
-   `registrar_alegacao`. Cada lançamento é um sujeito
-   `mencao:<blob_hash>#estruturacao/<id>/lancamento/<n>` com `ia:data`, `ia:valor`, `ia:descricao`
-   (e `ia:secao`, se houver), copiados como estão na página. O período/vencimento da fatura é
-   `ia:periodo` no sujeito `mencao:<blob_hash>#estruturacao/<id>`. Autor: o domínio da captura.
-   Evidência: `localizador_tipo="estruturacao-llm"`, `{"estruturacao", "indice"}` e a linha original
-   como trecho. Produtor `estruturacao-llm`, com o modelo que extraiu.
-2. **Uma leitura por documento** — registrar outra estruturação do mesmo documento **retrata** as
-   alegações da anterior (não apaga). Assim, comparar modelos não duplica gastos.
-3. **Projeção** — `Lancamento` é derivado das alegações ativas e pode ser refeito a qualquer
+1. **A fatura diz** — a leitura vira alegações pelo serviço único `registrar_alegacao`, de uma
+   de duas fontes:
+   - **parser do tipo de página** (`registrar_extracao`): só extração que **validou**. Sujeito
+     `mencao:<blob_hash>#parser/<schema>/lancamento/<n>` (do schema, não da execução: rodar de
+     novo não duplica), produtor `parser-pagina`, versão `v<n>` do schema, sem modelo.
+     **Automático** quando o schema tem a chave "registrar nos Gastos sozinho" ligada
+     (`SchemaPagina.alimenta_gastos`, desligada por padrão; quem ouve é `financeiro/signals.py`);
+   - **estruturação por LLM** (`registrar`): sujeito `mencao:<blob_hash>#estruturacao/<id>/lancamento/<n>`,
+     produtor `estruturacao-llm`, com o modelo que extraiu.
+
+   Cada lançamento tem `ia:data`, `ia:valor`, `ia:descricao` (e `ia:secao`, se houver), copiados
+   como estão na página; o período/vencimento é `ia:periodo` no sujeito-base. Autor: o domínio
+   da captura. Evidência: a linha original como trecho e o localizador da fonte.
+2. **Uma leitura por documento** — a última registrada vira a escolhida (`LeituraLancamentos`).
+   As alegações das outras leituras **continuam ativas** (ninguém as desmentiu), só não alimentam
+   os Gastos. Trocar e voltar não perde nada; a fatura nunca é somada duas vezes.
+3. **Projeção** — `Lancamento` é derivado das alegações ativas da leitura escolhida e pode ser refeito a qualquer
    momento: `manage.py reconstruir_lancamentos [--organizacao <slug>]`.
 4. **O que a pessoa sabe** — `Estabelecimento` agrupa descritores de maquininha
    (`DescritorEstabelecimento`, texto normalizado) e tem uma `CategoriaGasto`. Juntar dois

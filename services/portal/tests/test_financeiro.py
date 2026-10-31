@@ -179,15 +179,20 @@ def test_registrar_e_idempotente(org):
     assert Lancamento.objects.count() == 7
 
 
-def test_outra_estruturacao_retrata_a_anterior_sem_duplicar_gastos(org):
+def test_outra_estruturacao_substitui_a_anterior_sem_duplicar_gastos(org):
     e1 = _estruturacao(org)
     L.registrar(e1)
     e2 = _outra(e1, "llama3.1:8b")
     r = L.registrar(e2)
-    assert r.retratadas == Claim.objects.filter(sujeito_ref__contains=str(e1.id)).count() > 0
-    assert not Claim.objects.filter(sujeito_ref__contains=str(e1.id), estado=Claim.Estado.ATIVA).exists()
+    assert r.substituiu
+    # A leitura anterior não foi desmentida: as alegações seguem ativas, só não alimentam os Gastos.
+    assert Claim.objects.filter(sujeito_ref__contains=str(e1.id), estado=Claim.Estado.ATIVA).exists()
     assert Lancamento.objects.count() == 7
-    assert set(Lancamento.objects.values_list("estruturacao_id", flat=True)) == {e2.id}
+    assert set(Lancamento.objects.values_list("fonte_id", flat=True)) == {e2.id}
+    r = L.registrar(e1)                                             # e voltar não perde nada
+    assert r.substituiu and r.alegacoes_criadas == 0
+    assert set(Lancamento.objects.values_list("fonte_id", flat=True)) == {e1.id}
+    assert Lancamento.objects.count() == 7
 
 
 def test_registrar_recusa_sem_hash_ou_nao_concluida(org):

@@ -5,9 +5,13 @@ Três passos, cada um com seu lugar:
 1. **Parsing puro** (`extrair_linhas`, `parse_valor`, `parse_data`, `normalizar_descritor`,
    `tipo_do_lancamento`): sem banco e sem LLM. Os nomes de campo vêm de um LLM e variam entre
    execuções ("transação", "descricao", "historico"), por isso a busca é por forma, não por caminho.
-2. **Registro** (`registrar`): a pessoa escolhe uma estruturação concluída e ela vira alegações
-   pelo serviço único `registrar_alegacao`, com evidência apontando para a linha. As alegações de
-   outra estruturação do mesmo documento são retratadas — a fatura passa a ser lida só pela escolhida.
+2. **Registro**: a leitura escolhida de um documento vira alegações pelo serviço único
+   `registrar_alegacao`, com evidência apontando para a linha. Duas fontes, intercambiáveis:
+   uma estruturação por LLM (`registrar`) ou uma extração **válida** do parser aprovado do tipo
+   de página (`registrar_extracao`, sem LLM; automática quando o schema tem `alimenta_gastos`).
+   A leitura registrada passa a ser a escolhida do documento (`LeituraLancamentos`); as
+   alegações das outras leituras continuam ativas (ninguém as desmentiu), só não alimentam os
+   Gastos. Trocar e voltar não perde nada, e a fatura nunca é somada duas vezes.
 3. **Projeção** (`projetar_artefato`, `reconstruir`): das alegações ativas para `Lancamento`.
    Apagar e refazer a projeção é seguro; as fusões e categorias ficam em `Estabelecimento`.
 
@@ -25,17 +29,19 @@ from urllib.parse import urlsplit
 
 from django.db import transaction
 
-from apps.artifacts.alegacoes import LITERAL_MAXIMO, EvidenciaEntrada, registrar_alegacao, retratar, truncar_trecho
+from apps.artifacts.alegacoes import LITERAL_MAXIMO, EvidenciaEntrada, registrar_alegacao, truncar_trecho
 from apps.artifacts.extractors.valores import parse_valor
-from apps.artifacts.models import Claim, EstruturacaoLLM
+from apps.artifacts.models import Claim, EstruturacaoLLM, ExtracaoPagina
 from config.conteudo_hash import formato_valido as hash_valido
 
-from .models import CategoriaGasto, DescritorEstabelecimento, Estabelecimento, Lancamento
+from .models import CategoriaGasto, DescritorEstabelecimento, Estabelecimento, Lancamento, LeituraLancamentos
 
 PRODUTOR = "estruturacao-llm"
 #: Subir quando a forma das alegações mudar (predicados, sujeito, evidência).
 PRODUTOR_VERSAO = "1"
 LOCALIZADOR_TIPO = "estruturacao-llm"
+PRODUTOR_PARSER = "parser-pagina"
+PRODUTORES = (PRODUTOR, PRODUTOR_PARSER)
 
 CATEGORIAS_PADRAO = (
     "Mercado", "Restaurante e bar", "Café e lanche", "Assinaturas e software", "Farmácia e saúde",
@@ -46,7 +52,7 @@ CATEGORIAS_PADRAO = (
 #: propósito: parcela traz a data da compra original ("15/12 ... PARC 10/10" numa fatura de outubro).
 FOLGA_ANO = timedelta(days=10)
 
-_SUJEITO = re.compile(r"#estruturacao/([0-9a-f-]{36})/lancamento/(\d+)$")
+_SUJEITO = re.compile(r"#(estruturacao|parser)/([0-9a-f-]{36})/lancamento/(\d+)$")
 _LISTAS_GENERICAS = {"lancamentos", "itens", "transacoes", "linhas", "movimentacoes", "compras"}
 _CHAVES_DESCRICAO = ("descricao", "transacao", "historico", "estabelecimento", "lancamento", "detalhe", "nome")
 _MESES = {
@@ -213,7 +219,8 @@ def nome_legivel(descritor: str) -> str:
 class Resultado:
     lancamentos: int = 0
     alegacoes_criadas: int = 0
-    retratadas: int = 0
+    #: Outra leitura alimentava os Gastos deste documento e deixou de alimentar.
+    substituiu: bool = False
 
 
 def _autor(document_text, artefato) -> str:
@@ -226,71 +233,117 @@ def base_sujeito(blob_hash: str, estruturacao_id) -> str:
     return f"mencao:{blob_hash}#estruturacao/{estruturacao_id}"
 
 
-def registrar(estruturacao: EstruturacaoLLM, *, user_id=None) -> Resultado:
-    """Transforma a estruturação escolhida em alegações e refaz a projeção do documento.
+@dataclass
+class _Leitura:
+    """De onde vêm os lançamentos: tudo o que muda entre estruturação por LLM e parser."""
 
-    `ValueError` com mensagem para a pessoa quando não dá (execução não concluída, captura sem
-    hash). Idempotente: registrar de novo não duplica nada.
-    """
+    base: str
+    fonte: str
+    fonte_id: object
+    produtor: str
+    produtor_versao: str
+    modelo: str
+    localizador_tipo: str
+    localizador: dict
+    rotulo: str
+    payload: dict
+
+
+def _registrar(document_text, dados, leitura: _Leitura, user_id) -> Resultado:
     from apps.artifacts.tasks import correlacao_do_artefato
     from apps.events.emit import emit
 
-    if estruturacao.status != EstruturacaoLLM.Status.CONCLUIDO or not estruturacao.structured_data:
-        raise ValueError("só uma estruturação concluída pode virar lançamentos")
-    document_text = estruturacao.document_text
     artefato = document_text.document
     if not hash_valido(artefato.blob_hash or ""):
         raise ValueError("a captura não tem hash de conteúdo; sem ele não há evidência")
 
-    linhas, periodo = extrair_linhas(estruturacao.structured_data)
+    linhas, periodo = extrair_linhas(dados)
     resultado = Resultado(lancamentos=len(linhas))
     comum = dict(
         correlation_id=correlacao_do_artefato(artefato.id), subject_type="artifact", subject_id=artefato.id,
         tenant_id=artefato.tenant_id, user_id=user_id, source="portal",
     )
     if not linhas:
-        emit("financeiro.lancamentos", "vazio", message="a estruturação não tem lista de lançamentos",
-             payload={"estruturacao_id": str(estruturacao.id)}, **comum)
+        emit("financeiro.lancamentos", "vazio", message=f"{leitura.rotulo} não tem lista de lançamentos",
+             payload=leitura.payload, **comum)
         return resultado
 
-    base = base_sujeito(artefato.blob_hash, estruturacao.id)
     autor = _autor(document_text, artefato)
-    modelo = f"{estruturacao.provider}:{estruturacao.model_name}"
 
     def alegar(sujeito, predicado, valor, localizador, trecho):
         _, criada = registrar_alegacao(
             artefato=artefato, sujeito_ref=sujeito, predicado=predicado, objeto_literal=valor,
-            autor_ref=autor, produtor=PRODUTOR, produtor_versao=PRODUTOR_VERSAO, modelo=modelo,
-            evidencias=[EvidenciaEntrada(blob_hash=artefato.blob_hash, localizador_tipo=LOCALIZADOR_TIPO,
+            autor_ref=autor, produtor=leitura.produtor, produtor_versao=leitura.produtor_versao,
+            modelo=leitura.modelo,
+            evidencias=[EvidenciaEntrada(blob_hash=artefato.blob_hash, localizador_tipo=leitura.localizador_tipo,
                                          localizador=localizador, trecho=trecho)],
         )
         resultado.alegacoes_criadas += int(criada)
 
     with transaction.atomic():
         if periodo:
-            alegar(base, "ia:periodo", periodo, {"estruturacao": str(estruturacao.id)}, truncar_trecho(periodo))
+            alegar(leitura.base, "ia:periodo", periodo, dict(leitura.localizador), truncar_trecho(periodo))
         for linha in linhas:
-            sujeito = f"{base}/lancamento/{linha.indice}"
+            sujeito = f"{leitura.base}/lancamento/{linha.indice}"
             trecho = truncar_trecho(json.dumps(linha.original, ensure_ascii=False))
-            loc = {"estruturacao": str(estruturacao.id), "indice": linha.indice}
+            loc = {**leitura.localizador, "indice": linha.indice}
             alegar(sujeito, "ia:data", linha.data, loc, trecho)
             alegar(sujeito, "ia:valor", linha.valor, loc, trecho)
             alegar(sujeito, "ia:descricao", linha.descricao[:LITERAL_MAXIMO], loc, trecho)
             if linha.secao:
                 alegar(sujeito, "ia:secao", linha.secao, loc, trecho)
-        antigas = (Claim.objects.filter(artefato=artefato, produtor=PRODUTOR, estado=Claim.Estado.ATIVA)
-                   .exclude(sujeito_ref__startswith=base))
-        for claim in antigas:
-            retratar(claim)
-            resultado.retratadas += 1
+        anterior = LeituraLancamentos.objects.filter(artefato=artefato).values_list("base", flat=True).first()
+        resultado.substituiu = anterior is not None and anterior != leitura.base
+        LeituraLancamentos.objects.update_or_create(
+            artefato=artefato,
+            defaults={"tenant_id": artefato.tenant_id, "base": leitura.base, "fonte": leitura.fonte,
+                      "fonte_id": leitura.fonte_id},
+        )
         projetar_artefato(artefato)
 
     emit("financeiro.lancamentos", "ok",
-         message=f"{resultado.lancamentos} lançamentos registrados ({modelo})",
-         payload={"estruturacao_id": str(estruturacao.id), "lancamentos": resultado.lancamentos,
-                  "alegacoes_criadas": resultado.alegacoes_criadas, "retratadas": resultado.retratadas},
+         message=f"{resultado.lancamentos} lançamentos registrados ({leitura.rotulo})",
+         payload={**leitura.payload, "lancamentos": resultado.lancamentos,
+                  "alegacoes_criadas": resultado.alegacoes_criadas, "substituiu": resultado.substituiu},
          **comum)
     return resultado
+
+
+def registrar(estruturacao: EstruturacaoLLM, *, user_id=None) -> Resultado:
+    """Transforma a estruturação por LLM escolhida em alegações e refaz a projeção do documento.
+
+    `ValueError` com mensagem para a pessoa quando não dá (execução não concluída, captura sem
+    hash). Idempotente: registrar de novo não duplica nada.
+    """
+    if estruturacao.status != EstruturacaoLLM.Status.CONCLUIDO or not estruturacao.structured_data:
+        raise ValueError("só uma estruturação concluída pode virar lançamentos")
+    document_text = estruturacao.document_text
+    modelo = f"{estruturacao.provider}:{estruturacao.model_name}"
+    return _registrar(document_text, estruturacao.structured_data, _Leitura(
+        base=base_sujeito(document_text.document.blob_hash, estruturacao.id),
+        fonte=Lancamento.Fonte.ESTRUTURACAO, fonte_id=estruturacao.id, produtor=PRODUTOR, produtor_versao=PRODUTOR_VERSAO, modelo=modelo,
+        localizador_tipo=LOCALIZADOR_TIPO, localizador={"estruturacao": str(estruturacao.id)},
+        rotulo=modelo, payload={"estruturacao_id": str(estruturacao.id)},
+    ), user_id)
+
+
+def registrar_extracao(extracao: ExtracaoPagina, *, user_id=None) -> Resultado:
+    """Transforma uma extração **válida** do parser aprovado em alegações, sem LLM.
+
+    O sujeito é do schema (não da execução): rodar o mesmo parser de novo na mesma captura
+    produz as mesmas alegações, então registrar de novo não duplica nada.
+    """
+    if extracao.status != ExtracaoPagina.Status.VALIDO or not extracao.dados:
+        raise ValueError("só uma extração que validou pode virar lançamentos")
+    document_text, schema = extracao.document_text, extracao.schema
+    return _registrar(document_text, extracao.dados, _Leitura(
+        base=f"mencao:{document_text.document.blob_hash}#parser/{schema.id}",
+        fonte=Lancamento.Fonte.PARSER, fonte_id=schema.id, produtor=PRODUTOR_PARSER, produtor_versao=f"v{schema.versao}", modelo="",
+        localizador_tipo=PRODUTOR_PARSER,
+        localizador={"schema": str(schema.id), "versao": schema.versao, "extracao": str(extracao.id)},
+        rotulo=f"parser v{schema.versao}, sem LLM",
+        payload={"extracao_id": str(extracao.id), "schema_id": str(schema.id)},
+    ), user_id)
 
 
 # ── projeção ────────────────────────────────────────────────────────────────
@@ -312,16 +365,24 @@ def _estabelecimento(tenant_id, descricao: str, cache: dict) -> Estabelecimento 
 
 
 def projetar_artefato(artefato) -> int:
-    """Refaz os `Lancamento` de um documento a partir das alegações ativas. Devolve quantos."""
+    """Refaz os `Lancamento` de um documento a partir das alegações ativas da leitura escolhida.
+    Devolve quantos (zero quando nenhuma leitura foi escolhida)."""
+    from django.db.models import Q
+
+    Lancamento.objects.filter(artefato=artefato).delete()
+    leitura = LeituraLancamentos.objects.filter(artefato=artefato).first()
+    if leitura is None:
+        return 0
     sujeitos: dict[str, dict[str, str]] = {}
     periodos: dict[str, str] = {}
-    for c in Claim.objects.filter(artefato=artefato, produtor=PRODUTOR, estado=Claim.Estado.ATIVA):
+    da_leitura = Q(sujeito_ref=leitura.base) | Q(sujeito_ref__startswith=leitura.base + "/")
+    for c in Claim.objects.filter(da_leitura, artefato=artefato, produtor__in=PRODUTORES,
+                                  estado=Claim.Estado.ATIVA):
         if c.predicado == "ia:periodo":
             periodos[c.sujeito_ref] = c.objeto_literal
         else:
             sujeitos.setdefault(c.sujeito_ref, {})[c.predicado] = c.objeto_literal
 
-    Lancamento.objects.filter(artefato=artefato).delete()
     cache: dict = {}
     novos = []
     for sujeito, campos in sujeitos.items():
@@ -334,7 +395,8 @@ def projetar_artefato(artefato) -> int:
         descricao = campos["ia:descricao"]
         tipo = tipo_do_lancamento(descricao, valor)
         novos.append(Lancamento(
-            tenant_id=artefato.tenant_id, artefato=artefato, estruturacao_id=m.group(1), indice=int(m.group(2)),
+            tenant_id=artefato.tenant_id, artefato=artefato, fonte=m.group(1), fonte_id=m.group(2),
+            indice=int(m.group(3)),
             sujeito_ref=sujeito, data=parse_data(campos.get("ia:data", ""), referencia),
             data_texto=campos.get("ia:data", "")[:100], valor=valor, valor_texto=campos["ia:valor"][:100],
             descricao=descricao[:500], secao=campos.get("ia:secao", "")[:200], tipo=tipo,
@@ -350,12 +412,12 @@ def reconstruir(tenant=None) -> int:
     """Refaz toda a projeção (de uma organização ou de todas). Devolve o total de lançamentos."""
     from apps.artifacts.models import Artifact
 
-    claims = Claim.objects.filter(produtor=PRODUTOR, estado=Claim.Estado.ATIVA)
+    leituras = LeituraLancamentos.objects.all()
     lancamentos = Lancamento.objects.all()
     if tenant is not None:
-        claims = claims.filter(tenant=tenant)
+        leituras = leituras.filter(tenant=tenant)
         lancamentos = lancamentos.filter(tenant=tenant)
-    ids = set(claims.values_list("artefato_id", flat=True))
+    ids = set(leituras.values_list("artefato_id", flat=True))
     total = 0
     with transaction.atomic():
         lancamentos.exclude(artefato_id__in=ids).delete()

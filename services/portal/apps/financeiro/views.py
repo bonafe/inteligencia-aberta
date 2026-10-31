@@ -14,7 +14,7 @@ from django.views import View
 
 from apps.accounts.models import Organization
 from apps.accounts.views import orgs_do_usuario
-from apps.artifacts.models import EstruturacaoLLM
+from apps.artifacts.models import EstruturacaoLLM, ExtracaoPagina
 
 from . import lancamentos
 from .models import CategoriaGasto, Estabelecimento, Lancamento
@@ -134,5 +134,26 @@ class RegistrarLancamentosView(View):
         return JsonResponse({
             "lancamentos": resultado.lancamentos,
             "alegacoes_criadas": resultado.alegacoes_criadas,
-            "retratadas": resultado.retratadas,
+            "substituiu": resultado.substituiu,
+        })
+
+
+class RegistrarExtracaoView(View):
+    """POST: a extração válida do parser de página vira alegações e lançamentos, sem LLM."""
+
+    def post(self, request, extracao_id):
+        extracao = get_object_or_404(
+            ExtracaoPagina.objects.select_related("document_text__document", "schema"),
+            pk=extracao_id, tenant__in=orgs_do_usuario(request.user),
+        )
+        try:
+            resultado = lancamentos.registrar_extracao(extracao, user_id=request.user.id)
+        except ValueError as exc:
+            return JsonResponse({"error": str(exc)}, status=400)
+        if not resultado.lancamentos:
+            return JsonResponse({"error": "esta extração não tem lista de lançamentos (data e valor)"}, status=400)
+        return JsonResponse({
+            "lancamentos": resultado.lancamentos,
+            "alegacoes_criadas": resultado.alegacoes_criadas,
+            "substituiu": resultado.substituiu,
         })

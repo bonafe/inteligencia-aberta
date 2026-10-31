@@ -1,8 +1,9 @@
 """Gastos a partir das faturas: o que a pessoa **sabe** sobre os lançamentos que a fatura **diz**.
 
-A fonte é a alegação (`apps.artifacts.models.Claim`, produtor `estruturacao-llm`): cada lançamento
-é um sujeito `mencao:<blob>#estruturacao/<id>/lancamento/<n>` com `ia:data`, `ia:valor` e
-`ia:descricao`, sempre com evidência. `Lancamento` é a **projeção** dessas alegações para somar —
+A fonte é a alegação (`apps.artifacts.models.Claim`, produtor `estruturacao-llm` ou
+`parser-pagina`): cada lançamento é um sujeito `mencao:<blob>#estruturacao/<id>/lancamento/<n>`
+(leitura por LLM) ou `mencao:<blob>#parser/<schema>/lancamento/<n>` (parser aprovado, sem LLM)
+com `ia:data`, `ia:valor` e `ia:descricao`, sempre com evidência. `Lancamento` é a **projeção** dessas alegações para somar —
 reconstruível a qualquer momento (`reconstruir_lancamentos`), como o `PipelineRun` é do log de
 eventos. `Estabelecimento`, `DescritorEstabelecimento` e `CategoriaGasto` são estado da pessoa
 (fusões e categorias) e sobrevivem à reconstrução.
@@ -81,13 +82,19 @@ class Lancamento(models.Model):
         ESTORNO = "estorno", "Estorno"
         PAGAMENTO = "pagamento", "Pagamento da fatura"
 
+    class Fonte(models.TextChoices):
+        ESTRUTURACAO = "estruturacao", "Estruturação por LLM"
+        PARSER = "parser", "Parser do tipo de página"
+
     #: Tipos que entram na soma de gastos (estorno entra negativo e abate).
     TIPOS_GASTO = (Tipo.COMPRA, Tipo.TARIFA, Tipo.ESTORNO)
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     tenant = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="lancamentos")
     artefato = models.ForeignKey(Artifact, on_delete=models.CASCADE, related_name="lancamentos")
-    estruturacao_id = models.UUIDField()
+    fonte = models.CharField(max_length=20, choices=Fonte.choices, default=Fonte.ESTRUTURACAO)
+    #: A `EstruturacaoLLM` ou o `SchemaPagina` que leu os lançamentos (conforme `fonte`).
+    fonte_id = models.UUIDField()
     indice = models.PositiveIntegerField()
     sujeito_ref = models.CharField(max_length=500)
     data = models.DateField(null=True, blank=True)
@@ -111,3 +118,27 @@ class Lancamento(models.Model):
 
     def __str__(self):
         return f"{self.data_texto} {self.descricao} {self.valor_texto}"
+
+
+class LeituraLancamentos(models.Model):
+    """Qual leitura de um documento alimenta os Gastos: uma por documento.
+
+    As alegações de todas as leituras (cada estruturação por LLM, o parser) continuam ativas —
+    são o que cada produtor leu, nada foi desmentido. Escolher outra leitura é estado da pessoa,
+    não retratação: trocar e voltar não perde nada, e a fatura nunca é somada duas vezes.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    tenant = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="leituras_lancamentos")
+    artefato = models.OneToOneField(Artifact, on_delete=models.CASCADE, related_name="leitura_lancamentos")
+    #: Prefixo dos sujeitos das alegações desta leitura (`mencao:<blob>#estruturacao/<id>` ou `#parser/<schema>`).
+    base = models.CharField(max_length=500)
+    fonte = models.CharField(max_length=20, choices=Lancamento.Fonte.choices)
+    fonte_id = models.UUIDField()
+    escolhida_em = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "financeiro_leitura"
+
+    def __str__(self):
+        return f"{self.fonte}:{self.fonte_id} para {self.artefato_id}"

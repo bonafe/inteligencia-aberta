@@ -273,11 +273,14 @@ class AprovarSchemaView(View):
             anteriores = SchemaPagina.objects.select_for_update().filter(
                 padrao=registro.padrao, status=SchemaPagina.Status.APROVADO)
             substituidos = [str(a.versao) for a in anteriores]
+            # A versão nova do mesmo tipo continua alimentando os Gastos se a anterior alimentava.
+            registro.alimenta_gastos = registro.alimenta_gastos or any(a.alimenta_gastos for a in anteriores)
             anteriores.update(status=SchemaPagina.Status.SUBSTITUIDO, updated_at=timezone.now())
             registro.status = SchemaPagina.Status.APROVADO
             registro.parser, registro.avisos = parser, list(registro.avisos or []) + avisos
             registro.aprovado_por, registro.aprovado_em = request.user, timezone.now()
-            registro.save(update_fields=["status", "parser", "avisos", "aprovado_por", "aprovado_em", "updated_at"])
+            registro.save(update_fields=["status", "parser", "avisos", "aprovado_por", "aprovado_em",
+                                         "alimenta_gastos", "updated_at"])
         emit("schema_pagina.aprovado", "ok", subject_type="artifact", subject_id=registro.amostra_id,
              tenant_id=registro.tenant_id, user_id=request.user.id, source="portal",
              message=f"schema v{registro.versao} de {registro.padrao.domain}{registro.padrao.path_pattern} aprovado",
@@ -300,8 +303,29 @@ class NovaVersaoSchemaView(View):
                 status=SchemaPagina.Status.RASCUNHO, schema=origem.schema, avisos=[],
                 classification_level=origem.classification_level, provider=origem.provider,
                 model_name=origem.model_name, triggered_by=request.user, derivado_de=origem,
+                alimenta_gastos=origem.alimenta_gastos,
             )
         return JsonResponse({"id": str(nova.id), "versao": versao, "url": f"/artifacts/schemas/{nova.id}/"})
+
+
+class GastosSchemaView(View):
+    """Liga ou desliga o registro automático nos Gastos (dono ou administrador)."""
+
+    def post(self, request, schema_id):
+        registro = _schema_da_pessoa(request, schema_id)
+        if not eh_admin(request.user, registro.tenant):
+            return JsonResponse({"error": "só dono ou administrador da organização muda isto"}, status=403)
+        try:
+            ativo = bool(json.loads(request.body).get("ativo"))
+        except (json.JSONDecodeError, AttributeError):
+            return JsonResponse({"error": "JSON inválido"}, status=400)
+        registro.alimenta_gastos = ativo
+        registro.save(update_fields=["alimenta_gastos", "updated_at"])
+        emit("schema_pagina.gastos", "ok", subject_type="artifact", subject_id=registro.amostra_id,
+             tenant_id=registro.tenant_id, user_id=request.user.id, source="portal",
+             message=f"schema v{registro.versao}: registro automático nos Gastos {'ligado' if ativo else 'desligado'}",
+             payload={"schema_id": str(registro.id), "alimenta_gastos": ativo})
+        return JsonResponse({"alimenta_gastos": ativo})
 
 
 # ── execução do parser aprovado ─────────────────────────────────────────────
@@ -316,6 +340,7 @@ def _extracao_json(e: ExtracaoPagina) -> dict:
         "origem": e.origem,
         "versao": e.schema.versao,
         "schema_url": f"/artifacts/schemas/{e.schema_id}/",
+        "alimenta_gastos": e.schema.alimenta_gastos,
         "problemas": e.problemas,
         "invariantes": e.invariantes,
         "duration_ms": e.duration_ms,

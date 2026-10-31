@@ -316,6 +316,10 @@ são extraídas por um parser determinístico, sem chamar LLM. Chave do tipo: a 
    quê e aponta para "Estruturar com LLM" e "Gerar schema". A tela do schema mostra o uso
    (válidas, não validaram, erro) e alerta quando a execução mais recente não validou. Nada
    roda o LLM sozinho.
+5. **Gastos (feito)** — extração válida vira alegações e lançamentos
+   (`apps/financeiro/lancamentos.registrar_extracao`), pelo botão "Registrar lançamentos" no
+   card do parser ou sozinha quando o schema tem `alimenta_gastos` (chave na tela do schema, de
+   dono/admin, desligada por padrão; herdada pela versão que substitui). Ver `docs/componentes/gastos.md`.
 
 **Por que não repete o erro de `c6d8d1c`** (o reuso de schema removido em 2026-09-17): lá o
 schema era *inferido* dos valores presentes na primeira captura, então um campo vazio nela

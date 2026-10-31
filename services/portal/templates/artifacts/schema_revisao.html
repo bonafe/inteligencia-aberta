@@ -85,6 +85,17 @@
 </div>
 {% endif %}
 
+<div class="bloco">
+  <h2>Gastos</h2>
+  <label style="display:flex;gap:.5rem;align-items:center;font-weight:500">
+    <input type="checkbox" id="alimenta-gastos" style="width:auto" {% if registro.alimenta_gastos %}checked{% endif %}
+           {% if not pode_aprovar %}disabled{% endif %} onchange="mudarGastos(this)">
+    Registrar os lançamentos nos Gastos sozinho quando a extração deste tipo de página validar
+  </label>
+  <p class="ajuda">Só para faturas e extratos. Desligado, a extração válida fica disponível para “Registrar lançamentos” no visualizador.
+    {% if not pode_aprovar %}Só dono ou administrador muda isto.{% endif %} <span id="gastos-msg"></span></p>
+</div>
+
 <div class="barra">
   <button class="btn" onclick="preVisualizar()">Pré-visualizar</button>
   {% if editavel %}
@@ -338,6 +349,13 @@
       return;
     }
     location.reload();
+  }
+
+  async function mudarGastos(caixa) {
+    const saida = document.getElementById('gastos-msg');
+    const {ok, data} = await post(`/artifacts/schemas/${SCHEMA_ID}/gastos/`, {ativo: caixa.checked});
+    if (!ok) { caixa.checked = !caixa.checked; saida.textContent = data.error || 'falhou'; return; }
+    saida.textContent = data.alimenta_gastos ? 'Ligado.' : 'Desligado.';
   }
 
   async function novaVersao() {

@@ -6,3 +6,6 @@ class FinanceiroConfig(AppConfig):
     name = "apps.financeiro"
     label = "financeiro"
     verbose_name = "Gastos (faturas e extratos)"
+
+    def ready(self):
+        from . import signals  # noqa: F401

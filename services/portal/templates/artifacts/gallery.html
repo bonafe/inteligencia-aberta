@@ -1127,6 +1127,20 @@
                     ' — a página pode ter mudado: estruture com LLM ou gere um schema novo a partir desta captura.';
                 card.appendChild(erro);
             }
+            if (valido) {
+                const linha = document.createElement('div');
+                linha.style.cssText = 'display:flex;align-items:center;gap:.6rem;margin-top:.4rem';
+                const reg = document.createElement('button');
+                reg.className = 'btn-parar';
+                reg.textContent = 'Registrar lançamentos';
+                reg.onclick = () => registrarLancamentos(e.id, reg, `/gastos/registrar-extracao/${e.id}/`);
+                const saida = document.createElement('span');
+                saida.className = 'llm-card-meta';
+                saida.id = `lanc-${e.id}`;
+                if (e.alimenta_gastos) saida.textContent = 'este tipo de página registra os lançamentos nos Gastos sozinho';
+                linha.append(reg, saida);
+                card.appendChild(linha);
+            }
             if (e.dados) {
                 const body = document.createElement('div');
                 body.className = 'llm-card-body json-tree';
@@ -1248,17 +1262,17 @@
 
     // A estruturação escolhida vira alegações e lançamentos (apps/financeiro); outra
     // estruturação do mesmo documento registrada antes deixa de valer.
-    function registrarLancamentos(id, botao) {
+    function registrarLancamentos(id, botao, url) {
         const saida = document.getElementById(`lanc-${id}`);
         botao.disabled = true;
         saida.textContent = 'registrando…';
-        fetch(`/gastos/registrar/${id}/`, {method: 'POST', headers: {'X-CSRFToken': CSRF_TOKEN}})
+        fetch(url || `/gastos/registrar/${id}/`, {method: 'POST', headers: {'X-CSRFToken': CSRF_TOKEN}})
             .then(r => r.json().then(data => ({ok: r.ok, data})))
             .then(({ok, data}) => {
                 botao.disabled = false;
                 if (!ok) { saida.textContent = data.error || 'falhou'; return; }
                 saida.innerHTML = `${data.lancamentos} lançamentos registrados` +
-                    (data.retratadas ? ` (a leitura anterior deixou de valer)` : '') +
+                    (data.substituiu ? ` (a leitura anterior deixou de alimentar os Gastos)` : '') +
                     ` · <a href="/gastos/">ver gastos</a>`;
             })
             .catch(() => { botao.disabled = false; saida.textContent = 'falhou'; });
