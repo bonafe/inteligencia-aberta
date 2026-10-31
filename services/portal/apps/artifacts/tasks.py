@@ -114,7 +114,10 @@ def _ler_mhtml(bucket: str, path: str) -> bytes:
 
 
 def _html_do_mhtml(mhtml_bytes: bytes) -> tuple[str | None, str | None]:
-    """Primeira parte text/html do MHTML, decodificada: (html, charset do MIME). (None, None) se não houver."""
+    """Primeira parte text/html do MHTML, decodificada e com o shadow DOM achatado (para os
+    extratores lerem): (html, charset do MIME). (None, None) se não houver."""
+    from .extractors.shadow_dom import achatar_shadow_dom
+
     msg = email_lib.message_from_bytes(mhtml_bytes, policy=email_policy.default)
     for part in msg.walk():
         if part.get_content_type() == "text/html":
@@ -122,7 +125,7 @@ def _html_do_mhtml(mhtml_bytes: bytes) -> tuple[str | None, str | None]:
             if payload:
                 mime_charset = part.get_content_charset()
                 logger.debug("charset resolvido — mime=%s bytes=%d", mime_charset, len(payload))
-                return _decode_html_bytes(payload, mime_charset), mime_charset
+                return achatar_shadow_dom(_decode_html_bytes(payload, mime_charset)), mime_charset
     return None, None
 
 

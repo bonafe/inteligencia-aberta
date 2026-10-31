@@ -267,11 +267,12 @@ class ServeMHTMLView(View):
                 
                 # Encontra o arquivo HTML principal
                 if content_type == "text/html" and not html_part:
+                    from .extractors.shadow_dom import declarar_shadow_dom
                     from .tasks import _decode_html_bytes
                     mime_charset = part.get_content_charset()
                     payload = part.get_payload(decode=True)
                     if payload:
-                        html_part = _decode_html_bytes(payload, mime_charset)
+                        html_part = declarar_shadow_dom(_decode_html_bytes(payload, mime_charset))
                 # O resto são assets (imagens, css, etc)
                 else:
                     payload = part.get_payload(decode=True)
