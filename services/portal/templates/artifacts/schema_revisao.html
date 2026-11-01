@@ -252,6 +252,13 @@
             on: {change: e => { l.secoes = e.target.checked; }}}), 'seções'),
           el('input', {type: 'text', value: l.descricao ?? '', placeholder: 'descrição', disabled: !EDITAVEL,
             on: {input: e => { l.descricao = e.target.value; }}}),
+          el('input', {type: 'text', value: (l.linhas_saldo || []).join('; '), disabled: !EDITAVEL,
+            placeholder: 'linhas de saldo (ex.: Saldo Anterior; Saldo do dia)',
+            title: 'Começo do texto das linhas que são saldo, não lançamento, separados por ";"',
+            on: {input: e => { l.linhas_saldo = e.target.value.split(';').map(s => s.trim()).filter(Boolean); }}}),
+          el('input', {type: 'text', value: l.tolerancia_saldo ?? '0', disabled: !EDITAVEL, size: 5,
+            title: 'Diferença aceita por trecho entre dois saldos, em reais (rendimento que a página não lista)',
+            on: {input: e => { l.tolerancia_saldo = e.target.value; }}}),
           EDITAVEL ? [
             el('button', {className: 'mini', on: {click: () => { l.campos.push(novoCampo()); render(); }}}, '+ coluna'),
             el('button', {className: 'mini', on: {click: () => { estado.listas.splice(i, 1); render(); }}}, 'remover lista'),

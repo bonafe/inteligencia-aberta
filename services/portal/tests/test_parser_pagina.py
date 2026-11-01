@@ -191,6 +191,18 @@ def test_linha_com_descricao_e_sem_valor_nao_valida():
     assert any("sem valor (ex.: 'Pix - Enviado')" in p for p in problemas)
 
 
+def test_rendimento_escondido_passa_na_tolerancia_e_lancamento_perdido_nao():
+    com_rendimento = [l if l[2] != "R$ 100,00" else (l[0], l[1], "R$ 100,03") for l in EXTRATO_LINHAS]
+    schema = extrato_schema()
+    parser, _ = P.montar_parser(schema, extrato())
+    assert not P.executar(parser, schema, extrato(com_rendimento))["validacao"]["ok"]       # tolerância 0
+    schema["listas"][0]["tolerancia_saldo"] = "0.05"
+    r = P.executar(parser, schema, extrato(com_rendimento))
+    assert r["validacao"]["ok"] and "maior diferença R$ 0.03" in r["invariantes"][0]["descricao"]
+    faltando = extrato([l for l in com_rendimento if l[1] != "Tarifa"])
+    assert not P.executar(parser, schema, faltando)["validacao"]["ok"]
+
+
 def test_sinal_pela_convencao():
     assert P._assinado("2.825,71 D", "sufixo_dc") == Decimal("-2825.71")
     assert P._assinado("300,00 C", "sufixo_dc") == Decimal("300.00")

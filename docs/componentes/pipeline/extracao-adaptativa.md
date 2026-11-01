@@ -321,8 +321,16 @@ zero não substitui nada. Lista de todos os schemas: `/artifacts/schemas/` (menu
    fecha**: cada saldo conhecido (campo `saldo_anterior`/`saldo_final`, coluna `saldo_linha` ou
    linha cujo texto começa por uma das `linhas_saldo` da lista, ex.: "Saldo do dia", que não
    vira lançamento) tem de ser o anterior mais os lançamentos entre eles; sem dois saldos, não
-   valida. Extrato não tem `vencimento` (o papel é descartado na normalização). Motivo: o extrato
-   novo do BB (31/10) passou como válido perdendo dois terços das linhas.
+   valida. A lista pode declarar `tolerancia_saldo` (R$ por trecho, 0 a 5; padrão 0): o saldo
+   "Conta-corrente + Rende Fácil" do BB inclui rendimento que a página não lista (1 a 10
+   centavos por dia; −0,58 quando fica negativo), e uma linha perdida passa de longe disso.
+   Extrato não tem `vencimento` (o papel é descartado na normalização). Motivo: o extrato
+   novo do BB (31/10) passou como válido perdendo dois terços das linhas. Do lado do
+   `dom2parser` (`bdf7adb`): linha `class="navigation" role="button"` não é mais menu, registro
+   aninhado em grupos com quantidade variável desloca o grupo, o valor de entrada e de saída é
+   uma coluna só, e o título do grupo ("01 de outubro, quinta") vira campo `group_title` de cada
+   linha. Medido no extrato real: 35 lançamentos com data e valor, saldo fechando em 14 trechos.
+   Empate entre registros que casam o mesmo número de colunas: vence o de mais linhas.
 4. **Execução com validação (feito)** — `apps/artifacts/extracao_pagina.py`
    (`extrair_com_parser`), chamado em `extract_text_from_mhtml` logo depois do `DocumentText`:
    com schema aprovado para o tipo, roda o parser (lxml, sem LLM) e grava uma `ExtracaoPagina`

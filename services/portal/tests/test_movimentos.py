@@ -207,3 +207,11 @@ def test_data_vem_da_secao_quando_a_linha_nao_tem(org):
                              "listas": {"movimentos": {"itens": itens, "secoes": [], "informativas": 0, "especiais": []}}})
     (m,) = Movimento.objects.all()
     assert m.data == date(2026, 10, 1) and m.valor == Decimal("-400.00")
+
+
+def test_tolerancia_de_saldo_normalizada_e_limitada():
+    lista = lambda t: {**EXTRATO["listas"][0], "tolerancia_saldo": t}
+    assert normalizar_schema({**EXTRATO, "listas": [lista("1,5")]})[0]["listas"][0]["tolerancia_saldo"] == "1.50"
+    schema, avisos = normalizar_schema({**EXTRATO, "listas": [lista("900")]})
+    assert schema["listas"][0]["tolerancia_saldo"] == "5.00" and any("fora de" in a for a in avisos)
+    assert normalizar_schema({**EXTRATO, "listas": [lista(None)]})[0]["listas"][0]["tolerancia_saldo"] == "0.00"

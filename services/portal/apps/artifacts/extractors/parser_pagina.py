@@ -46,7 +46,8 @@ def _coluna_rotulo(lista: dict, colunas: dict) -> str | None:
 
 
 def _ligar_lista(lista: dict, registros: list, root) -> tuple | None:
-    """O registro que mais casa com as colunas da lista e o mapeamento coluna → campo do registro."""
+    """O registro que mais casa com as colunas da lista e o mapeamento coluna → campo do registro.
+    Empate: o de mais linhas, o mais fino (a linha do extrato, não o dia que a contém)."""
     from dom2parser.parser.executor import extract_records
 
     melhor = None
@@ -65,9 +66,9 @@ def _ligar_lista(lista: dict, registros: list, root) -> tuple | None:
                 alvo = col["nome"]
             if alvo:
                 mapa[col["nome"]] = alvo
-        if mapa and (melhor is None or len(mapa) > len(melhor[1])):
-            melhor = (registro, mapa)
-    return melhor
+        if mapa and (melhor is None or (len(mapa), len(linhas)) > (len(melhor[1]), melhor[2])):
+            melhor = (registro, mapa, len(linhas))
+    return melhor[:2] if melhor else None
 
 
 def montar_parser(schema: dict, html: str) -> tuple[dict, list[str]]:
@@ -219,14 +220,18 @@ def _conferencia_de_saldo(schema: dict, campos: dict, listas: dict) -> dict | No
         marcos = [(n, v) for n, t in marcos if (v := _assinado(t, convencao)) is not None]
         if len(marcos) < 2:
             continue
-        falha = None
+        tolerancia = Decimal(str(schema_lista.get("tolerancia_saldo") or "0"))
+        falha, maior = None, Decimal(0)
         for (n_a, saldo_a), (n_b, saldo_b) in zip(marcos, marcos[1:]):
             obtido = saldo_a + sum((_movimento(i, schema_lista, convencao) for i in itens[n_a:n_b]), Decimal(0))
-            if obtido != saldo_b:
+            maior = max(maior, abs(saldo_b - obtido))
+            if abs(saldo_b - obtido) > tolerancia:
                 falha = (saldo_b, obtido, n_a, n_b)
                 break
         fora = marcos[0][0] + len(itens) - marcos[-1][0]
         descricao = f"saldo de '{schema_lista['nome']}': {len(marcos) - 1} trecho(s) entre saldos conhecidos"
+        if maior and not falha:
+            descricao += f"; maior diferença R$ {maior} (tolerância R$ {tolerancia} por trecho)"
         if fora:
             descricao += f"; {fora} lançamento(s) fora de qualquer trecho, não conferidos"
         if falha:

@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import re
 import unicodedata
+from decimal import Decimal, InvalidOperation
 
 from .llm_common import _extract_json, gerar_texto
 
@@ -38,6 +39,9 @@ PAPEIS_COLUNA = ("", "data", "descricao", "complemento", "documento", "valor", "
 _PAPEIS_QUE_REPETEM = {"", "complemento"}
 #: Começos de descrição que marcam uma linha de saldo dentro da lista ("Saldo Anterior", "Saldo do dia").
 LINHAS_SALDO_MAXIMO = 10
+#: Diferença aceita entre o saldo da página e o calculado, por trecho (R$). Teto: acima disso
+#: não é rendimento escondido, é lançamento perdido.
+TOLERANCIA_SALDO_MAXIMA = Decimal("5.00")
 #: Linhas de amostra por estrutura repetida no resumo enviado ao LLM.
 AMOSTRAS_POR_ESTRUTURA = 3
 EXEMPLO_MAXIMO = 500
@@ -79,7 +83,10 @@ UMA linha por lançamento. Linhas de saldo que aparecem no meio da lista ("Saldo
 "Saldo do dia", "S A L D O") NÃO são lançamentos: liste o começo do texto delas em \
 "linhas_saldo". Sem saldo anterior e saldo final (em campos ou em linhas de saldo) não há como \
 conferir se faltou lançamento. Se a data aparece como título de um grupo de lançamentos \
-(ex.: "01 de outubro, quinta") e não em cada linha, use "secoes": true e não declare coluna de data.
+(ex.: "01 de outubro, quinta") e não em cada linha, use "secoes": true e não declare coluna de data. \
+Se o saldo mostrado inclui aplicação automática cujo rendimento não aparece como lançamento \
+("Conta-corrente + Rende Fácil", "saldo com aplicação automática"), declare "tolerancia_saldo": "1.00" \
+na lista (diferença aceita por trecho entre dois saldos, em reais); senão, "0".
 
 Tipos: texto, data, valor (dinheiro), numero, inteiro, url.
 
@@ -95,7 +102,7 @@ RETORNE APENAS O JSON ABAIXO. Nada antes, nada depois, sem markdown.
   ],
   "listas": [
     {"nome": "lancamentos", "descricao": "...", "secoes": true, "estrutura": "<nome ou null>",
-     "linhas_saldo": ["<começo do texto das linhas de saldo, se houver>"],
+     "linhas_saldo": ["<começo do texto das linhas de saldo, se houver>"], "tolerancia_saldo": "0",
      "campos": [{"nome": "data", "tipo": "data", "papel": "data", "descricao": "...", "obrigatorio": true,
                  "exemplo": "..."}]}
   ],
@@ -186,6 +193,7 @@ def normalizar_schema(bruto) -> tuple[dict, list[str]]:
             "secoes": bool(lista.get("secoes")),
             "estrutura": str(estrutura).strip() if estrutura else None,
             "linhas_saldo": linhas_saldo,
+            "tolerancia_saldo": _tolerancia(lista.get("tolerancia_saldo"), f"listas.{nome}", avisos),
             "campos": colunas,
         })
 
@@ -235,6 +243,18 @@ def normalizar_schema(bruto) -> tuple[dict, list[str]]:
         "campos": campos, "listas": listas, "invariantes": invariantes,
     }
     return schema, avisos
+
+
+def _tolerancia(bruto, onde: str, avisos: list[str]) -> str:
+    try:
+        valor = Decimal(str(bruto if bruto not in (None, "") else "0").replace(",", ".")).quantize(Decimal("0.01"))
+    except InvalidOperation:
+        avisos.append(f"{onde}: tolerancia_saldo {bruto!r} não é um valor, usando 0")
+        return "0.00"
+    if valor < 0 or valor > TOLERANCIA_SALDO_MAXIMA:
+        avisos.append(f"{onde}: tolerancia_saldo {valor} fora de 0 a {TOLERANCIA_SALDO_MAXIMA}, usando o limite")
+        valor = min(max(valor, Decimal("0.00")), TOLERANCIA_SALDO_MAXIMA)
+    return str(valor)
 
 
 def _regras_do_extrato(campos: list[dict], listas: list[dict], avisos: list[str]) -> None:
