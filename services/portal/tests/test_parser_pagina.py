@@ -1,6 +1,7 @@
 """Do schema revisado ao parser (montagem, execução, validação) e a tela de revisão."""
 import copy
 import json
+from decimal import Decimal
 from unittest import mock
 
 import pytest
@@ -120,6 +121,80 @@ def test_lista_sem_estrutura_que_case_e_avisada():
     parser, avisos = P.montar_parser(schema, AMOSTRA)
     assert parser["listas"] == [] and any("nenhuma estrutura" in a for a in avisos)
     assert "lista 'lancamentos' sem estrutura ligada" in P.executar(parser, schema, AMOSTRA)["validacao"]["problemas"]
+
+
+# ── extrato de conta: linhas de saldo e conferência ─────────────────────────
+
+LINHA_EXTRATO = "<tr><td>{}</td><td>{}</td><td>{}</td></tr>"
+EXTRATO_LINHAS = [
+    ("30/09", "Saldo Anterior", "-R$ 100,00"),
+    ("01/10", "Pix - Recebido", "R$ 300,00"),
+    ("01/10", "Pix - Enviado", "-R$ 50,00"),
+    ("01/10", "Saldo do dia", "R$ 150,00"),
+    ("02/10", "Tarifa", "-R$ 10,00"),
+    ("02/10", "Compra com Cartão", "-R$ 40,00"),
+    ("02/10", "Saldo do dia", "R$ 100,00"),
+    ("03/11", "Encargos", "-R$ 5,00"),                  # futuro: depois do último saldo
+]
+
+
+def extrato(linhas=EXTRATO_LINHAS):
+    corpo = "".join(LINHA_EXTRATO.format(*l) for l in linhas)
+    return f'<html><body><table class="extrato"><tr><td>Data</td><td>Lançamento</td><td>Valor</td></tr>{corpo}</table></body></html>'
+
+
+def extrato_schema(linhas_saldo=("Saldo Anterior", "Saldo do dia")):
+    return {
+        "descricao": "Extrato", "tipo_documento": "extrato_conta", "convencao": "negativo_e_saida",
+        "campos": [], "invariantes": [],
+        "listas": [{"nome": "lancamentos", "descricao": "", "secoes": False, "estrutura": None,
+                    "linhas_saldo": list(linhas_saldo), "campos": [
+                        {**campo("data", "data", "01/10"), "papel": "data"},
+                        {**campo("descricao", "texto", "Pix - Recebido"), "papel": "descricao"},
+                        {**campo("valor", "valor", "R$ 300,00"), "papel": "valor"}]}],
+    }
+
+
+def test_extrato_linhas_de_saldo_nao_sao_lancamentos_e_o_saldo_fecha():
+    schema = extrato_schema()
+    parser, _ = P.montar_parser(schema, extrato())
+    r = P.executar(parser, schema, extrato())
+    l = r["listas"]["lancamentos"]
+    assert [i["descricao"] for i in l["itens"]] == ["Pix - Recebido", "Pix - Enviado", "Tarifa", "Compra com Cartão",
+                                                    "Encargos"]
+    assert [s["valor"] for s in l["saldos"]] == ["-R$ 100,00", "R$ 150,00", "R$ 100,00"]
+    (conf,) = r["invariantes"]
+    assert conf["ok"] and "2 trecho(s)" in conf["descricao"] and "1 lançamento(s) fora" in conf["descricao"]
+    assert r["validacao"] == {"ok": True, "problemas": []}
+
+
+def test_extrato_que_perde_lancamento_nao_valida():
+    schema = extrato_schema()
+    parser, _ = P.montar_parser(schema, extrato())
+    faltando = extrato([l for l in EXTRATO_LINHAS if l[1] != "Tarifa"])
+    r = P.executar(parser, schema, faltando)
+    assert not r["validacao"]["ok"] and any("saldo não fecha" in p for p in r["validacao"]["problemas"])
+
+
+def test_extrato_sem_como_conferir_nao_valida():
+    schema = extrato_schema(linhas_saldo=())
+    parser, _ = P.montar_parser(schema, extrato())
+    r = P.executar(parser, schema, extrato())
+    assert any("sem dois saldos" in p for p in r["validacao"]["problemas"])
+
+
+def test_linha_com_descricao_e_sem_valor_nao_valida():
+    schema = extrato_schema()
+    parser, _ = P.montar_parser(schema, extrato())
+    sem_valor = extrato(EXTRATO_LINHAS[:2] + [("01/10", "Pix - Enviado", "")] + EXTRATO_LINHAS[3:])
+    problemas = P.executar(parser, schema, sem_valor)["validacao"]["problemas"]
+    assert any("sem valor (ex.: 'Pix - Enviado')" in p for p in problemas)
+
+
+def test_sinal_pela_convencao():
+    assert P._assinado("2.825,71 D", "sufixo_dc") == Decimal("-2825.71")
+    assert P._assinado("300,00 C", "sufixo_dc") == Decimal("300.00")
+    assert P._assinado("-R$ 2.825,71", "negativo_e_saida") == Decimal("-2825.71")
 
 
 # ── tela de revisão ─────────────────────────────────────────────────────────

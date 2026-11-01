@@ -36,6 +36,8 @@ PAPEIS_CAMPO = ("", "identifica_conta", "titular", "saldo_anterior", "saldo_fina
 PAPEIS_COLUNA = ("", "data", "descricao", "complemento", "documento", "valor", "debito", "credito", "dc",
                  "saldo_linha")
 _PAPEIS_QUE_REPETEM = {"", "complemento"}
+#: Começos de descrição que marcam uma linha de saldo dentro da lista ("Saldo Anterior", "Saldo do dia").
+LINHAS_SALDO_MAXIMO = 10
 #: Linhas de amostra por estrutura repetida no resumo enviado ao LLM.
 AMOSTRAS_POR_ESTRUTURA = 3
 EXEMPLO_MAXIMO = 500
@@ -72,6 +74,12 @@ campos opcionais, igual a um campo total. Declare só se os números desta pági
 saldo_anterior, saldo_final, total_documento, vencimento, periodo — ou "";
    - o "papel" de cada coluna da lista: data, descricao, complemento (texto que continua a \
 descrição), documento, valor, debito, credito, dc, saldo_linha — ou "".
+7. Extrato de conta NÃO tem vencimento: tem período, saldo anterior e saldo final. A lista tem \
+UMA linha por lançamento. Linhas de saldo que aparecem no meio da lista ("Saldo Anterior", \
+"Saldo do dia", "S A L D O") NÃO são lançamentos: liste o começo do texto delas em \
+"linhas_saldo". Sem saldo anterior e saldo final (em campos ou em linhas de saldo) não há como \
+conferir se faltou lançamento. Se a data aparece como título de um grupo de lançamentos \
+(ex.: "01 de outubro, quinta") e não em cada linha, use "secoes": true e não declare coluna de data.
 
 Tipos: texto, data, valor (dinheiro), numero, inteiro, url.
 
@@ -87,6 +95,7 @@ RETORNE APENAS O JSON ABAIXO. Nada antes, nada depois, sem markdown.
   ],
   "listas": [
     {"nome": "lancamentos", "descricao": "...", "secoes": true, "estrutura": "<nome ou null>",
+     "linhas_saldo": ["<começo do texto das linhas de saldo, se houver>"],
      "campos": [{"nome": "data", "tipo": "data", "papel": "data", "descricao": "...", "obrigatorio": true,
                  "exemplo": "..."}]}
   ],
@@ -168,11 +177,15 @@ def normalizar_schema(bruto) -> tuple[dict, list[str]]:
             avisos.append(f"listas.{nome}: lista sem campos descartada")
             continue
         estrutura = lista.get("estrutura")
+        marcas = lista.get("linhas_saldo") if isinstance(lista.get("linhas_saldo"), list) else []
+        linhas_saldo = list(dict.fromkeys(" ".join(str(m).split())[:80] for m in marcas
+                                          if isinstance(m, str) and m.strip()))[:LINHAS_SALDO_MAXIMO]
         listas.append({
             "nome": _unico(nome, usados),
             "descricao": str(lista.get("descricao") or "").strip()[:300],
             "secoes": bool(lista.get("secoes")),
             "estrutura": str(estrutura).strip() if estrutura else None,
+            "linhas_saldo": linhas_saldo,
             "campos": colunas,
         })
 
@@ -213,12 +226,30 @@ def normalizar_schema(bruto) -> tuple[dict, list[str]]:
     elif convencao and convencao != "colunas_debito_credito" and "valor" not in papeis_colunas:
         avisos.append(f"convenção {convencao!r} sem coluna de papel 'valor'")
 
+    if tipo_documento == "extrato_conta":
+        _regras_do_extrato(campos, listas, avisos)
+
     schema = {
         "descricao": str(bruto.get("descricao") or "").strip()[:500],
         "tipo_documento": tipo_documento, "convencao": convencao,
         "campos": campos, "listas": listas, "invariantes": invariantes,
     }
     return schema, avisos
+
+
+def _regras_do_extrato(campos: list[dict], listas: list[dict], avisos: list[str]) -> None:
+    """Extrato não tem vencimento, e sem dois saldos não há como saber se faltou lançamento
+    (o parser recusa a extração; aqui só se avisa, para a revisão ver antes)."""
+    for c in campos:
+        if c["papel"] == "vencimento":
+            avisos.append(f"campos.{c['nome']}: extrato de conta não tem vencimento; papel ignorado")
+            c["papel"] = ""
+    papeis = {c["papel"] for c in campos}
+    tem_saldo_linha = any(col["papel"] == "saldo_linha" for l in listas for col in l["campos"])
+    tem_linhas_saldo = any(l.get("linhas_saldo") for l in listas)
+    if not ({"saldo_anterior", "saldo_final"} <= papeis or tem_saldo_linha or tem_linhas_saldo):
+        avisos.append("extrato sem saldo anterior e saldo final (em campos, coluna ou linhas de saldo): "
+                      "não há como conferir se faltou lançamento, e a extração não vai validar")
 
 
 def schema_vazio(schema: dict) -> bool:

@@ -172,3 +172,38 @@ def test_tela_filtra_por_conta_e_soma_por_competencia(client, org):
     client.post("/gastos/", {"organizacao": org.pk, "acao": "apelido_conta", "conta": conta.pk, "apelido": "Ourocard"})
     conta.refresh_from_db()
     assert conta.nome == "Ourocard"
+
+
+# ── extrato: regras do schema e data por extenso ────────────────────────────
+
+def test_extrato_nao_tem_vencimento_e_avisa_sem_saldos():
+    bruto = {**EXTRATO, "campos": [c("vencimento", "vencimento", "data")]}
+    schema, avisos = normalizar_schema(bruto)
+    assert schema["campos"][0]["papel"] == "" and any("não tem vencimento" in a for a in avisos)
+    sem_saldo = {**bruto, "listas": [{**EXTRATO["listas"][0], "campos": EXTRATO["listas"][0]["campos"][:5]}]}
+    assert any("não há como conferir" in a for a in normalizar_schema(sem_saldo)[1])
+
+
+def test_normalizar_guarda_linhas_de_saldo():
+    lista = {**EXTRATO["listas"][0], "linhas_saldo": ["  Saldo   do dia ", "Saldo do dia", 3, ""]}
+    schema, _ = normalizar_schema({**EXTRATO, "listas": [lista]})
+    assert schema["listas"][0]["linhas_saldo"] == ["Saldo do dia"]
+
+
+def test_data_por_extenso_com_ano_da_referencia():
+    assert L.parse_data("01 de outubro, quinta", date(2026, 10, 31)) == date(2026, 10, 1)
+    assert L.parse_data("03 de novembro, terça", date(2026, 10, 31)) == date(2026, 11, 3)
+    assert L.parse_data("15 de dezembro", date(2026, 1, 5)) == date(2025, 12, 15)
+    assert L.parse_data("1 out 2025", date(2026, 1, 5)) == date(2025, 10, 1)
+    assert L.parse_data("3 dias", date(2026, 1, 5)) is None
+
+
+def test_data_vem_da_secao_quando_a_linha_nao_tem(org):
+    schema = {**EXTRATO, "listas": [{**EXTRATO["listas"][0], "secoes": True,
+                                      "campos": EXTRATO["listas"][0]["campos"][1:]}]}
+    itens = [{"historico": "Pix - Enviado", "historico_2": "ANA", "documento": "2", "valor": "400,00 D", "saldo": "",
+              "secao": "01 de outubro de 2026, quinta"}]
+    _registrar(org, schema, {"campos": DADOS_EXTRATO["campos"],
+                             "listas": {"movimentos": {"itens": itens, "secoes": [], "informativas": 0, "especiais": []}}})
+    (m,) = Movimento.objects.all()
+    assert m.data == date(2026, 10, 1) and m.valor == Decimal("-400.00")

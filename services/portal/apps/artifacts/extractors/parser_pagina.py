@@ -14,11 +14,15 @@ O parser é **dado** (`ParserSpec` serializado + o mapeamento), executado por lx
 
 `executar(parser, schema, html)` extrai e **valida**: campo obrigatório vazio, coluna obrigatória
 sem ligação, lista vazia e invariantes de soma que não fecham são problemas — o resultado diz
-`ok: False` e por quê, em vez de devolver dado errado em silêncio.
+`ok: False` e por quê, em vez de devolver dado errado em silêncio. Em documento de dinheiro,
+linha com descrição e sem valor também é problema (o parser não está achando o valor dela), e
+o extrato de conta só valida se o saldo fecha: cada saldo conhecido (campo, coluna de saldo ou
+linha de saldo declarada em `linhas_saldo`) tem de ser o anterior mais os lançamentos entre eles.
 """
 
 from __future__ import annotations
 
+import unicodedata
 from dataclasses import replace
 from decimal import Decimal
 
@@ -114,10 +118,28 @@ def montar_parser(schema: dict, html: str) -> tuple[dict, list[str]]:
     return parser, avisos
 
 
+def _papel(schema_lista: dict, papel: str) -> str | None:
+    return next((c["nome"] for c in schema_lista["campos"] if c.get("papel") == papel), None)
+
+
+def _chave_texto(texto: str) -> str:
+    sem = "".join(c for c in unicodedata.normalize("NFKD", texto) if not unicodedata.combining(c))
+    return " ".join(sem.lower().split())
+
+
+def _linha_de_saldo(item: dict, schema_lista: dict) -> bool:
+    marcas = [_chave_texto(m) for m in schema_lista.get("linhas_saldo") or []]
+    descricao = _papel(schema_lista, "descricao") or next(
+        (c["nome"] for c in schema_lista["campos"] if c["tipo"] == "texto"), None)
+    texto = _chave_texto(item.get(descricao, "")) if descricao else ""
+    return bool(texto) and any(texto.startswith(m) for m in marcas if m)
+
+
 def _executar_lista(cfg: dict, registro, schema_lista: dict, root) -> dict:
     from dom2parser.parser.executor import extract_records
 
     colunas, rotulo, campo_classe = cfg["colunas"], cfg["rotulo"], cfg["campo_classe"]
+    col_valor, col_saldo = _papel(schema_lista, "valor"), _papel(schema_lista, "saldo_linha")
     obrigatorias = [c["nome"] for c in schema_lista["campos"] if c["obrigatorio"] and c["nome"] in colunas]
     cabecalho = list(registro.skip_when.get("header_values") or [])
     originais = [f.name for f in registro.fields if f.name != campo_classe]
@@ -134,8 +156,15 @@ def _executar_lista(cfg: dict, registro, schema_lista: dict, root) -> dict:
     completo = (lambda item: all(item[c] for c in obrigatorias)) if obrigatorias else (lambda item: all(item.values()))
     classes_itens = {classe for item, classe in linhas if completo(item)}
     itens, especiais, secoes, informativas, secao = [], [], [], 0, ""
+    # Saldos conhecidos ao longo da lista: (quantos itens vieram antes, texto do saldo).
+    saldos: list[tuple[int, str]] = []
     for item, classe in linhas:
         so_rotulo = rotulo and item.get(rotulo) and not any(v for k, v in item.items() if k != rotulo)
+        if _linha_de_saldo(item, schema_lista):
+            texto = item.get(col_saldo or "") or item.get(col_valor or "")
+            if texto:
+                saldos.append((len(itens), texto))
+            continue
         if completo(item):
             itens.append({**item, "secao": secao} if cfg["secoes"] else item)
         elif so_rotulo and cfg["secoes"] and classe not in classes_itens:
@@ -145,7 +174,67 @@ def _executar_lista(cfg: dict, registro, schema_lista: dict, root) -> dict:
             informativas += 1
         else:
             especiais.append(item)
-    return {"itens": itens, "especiais": especiais, "secoes": secoes, "informativas": informativas}
+        if col_saldo and item.get(col_saldo):
+            saldos.append((len(itens), item[col_saldo]))
+    return {"itens": itens, "especiais": especiais, "secoes": secoes, "informativas": informativas,
+            "saldos": [{"apos_itens": n, "valor": t} for n, t in saldos]}
+
+
+def _assinado(texto: str, convencao: str) -> Decimal | None:
+    """O valor com o sinal do documento: negativo é saída/devedor."""
+    valor = parse_valor(texto)
+    if valor is None:
+        return None
+    if convencao == "sufixo_dc" and _texto(texto).upper().endswith("D"):
+        return -abs(valor)
+    if convencao == "sufixo_dc" and _texto(texto).upper().endswith("C"):
+        return abs(valor)
+    return valor
+
+
+def _movimento(item: dict, schema_lista: dict, convencao: str) -> Decimal:
+    if convencao == "colunas_debito_credito":
+        debito = parse_valor(item.get(_papel(schema_lista, "debito") or "", "")) or Decimal(0)
+        credito = parse_valor(item.get(_papel(schema_lista, "credito") or "", "")) or Decimal(0)
+        return abs(credito) - abs(debito)
+    valor = _assinado(item.get(_papel(schema_lista, "valor") or "", ""), convencao) or Decimal(0)
+    return -valor if convencao == "positivo_e_saida" else valor
+
+
+def _conferencia_de_saldo(schema: dict, campos: dict, listas: dict) -> dict | None:
+    """Cada saldo conhecido é o anterior mais os lançamentos entre eles. None: menos de dois saldos."""
+    convencao = schema.get("convencao", "")
+    papel_campo = {c["papel"]: c["nome"] for c in schema["campos"] if c.get("papel")}
+    for schema_lista in schema["listas"]:
+        resultado = listas.get(schema_lista["nome"])
+        if resultado is None or not ({"valor"} & {c.get("papel") for c in schema_lista["campos"]}
+                                     or convencao == "colunas_debito_credito"):
+            continue
+        itens = resultado["itens"]
+        marcos = [(s["apos_itens"], s["valor"]) for s in resultado.get("saldos", [])]
+        if campos.get(papel_campo.get("saldo_anterior", "")):
+            marcos.insert(0, (0, campos[papel_campo["saldo_anterior"]]))
+        if campos.get(papel_campo.get("saldo_final", "")):
+            marcos.append((len(itens), campos[papel_campo["saldo_final"]]))
+        marcos = [(n, v) for n, t in marcos if (v := _assinado(t, convencao)) is not None]
+        if len(marcos) < 2:
+            continue
+        falha = None
+        for (n_a, saldo_a), (n_b, saldo_b) in zip(marcos, marcos[1:]):
+            obtido = saldo_a + sum((_movimento(i, schema_lista, convencao) for i in itens[n_a:n_b]), Decimal(0))
+            if obtido != saldo_b:
+                falha = (saldo_b, obtido, n_a, n_b)
+                break
+        fora = marcos[0][0] + len(itens) - marcos[-1][0]
+        descricao = f"saldo de '{schema_lista['nome']}': {len(marcos) - 1} trecho(s) entre saldos conhecidos"
+        if fora:
+            descricao += f"; {fora} lançamento(s) fora de qualquer trecho, não conferidos"
+        if falha:
+            esperado, obtido, n_a, n_b = falha
+            return {"descricao": f"{descricao} (falhou nos lançamentos {n_a + 1} a {n_b})",
+                    "esperado": str(esperado), "obtido": str(obtido), "ok": False}
+        return {"descricao": descricao, "esperado": str(marcos[-1][1]), "obtido": str(marcos[-1][1]), "ok": True}
+    return None
 
 
 def executar(parser: dict, schema: dict, html: str) -> dict:
@@ -180,6 +269,17 @@ def executar(parser: dict, schema: dict, html: str) -> dict:
         listas[nome] = _executar_lista(cfg, registros[cfg["registro"]], schema_lista, root)
         if not listas[nome]["itens"]:
             problemas.append(f"lista '{nome}' sem itens")
+        colunas_valor = [c["nome"] for c in schema_lista["campos"] if c.get("papel") in ("valor", "debito", "credito")]
+        colunas_texto = ([c["nome"] for c in schema_lista["campos"] if c.get("papel") in ("descricao", "complemento")]
+                         or [c["nome"] for c in schema_lista["campos"] if c["tipo"] == "texto"])
+        col_saldo = _papel(schema_lista, "saldo_linha")
+        sem_valor = [e for e in listas[nome]["especiais"]
+                     if schema.get("convencao") and colunas_valor and not any(e.get(c) for c in colunas_valor)
+                     and any(e.get(c) for c in colunas_texto) and not (col_saldo and e.get(col_saldo))]
+        if sem_valor:
+            exemplo = next(sem_valor[0][c] for c in colunas_texto if sem_valor[0].get(c))
+            problemas.append(f"lista '{nome}': {len(sem_valor)} linha(s) com descrição e sem valor "
+                             f"(ex.: '{exemplo}'): o parser não está achando o valor delas")
 
     invariantes = []
     for inv in schema["invariantes"]:
@@ -194,6 +294,17 @@ def executar(parser: dict, schema: dict, html: str) -> dict:
         if not ok:
             problemas.append(f"invariante não fecha: {invariantes[-1]['descricao']} "
                              f"(esperado {invariantes[-1]['esperado']}, obtido {obtido})")
+
+    if schema.get("tipo_documento") == "extrato_conta":
+        conferencia = _conferencia_de_saldo(schema, campos, listas)
+        if conferencia is None:
+            problemas.append("extrato de conta sem dois saldos conhecidos (saldo anterior e final, coluna ou "
+                             "linhas de saldo): não há como conferir se faltou lançamento")
+        else:
+            invariantes.append(conferencia)
+            if not conferencia["ok"]:
+                problemas.append(f"saldo não fecha: {conferencia['descricao']} "
+                                 f"(esperado {conferencia['esperado']}, obtido {conferencia['obtido']})")
 
     return {"campos": campos, "listas": listas, "invariantes": invariantes,
             "validacao": {"ok": not problemas, "problemas": problemas}}

@@ -219,23 +219,30 @@ def data_referencia(periodo: str) -> date | None:
 
 
 def parse_data(texto: str, referencia: date) -> date | None:
-    """"16/09" → data com o ano inferido da referência; "16/09/26", "2026-09-16" também valem."""
+    """"16/09" → data com o ano inferido da referência; "16/09/26", "2026-09-16" também valem,
+    e por extenso: "01 de outubro, quinta", "1 out 2026"."""
     texto = (texto or "").strip()
+    ano = None
     if m := re.search(r"(\d{4})-(\d{2})-(\d{2})", texto):
         ano, mes, dia = (int(g) for g in m.groups())
     elif m := re.search(r"(\d{1,2})/(\d{1,2})(?:/(\d{2,4}))?", texto):
         dia, mes = int(m.group(1)), int(m.group(2))
         if m.group(3):
             ano = int(m.group(3)) + (2000 if len(m.group(3)) == 2 else 0)
-        else:
-            ano = referencia.year
-            try:
-                if date(ano, mes, dia) > referencia + FOLGA_ANO:
-                    ano -= 1
-            except ValueError:
-                return None
+    elif (m := re.search(r"\b(\d{1,2})\s*(?:de\s+)?([a-z]{3})[a-z]*\.?(?:\s*(?:de\s+)?(\d{4}))?", _chave(texto))) \
+            and m.group(2) in _MESES:
+        dia, mes = int(m.group(1)), _MESES[m.group(2)]
+        ano = int(m.group(3)) if m.group(3) else None
     else:
         return None
+    if ano is None:
+        # Sem ano: o da referência, ou o anterior se a data cairia muito depois dela.
+        ano = referencia.year
+        try:
+            if date(ano, mes, dia) > referencia + FOLGA_ANO:
+                ano -= 1
+        except ValueError:
+            return None
     try:
         return date(ano, mes, dia)
     except ValueError:
@@ -397,7 +404,8 @@ def _registrar(document_text, linhas: list[Linha], contexto: dict, leitura: _Lei
             sujeito = f"{leitura.base}/lancamento/{linha.indice}"
             trecho = truncar_trecho(json.dumps(linha.original, ensure_ascii=False))
             loc = {**leitura.localizador, "indice": linha.indice}
-            alegar(sujeito, "fin:data", linha.data, loc, trecho)
+            if linha.data:                  # sem data na linha, ela vem da seção (título do grupo)
+                alegar(sujeito, "fin:data", linha.data, loc, trecho)
             alegar(sujeito, "fin:valor", linha.valor, loc, trecho)
             alegar(sujeito, "fin:descricao", linha.descricao[:LITERAL_MAXIMO], loc, trecho)
             if linha.secao:
@@ -549,11 +557,13 @@ def projetar_artefato(artefato) -> int:
         valor = valor_assinado(campos["fin:valor"], convencao, campos.get("fin:sentido", ""))
         descricao = campos["fin:descricao"]
         natureza = natureza_do_movimento(descricao, valor, tipo_documento)
-        data = parse_data(campos.get("fin:data", ""), referencia)
+        # Data como título do grupo ("01 de outubro, quinta"): a linha não tem, a seção tem.
+        data_texto = campos.get("fin:data") or campos.get("fin:secao", "")
+        data = parse_data(data_texto, referencia)
         parcela = parcela_da_descricao(descricao)
         novos.append(Movimento(
             tenant_id=artefato.tenant_id, artefato=artefato, conta=conta, fonte=m.group(1), fonte_id=m.group(2),
-            indice=int(m.group(3)), sujeito_ref=sujeito, data=data, data_texto=campos.get("fin:data", "")[:100],
+            indice=int(m.group(3)), sujeito_ref=sujeito, data=data, data_texto=data_texto[:100],
             competencia=competencia(tipo_documento, vencimento, data),
             valor=valor, valor_texto=campos["fin:valor"][:100], descricao=descricao[:500],
             documento=campos.get("fin:documento", "")[:100], secao=campos.get("fin:secao", "")[:200],

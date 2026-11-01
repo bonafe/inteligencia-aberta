@@ -316,7 +316,13 @@ zero não substitui nada. Lista de todos os schemas: `/artifacts/schemas/` (menu
    classe da célula de rótulo (título de seção e linha informativa só diferem pela marcação).
    `executar` extrai e valida: obrigatório vazio, coluna sem ligação, lista vazia e conferência
    que não fecha são problemas (`ok: False` com o motivo). Na fatura BB: 4 campos, 134 itens,
-   11 seções, conferência fechando.
+   11 seções, conferência fechando. Em documento de dinheiro, linha com descrição e sem valor
+   também invalida (o parser não acha o valor dela). **Extrato de conta só valida se o saldo
+   fecha**: cada saldo conhecido (campo `saldo_anterior`/`saldo_final`, coluna `saldo_linha` ou
+   linha cujo texto começa por uma das `linhas_saldo` da lista, ex.: "Saldo do dia", que não
+   vira lançamento) tem de ser o anterior mais os lançamentos entre eles; sem dois saldos, não
+   valida. Extrato não tem `vencimento` (o papel é descartado na normalização). Motivo: o extrato
+   novo do BB (31/10) passou como válido perdendo dois terços das linhas.
 4. **Execução com validação (feito)** — `apps/artifacts/extracao_pagina.py`
    (`extrair_com_parser`), chamado em `extract_text_from_mhtml` logo depois do `DocumentText`:
    com schema aprovado para o tipo, roda o parser (lxml, sem LLM) e grava uma `ExtracaoPagina`
