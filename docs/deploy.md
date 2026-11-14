@@ -256,7 +256,7 @@ total: **instale só código confiável**. O modelo mínimo está em `services/p
 
 Uma extensão também pode trazer **fontes de ingestão** (`manage.py importar_fonte --listar`), **etapas de processamento** que rodam
 para cada artefato novo (`manage.py rodar_etapa --listar`, e `rodar_etapa <chave> --organizacao …` para os que já existem) e
-**agendamentos** do Beat. Uma etapa que declara uma `fila` própria (por exemplo uma que usa GPU) só roda se houver um worker
+**agendamentos** do Beat, e **componentes e rotas de leitura** para o Ultima Agora (aparecem na próxima abertura do Agora; o service worker troca o cache sozinho). Uma etapa que declara uma `fila` própria (por exemplo uma que usa GPU) só roda se houver um worker
 escutando essa fila (`celery -A config worker -Q <fila>`): subi-lo, e dar a ele a GPU, é de quem implanta.
 
 ## Portas, rede e HTTPS

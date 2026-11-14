@@ -21,7 +21,9 @@ from apps.accounts.views import orgs_do_usuario
 from apps.artifacts.models import Artifact
 from apps.events.emit import emit
 
-from . import acesso, sync
+from apps.extensoes import registro as extensoes
+
+from . import acesso, precache, sync
 from .models import Workspace, WorkspaceMember
 
 CLASSIFICACOES = {valor for valor, _ in Artifact.ClassificationLevel.choices}
@@ -75,6 +77,7 @@ class AppView(View):
             "api": "/agora/api/v1",
             "usuario": {"id": str(request.user.pk), "name": request.user.get_full_name() or request.user.get_username()},
             "offline_cache_max": settings.AGORA_OFFLINE_CACHE_NIVEL,       # teto da instância; o nível é escolha de cada usuário
+            "packs": extensoes.urls_dos_manifestos(),                       # componentes das extensões instaladas (ADR 023)
         }})
 
 
@@ -96,6 +99,16 @@ class ServiceWorkerView(View):
             corpo = arquivo.read()
         resposta = HttpResponse(corpo, content_type="text/javascript; charset=utf-8")
         resposta["Service-Worker-Allowed"] = "/agora/"
+        resposta["Cache-Control"] = "no-cache"
+        return resposta
+
+
+class PrecacheView(View):
+    """`precache.json` do app + os estáticos dos packs das extensões. Só nomes de arquivo estático, nenhum dado:
+    é aberto como o service worker (o navegador o busca sozinho, até com a sessão vencida)."""
+
+    def get(self, request):
+        resposta = JsonResponse(precache.montar())
         resposta["Cache-Control"] = "no-cache"
         return resposta
 

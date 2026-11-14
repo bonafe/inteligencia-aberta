@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 
 #: Versão do contrato de extensões que este núcleo oferece (ADR 023). Sobe quando o manifesto
 #: ganha algo que uma extensão pode exigir; a extensão declara em `requer_api` o mínimo de que precisa.
-API_EXTENSOES = 3
+API_EXTENSOES = 4
 
 #: Os mesmos valores de `Artifact.ClassificationLevel`, em ordem crescente.
 NIVEIS = ("publico", "interno", "restrito", "confidencial")
@@ -135,6 +135,19 @@ class Agendamento:
 
 
 @dataclass(frozen=True)
+class PackUI:
+    """Componentes `ia-*` que a extensão traz para o Ultima Agora.
+
+    `base` é a pasta, relativa a `static/` da extensão (`minha_ext/pack/`), que contém os componentes;
+    `manifestos` são os `*.manifest.json` relativos a `base` (`ia-xyz/ia-xyz.manifest.json`). O núcleo
+    entrega a lista ao Agora na abertura e inclui a pasta inteira no precache offline. Os módulos do
+    componente importam o Agora por caminho absoluto (`/static/agora/core/...`)."""
+
+    base: str
+    manifestos: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class Extensao:
     nome: str
     rotulo: str
@@ -154,6 +167,11 @@ class Extensao:
     fontes: tuple[FonteIngestao, ...] = field(default_factory=tuple)
     etapas: tuple[EtapaProcessamento, ...] = field(default_factory=tuple)
     agendamentos: tuple[Agendamento, ...] = field(default_factory=tuple)
+    packs: tuple[PackUI, ...] = field(default_factory=tuple)
+    #: Módulo de rotas de leitura para os componentes, montado em `/agora/api/v1/dominio/<nome>/`
+    #: (o componente lê com `this.domain.get('/<nome>/…')`). Isolar por organização é da view
+    #: (`apps.extensoes.dominio.artefatos_visiveis`).
+    dominio_urls: str = ""
 
     def tipo(self, nome: str) -> TipoDado | None:
         return next((t for t in self.tipos if t.nome == nome), None)

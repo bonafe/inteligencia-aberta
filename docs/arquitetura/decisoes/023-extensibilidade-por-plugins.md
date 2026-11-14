@@ -1,6 +1,6 @@
 # ADR 023 — Extensibilidade por plugins
 
-**Status:** aceita — 2026-11-14. **Fases 0 a 2 implementadas.** Fases 3 e 4 desenhadas (abaixo).
+**Status:** aceita — 2026-11-14. **Fases 0 a 3 implementadas.** Fase 4 desenhada (abaixo).
 
 ## Contexto
 
@@ -52,11 +52,22 @@ federação) fica fora desta rodada; o manifesto não fecha a porta para ele.
    quem implanta o sobe (hoje o compose do projeto só traz as filas do núcleo). Validado por `exemplos/ia_email` (fonte + etapa por
    sufixo) e `exemplos/ia_transcricao` (etapa em fila `gpu` + varredura agendada).
 
+6. **Componentes e rotas de leitura para o Agora (API 4).** O manifesto declara:
+   - `PackUI(base, manifestos)`: a pasta estática da própria extensão (`<ext>/static/<base>`) com componentes `ia-*`. O `AppView` põe
+     as URLs dos manifestos em `configuracao.packs`; o `boot.js` as registra (`pack/extensions.js`) depois do pack do projeto, e uma
+     extensão com defeito vai para o Console sem derrubar o Agora. Sem rede vale a configuração que o `boot.js` já lembra, packs incluídos;
+   - `dominio_urls`: módulo de rotas montado em `/agora/api/v1/dominio/<nome>/`, que o componente lê com `this.domain.get('/<nome>/…')`
+     (mesmo cliente, mesmo cache offline e mesma classificação dos componentes do projeto). Isolar por organização é da view:
+     `apps.extensoes.dominio.artefatos_visiveis(request)` é o ponto de partida.
+
+   O precache offline passou a ser `/agora/precache.json` (aberto como o `sw.js`: só nomes de estáticos): a lista gerada do app mais a
+   pasta de cada pack instalado, com a versão recalculada, então instalar ou mudar uma extensão troca o cache do service worker sozinho,
+   sem regenerar nada à mão. O `precache.json` estático e seu `--check` seguem valendo para o app. Os módulos de um componente importam o
+   Agora por caminho absoluto (`/static/agora/core/…`). Validado por `exemplos/ia_mapa` (componente `ia-map` + rota `mapa/pontos/`);
+   os caminhos de um pack são relativos, sem `..`, e não podem cair em `agora/` ou `agora-ia/`.
+
 ## Fases seguintes (cada uma validada por um plugin de exemplo real)
 
-- **3. UI:** descoberta de packs do Agora a partir das extensões (hoje `IA_MANIFESTS` é uma lista fixa em
-  `static/agora-ia/pack/pack.js`), rota de domínio por extensão sem o núcleo citá-la, precache que inclui
-  os estáticos de extensão. Caso: componente de mapa.
 - **4. MCP e agentes:** registro de ferramentas com schema, `MCP_URL` no orchestrator e contrato de
   chamada com a política. Caso: ferramenta de consulta.
 

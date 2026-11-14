@@ -30,18 +30,20 @@ try {
     const { ComponentRegistry } = await import('../agora/core/registry/component_registry.js');
     const { registerCoreComponents } = await import('../agora/components/catalog.js');
     const { installIaPack } = await import('./pack/pack.js');
+    const { installExtensionPacks } = await import('./pack/extensions.js');
     const { DjangoHost } = await import('./django_host.js');
     await import('../agora/ui/shell/agora-shell.js');
 
     const registry = new ComponentRegistry();
     await registerCoreComponents(registry);
     await installIaPack(registry);
+    await installExtensionPacks(registry, config.packs);
     const host = await DjangoHost.create({ config });
     await document.querySelector('agora-shell').init({ host, registry });
 
     //After the app is up (does not delay it): keep the app shell available without a network
     const registerShell = () => import('../agora/core/offline/register_sw.js').then(m => m.registerOfflineShell({
-        script: '/agora/sw.js', precache: '/static/agora-ia/precache.json', shell: '/static/agora-ia/offline.html',
+        script: '/agora/sw.js', precache: '/agora/precache.json', shell: '/static/agora-ia/offline.html',
     }));
     if (document.readyState === 'complete') registerShell(); else addEventListener('load', registerShell);
 } catch (error) {

@@ -1,4 +1,6 @@
-from django.urls import path
+from django.urls import include, path
+
+from apps.extensoes import registro as extensoes
 
 from . import views, views_dominio, views_llm
 
@@ -19,4 +21,8 @@ urlpatterns = [
     # Chat com os modelos do cluster (componente ia-llm-chat)
     path("api/v1/dominio/llm/modelos/", views_llm.ModelosView.as_view(), name="llm_modelos"),
     path("api/v1/dominio/llm/chat/", views_llm.ChatView.as_view(), name="llm_chat"),
+    # Lista do que o service worker guarda: a do app + os estáticos dos componentes das extensões (ADR 023)
+    path("precache.json", views.PrecacheView.as_view(), name="precache"),
+    # Leitura de domínio que as extensões expõem aos seus componentes (/agora/api/v1/dominio/<extensão>/…)
+    path("api/v1/dominio/", include(extensoes.urlpatterns_dominio())),
 ]

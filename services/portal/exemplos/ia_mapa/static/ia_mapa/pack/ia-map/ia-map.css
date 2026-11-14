@@ -1,0 +1,6 @@
+:host { display: block; font: 13px system-ui; }
+header { padding: 4px 8px; }
+#status.error { color: #7a1c12; }
+svg { width: 100%; height: auto; background: #eef2f6; }
+circle { fill: #2b6cb0; cursor: pointer; }
+circle:hover { fill: #c05621; }

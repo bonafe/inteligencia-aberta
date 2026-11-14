@@ -11,7 +11,7 @@ from django.urls import include, path
 from django.utils.module_loading import import_string
 
 from .contrato import (API_EXTENSOES, Agendamento, Consumidor, EtapaProcessamento, Extensao, FonteIngestao,
-                       ItemMenu, TipoDado)
+                       ItemMenu, PackUI, TipoDado)
 
 
 @cache
@@ -34,10 +34,25 @@ def extensoes() -> tuple[Extensao, ...]:
         _validar_compatibilidade(e, set(nomes))
         _validar_tipos(e)
         _validar_chaves(e)
+        _validar_packs(e)
     chaves = [c for e in encontradas for c in _chaves(e)]
     if len(set(chaves)) != len(chaves):
         raise ValueError(f"chave repetida entre extensões: {sorted({c for c in chaves if chaves.count(c) > 1})}")
     return tuple(encontradas)
+
+
+RESERVADAS_ESTATICOS = ("agora/", "agora-ia/")
+
+
+def _validar_packs(extensao: Extensao) -> None:
+    """Pastas e manifestos são caminhos relativos de estáticos, fora das pastas do próprio Agora."""
+    for pack in extensao.packs:
+        for caminho in (pack.base, *pack.manifestos):
+            partes = caminho.split("/")
+            if not caminho or caminho.startswith("/") or ".." in partes or "\\" in caminho:
+                raise ValueError(f"{extensao.nome}: caminho de pack inválido: {caminho!r}")
+        if pack.base.startswith(RESERVADAS_ESTATICOS):
+            raise ValueError(f"{extensao.nome}: o pack não pode ficar em {pack.base!r} (pasta do Agora)")
 
 
 def _chaves(extensao: Extensao) -> list[str]:
@@ -159,3 +174,21 @@ def etapas_para(artefato) -> list[EtapaProcessamento]:
 
 def agendamentos() -> tuple[Agendamento, ...]:
     return tuple(a for e in extensoes() for a in e.agendamentos)
+
+
+def packs() -> tuple[PackUI, ...]:
+    return tuple(p for e in extensoes() for p in e.packs)
+
+
+def urls_dos_manifestos() -> list[str]:
+    """As URLs estáticas dos manifestos de componentes de todas as extensões, para o Agora registrar."""
+    # Sem o hash do manifesto de estáticos: o precache offline lista os nomes originais, e o whitenoise serve os dois.
+    from django.conf import settings
+
+    base = "/" + settings.STATIC_URL.strip("/") + "/"
+    return [base + pack.base.rstrip("/") + "/" + manifesto for pack in packs() for manifesto in pack.manifestos]
+
+
+def urlpatterns_dominio() -> list:
+    """Rotas de leitura de domínio das extensões (`/agora/api/v1/dominio/<nome>/…`)."""
+    return [path(f"{e.nome}/", include(e.dominio_urls)) for e in extensoes() if e.dominio_urls]

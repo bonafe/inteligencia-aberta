@@ -1,0 +1,16 @@
+{
+  "name": "ia-map",
+  "tag": "ia-map",
+  "title": "Mapa",
+  "version": "1.0.0",
+  "category": "intelligence",
+  "description": "Pontos dos artefatos que têm coordenadas, sem servidor de mapas (funciona offline).",
+  "module": "./ia-map.js",
+  "inputs": {},
+  "outputs": {
+    "selected": { "type": "Entity" }
+  },
+  "actions": {},
+  "config": {},
+  "capabilities": ["domain-data", "connectable", "resizable"]
+}

@@ -4,6 +4,7 @@ import { Workspace } from '../../agora/core/workspace/workspace.js';
 import { MemoryStateStore } from '../../agora/collaboration/document/memory_state_store.js';
 import '../../agora/ui/workspace/agora-workspace.js';
 import { installIaPack } from '../pack/pack.js';
+import { installExtensionPacks } from '../pack/extensions.js';
 import { api, domainClient, DjangoHost, ApiError, OfflineError } from '../django_host.js';
 import { DomainCache, filterForCache } from '../offline_cache.js';
 import { MemoryBackend } from '../../agora/collaboration/providers/indexeddb_persistence.js';
@@ -656,6 +657,31 @@ test('precache: the list covers the app, the pack and the offline page, and is s
     }
     assert(!list.files.some(f => f.includes('/tests/')), 'tests do not belong in the app cache');
     for (const file of list.files) assert((await fetch(file.replace(/^\/static/, ''), { method: 'HEAD' })).ok, `${file} is listed but not served`);
+});
+
+// ---- components that installed extensions bring (ADR 023) ----
+
+test('extensions: every manifest from the page config is registered, relative to the site', async () => {
+    const seen = [];
+    const registry = { registerFromUrl: async url => { seen.push(url.href); } };
+    const { failed } = await installExtensionPacks(registry, ['/static/ext_a/pack/x/x.manifest.json', '/static/ext_b/pack/y/y.manifest.json']);
+    assert(failed.length === 0);
+    assert(seen.length === 2 && seen[0] === `${location.origin}/static/ext_a/pack/x/x.manifest.json`, seen.join());
+});
+
+test('extensions: one broken extension does not stop the others nor the Agora', async () => {
+    const warn = console.warn; console.warn = () => {};
+    try {
+        const registered = [];
+        const registry = { registerFromUrl: async url => { if (String(url).includes('quebrada')) throw new Error('404'); registered.push(url.pathname); } };
+        const { failed } = await installExtensionPacks(registry, ['/static/quebrada/m.json', '/static/boa/m.json']);
+        assert(failed.length === 1 && failed[0].includes('quebrada') && registered.length === 1 && registered[0] === '/static/boa/m.json');
+    } finally { console.warn = warn; }
+});
+
+test('extensions: no extension means nothing to register', async () => {
+    const { failed } = await installExtensionPacks({ registerFromUrl: async () => { throw new Error('não deveria'); } });
+    assert(failed.length === 0);
 });
 
 // ---- runner ----

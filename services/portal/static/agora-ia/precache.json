@@ -1,5 +1,5 @@
 {
- "version": "a9fca4f245a6a8b8",
+ "version": "0c6db7cb05e7523c",
  "files": [
   "/static/agora/collaboration/document/memory_state_store.js",
   "/static/agora/collaboration/document/yjs_state_store.js",
@@ -66,6 +66,7 @@
   "/static/agora-ia/django_host.js",
   "/static/agora-ia/offline.html",
   "/static/agora-ia/offline_cache.js",
+  "/static/agora-ia/pack/extensions.js",
   "/static/agora-ia/pack/ia-entity/ia-entity.css",
   "/static/agora-ia/pack/ia-entity/ia-entity.html",
   "/static/agora-ia/pack/ia-entity/ia-entity.js",

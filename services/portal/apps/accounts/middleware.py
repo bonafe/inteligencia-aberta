@@ -27,6 +27,7 @@ class LoginRequiredMiddleware:
         "/registro/",
         "/admin/",                       # autenticação própria do admin (is_staff)
         "/static/",
+        "/agora/precache.json",          # lista de estáticos do app (nomes de arquivo, nenhum dado)
         "/agora/sw.js",                  # service worker do Ultima Agora: só código, nenhum dado (o navegador o busca sozinho)
         "/api/v1/token/",                # emissão/refresh de JWT (credencial no corpo)
         "/artifacts/api/v1/artefatos/",  # canal serviço-a-serviço (X-Internal-Token)
