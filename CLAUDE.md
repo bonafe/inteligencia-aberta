@@ -150,6 +150,14 @@ O projeto ainda não está em produção e **o dono pode zerar tudo** (bancos, G
 - **Isto não afrouxa "O que nunca tocar"** (abaixo): `policy_engine`, `AuditLog`, UUIDs como PKs, níveis de classificação, `PipelineEvent` e a semântica de `status` seguem valendo — são contratos do próprio sistema, não de compatibilidade com terceiros.
 - **Quando o dono disser que agora é preciso compatibilidade** com outras instâncias (por exemplo, antes do primeiro intercâmbio real da federação, ADR 010), esta seção deve ser removida ou revista, e as decisões "difíceis de reverter" do `docs/arquitetura/federacao.md` (seção 7) passam a valer como restrição de verdade.
 
+## O que não pertence a este repositório: a sua rede e as suas máquinas
+
+Este projeto é de qualquer pessoa que o implante. **Nada específico da rede do dono entra aqui:** nomes de hosts, IPs da tailnet, DIDs/impressões digitais, domínios, usuários de máquina, caminhos de home, segredos, e **provisionamento de host** (driver de GPU, toolkit de container, `systemd`/`launchd`, `pmset`, perfil de energia, `sudoers`). Isso vive na automação de quem implanta (para o dono: o repositório `../rede_papagaio`, roles Ansible). Aqui ficam só os padrões genéricos e sobrescrevíveis (compose, `.env.example`) e a documentação do **contrato** (`docs/deploy.md`: o que o projeto espera do host), nunca a receita de uma máquina específica.
+
+- Em dúvida se algo é do projeto ou da máquina, pergunte: "outra pessoa, num host diferente, precisaria disto?". Se não, é da rede.
+- Em exemplos de documentação use nomes genéricos (`no-a`, `no-b`), não os nomes reais dos hosts.
+- Se uma tarefa pedir mexer numa máquina (instalar pacote, ajustar energia, parear), faça pela automação do dono e deixe o repositório limpo; não deixe scripts de nó em `scripts/` por conveniência.
+
 ## Site público (`index.html`, `jornada.html`, `diario.html`, `sobre.html`)
 
 O site é a vitrine e **não pode afirmar mais do que o código faz**. Ao mudar o status de algo (na página inicial, na jornada ou no diário): um item só entra em *Funciona hoje* quando existe e roda; o que tem só especificação ou esqueleto (hoje: agentes Planejador/Coletor/Redator, `buscar_processos`, `buscar_noticias`, chat, voz, grafo) fica em *Planejado* ou *Em construção*, com o limite dito na própria linha. Confira contra o código, não contra o nome de uma classe ou de um arquivo. As entradas do `diario.html` levam a assinatura do dono: escreva-as como **rascunho** (comentário `RASCUNHO`) e deixe a revisão para ele.

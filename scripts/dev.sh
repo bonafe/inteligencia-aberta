@@ -5,4 +5,10 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 export COMPOSE_PROFILES="${COMPOSE_PROFILES:-agora,ollama}"
-exec docker compose -f docker-compose.yml -f docker-compose.override.yml -f docker-compose.dev.local.yml "$@"
+arquivos=(-f docker-compose.yml -f docker-compose.override.yml -f docker-compose.dev.local.yml)
+# GPU NVIDIA: só quando o Docker tem o runtime `nvidia` (NVIDIA Container Toolkit). Sem ele o
+# overlay faria o Ollama nem subir. Force com USAR_GPU=1 ou desligue com USAR_GPU=0.
+if [ "${USAR_GPU:-auto}" = "1" ] || { [ "${USAR_GPU:-auto}" = "auto" ] && docker info --format '{{json .Runtimes}}' 2>/dev/null | grep -q nvidia; }; then
+  arquivos+=(-f docker-compose.gpu.yml)
+fi
+exec docker compose "${arquivos[@]}" "$@"

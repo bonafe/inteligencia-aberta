@@ -107,6 +107,13 @@ def test_painel_marca_a_propria_instancia_e_o_tipo_do_par(client, admin, local, 
     assert "esta instância" in html and "Terceiro" in html and "Pendente de conferência" in html
 
 
+def test_painel_nao_lista_par_revogado(client, admin, local, org):
+    _par(org, "par-ativo", estado="confirmado")
+    _par(org, "par-revogado", estado="revogado")
+    html = _logar(client, admin).get("/cluster/").content.decode()
+    assert "par-ativo" in html and "par-revogado" not in html
+
+
 def test_painel_exige_login(client, local):
     assert client.get("/cluster/").status_code in (301, 302)
 

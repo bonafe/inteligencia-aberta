@@ -232,6 +232,18 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml --profile agora 
 - **Offline e classificação:** `AGORA_OFFLINE_CACHE_NIVEL` é o teto do que cada navegador guarda; cada pessoa escolhe o próprio nível, até o teto, em ⚙ Configurações. Num ambiente com dados `confidencial`, **reduza o teto** (`interno`, `publico` ou `nenhum`): o que fica guardado viaja com o dispositivo.
 - **O front do Agora é cópia:** `services/portal/static/agora/` e `services/agora-sync/` vêm do projeto `ultima-agora` por `scripts/sincronizar_agora.sh`. Não se edita a cópia. O pré-cache do service worker (`static/agora-ia/precache.json`) é **gerado** por esse mesmo script: ao atualizar o front, rode-o e commite o resultado, senão o offline serve versão velha.
 
+## GPU e energia no nó (Ollama)
+
+O Ollama descarrega o modelo após `OLLAMA_KEEP_ALIVE` (padrão `5m`), o que libera a VRAM e deixa a GPU em
+repouso; `OLLAMA_FLASH_ATTENTION=1` e `OLLAMA_KV_CACHE_TYPE=q8_0` reduzem memória e aceleram contextos longos.
+Os três têm padrão no compose e se sobrescrevem no `.env`.
+
+Com GPU NVIDIA no Linux, `scripts/dev.sh` inclui o `docker-compose.gpu.yml` sozinho quando o Docker tem o
+runtime `nvidia` (`USAR_GPU=1` força, `USAR_GPU=0` desliga). Isso exige o módulo do driver **do kernel em uso** e o
+NVIDIA Container Toolkit no host; sem o módulo carregado o modelo roda em CPU, sem aviso. Confira com
+`docker compose exec ollama nvidia-smi` e `ollama ps` (`PROCESSOR 100% GPU`). Preparar o host (driver, toolkit,
+perfil de energia, `pmset` no Mac) é provisionamento de máquina, não do projeto: fica na automação de quem implanta.
+
 ## Portas, rede e HTTPS
 
 Em produção só o **portal (8000)** e o **orchestrator (8001)** publicam porta, e só em `BIND_ADDR`. MCP, Postgres, Redis, Qdrant e Garage ficam na rede interna do compose. Com `--profile agora`, o **`agora-sync` (8787)** também publica porta em `BIND_ADDR` (necessária só sem Caddy; ver "Ultima Agora").

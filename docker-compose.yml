@@ -264,6 +264,10 @@ services:
     # do .env (http://ollama:11434, o que os clientes usam) o quebraria.
     environment:
       OLLAMA_HOST: 0.0.0.0:11434
+      # Descarrega o modelo após ociosidade: libera a VRAM e a GPU volta ao repouso.
+      OLLAMA_KEEP_ALIVE: ${OLLAMA_KEEP_ALIVE:-5m}
+      OLLAMA_FLASH_ATTENTION: ${OLLAMA_FLASH_ATTENTION:-1}
+      OLLAMA_KV_CACHE_TYPE: ${OLLAMA_KV_CACHE_TYPE:-q8_0}
     volumes:
       - ${DATA_DIR:-./data}/ollama:/root/.ollama
     # Loopback por padrão. Para o cluster alcançá-lo, OLLAMA_BIND_ADDR = IP da VPN

@@ -11,6 +11,8 @@ from .models import Maquina
 class PainelClusterView(View):
     """Tela `/cluster/` — lista as máquinas do cluster (das organizações do
     usuário logado), status de recursos e capacidade de LLM de cada uma.
+    Pares revogados não aparecem: o canal deles está cortado e o registro só
+    fica para trilha (a tela de pares é quem os mostra).
     Autenticação de sessão de sempre (não está em EXEMPT_PREFIXES)."""
 
     #: Janela do resumo de chamadas por máquina — só uma leitura recente,
@@ -20,6 +22,7 @@ class PainelClusterView(View):
     def get(self, request):
         maquinas = (
             Maquina.objects.filter(organizacao__in=orgs_do_usuario(request.user))
+            .exclude(estado=Maquina.Estado.REVOGADO)
             .select_related("status")
             .prefetch_related("modelos_ollama")
             .order_by("apelido")
