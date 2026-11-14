@@ -1,0 +1,11 @@
+[project]
+name = "ia-exemplo"
+version = "1"
+description = "Extensão de exemplo do Inteligência Aberta"
+requires-python = ">=3.12"
+
+[project.entry-points."inteligencia_aberta.extensoes"]
+exemplo = "ia_exemplo.apps:ExemploConfig"
+
+[tool.setuptools]
+packages = ["ia_exemplo"]

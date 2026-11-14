@@ -244,6 +244,16 @@ NVIDIA Container Toolkit no host; sem o módulo carregado o modelo roda em CPU, 
 `docker compose exec ollama nvidia-smi` e `ollama ps` (`PROCESSOR 100% GPU`). Preparar o host (driver, toolkit,
 perfil de energia, `pmset` no Mac) é provisionamento de máquina, não do projeto: fica na automação de quem implanta.
 
+## Extensões de fora do repositório
+
+Uma extensão de domínio (ADR 022/023) é ligada pelo administrador da instância, sem editar `settings`:
+`EXTENSOES=<nome>[,<nome>…]` no `.env`, onde cada nome é o *entry point* de um pacote instalado com `pip`
+(grupo `inteligencia_aberta.extensoes`) ou o caminho pontuado de uma `AppConfig` que já está no `PYTHONPATH`
+(por exemplo uma pasta montada em volume). **Estar instalado não liga**: só o que é nomeado entra. Reinicie
+portal, workers e beat depois de mudar (todos carregam os mesmos apps), e rode as migrations se a extensão
+tiver modelos (o `bootstrap` já as aplica em todo `up`). A extensão roda no processo do portal com acesso
+total: **instale só código confiável**. O modelo mínimo está em `services/portal/exemplos/`.
+
 ## Portas, rede e HTTPS
 
 Em produção só o **portal (8000)** e o **orchestrator (8001)** publicam porta, e só em `BIND_ADDR`. MCP, Postgres, Redis, Qdrant e Garage ficam na rede interna do compose. Com `--profile agora`, o **`agora-sync` (8787)** também publica porta em `BIND_ADDR` (necessária só sem Caddy; ver "Ultima Agora").

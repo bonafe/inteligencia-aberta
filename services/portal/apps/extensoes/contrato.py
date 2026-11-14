@@ -12,6 +12,10 @@ faz do lado dela, pelos sinais e serviços públicos do núcleo.
 
 from dataclasses import dataclass, field
 
+#: Versão do contrato de extensões que este núcleo oferece (ADR 023). Sobe quando o manifesto
+#: ganha algo que uma extensão pode exigir; a extensão declara em `requer_api` o mínimo de que precisa.
+API_EXTENSOES = 2
+
 #: Os mesmos valores de `Artifact.ClassificationLevel`, em ordem crescente.
 NIVEIS = ("publico", "interno", "restrito", "confidencial")
 
@@ -98,6 +102,10 @@ class Extensao:
     consumidores: tuple[Consumidor, ...] = field(default_factory=tuple)
     acoes_leitura: tuple[AcaoLeitura, ...] = field(default_factory=tuple)
     menu: tuple[ItemMenu, ...] = field(default_factory=tuple)
+    #: Mínimo de `API_EXTENSOES` de que a extensão precisa; núcleo mais antigo a recusa na subida.
+    requer_api: int = 1
+    #: `nome` de outras extensões que têm de estar instaladas (o registro recusa se faltar).
+    dependencias: tuple[str, ...] = field(default_factory=tuple)
 
     def tipo(self, nome: str) -> TipoDado | None:
         return next((t for t in self.tipos if t.nome == nome), None)

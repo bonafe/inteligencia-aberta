@@ -51,6 +51,12 @@ INSTALLED_APPS = [
     "apps.saude.apps.SaudeConfig",
 ]
 
+# Extensões de fora do repositório, escolhidas pelo administrador da instância (ADR 023):
+# EXTENSOES=nome-do-entry-point,pacote.apps.MinhaConfig
+from config.extensoes_externas import apps_das_extensoes  # noqa: E402
+
+INSTALLED_APPS += [a for a in apps_das_extensoes(os.environ.get("EXTENSOES", "")) if a not in INSTALLED_APPS]
+
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     # Serve os estáticos a partir do próprio processo ASGI. Sem isto, o daphne

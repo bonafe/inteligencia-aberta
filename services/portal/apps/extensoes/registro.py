@@ -10,7 +10,7 @@ from django.apps import apps
 from django.urls import include, path
 from django.utils.module_loading import import_string
 
-from .contrato import Consumidor, Extensao, ItemMenu, TipoDado
+from .contrato import API_EXTENSOES, Consumidor, Extensao, ItemMenu, TipoDado
 
 
 @cache
@@ -26,9 +26,23 @@ def extensoes() -> tuple[Extensao, ...]:
     prefixos = [e.vocabulario.prefixo for e in encontradas]
     if len(set(prefixos)) != len(prefixos):
         raise ValueError(f"prefixo de vocabulário repetido entre extensões: {prefixos}")
+    nomes = [e.nome for e in encontradas]
+    if len(set(nomes)) != len(nomes):
+        raise ValueError(f"nome de extensão repetido: {nomes}")
     for e in encontradas:
+        _validar_compatibilidade(e, set(nomes))
         _validar_tipos(e)
     return tuple(encontradas)
+
+
+def _validar_compatibilidade(extensao: Extensao, instaladas: set[str]) -> None:
+    """Falha na subida, com a causa dita, em vez de quebrar no meio de uma captura."""
+    if extensao.requer_api > API_EXTENSOES:
+        raise ValueError(f"{extensao.nome}: exige a API de extensões {extensao.requer_api}, "
+                         f"este núcleo oferece {API_EXTENSOES}")
+    faltam = sorted(set(extensao.dependencias) - instaladas)
+    if faltam:
+        raise ValueError(f"{extensao.nome}: depende de extensões não instaladas: {faltam}")
 
 
 def _validar_tipos(extensao: Extensao) -> None:
