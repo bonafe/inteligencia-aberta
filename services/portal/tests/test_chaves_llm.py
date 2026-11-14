@@ -130,7 +130,7 @@ def test_gerar_texto_usa_a_chave_da_organizacao(org, settings):
         cliente.return_value.messages.create.return_value = mensagem
         texto, _ = gerar_texto(
             "anthropic", "claude-sonnet-5", "s", "p",
-            finalidade=Finalidade.ESTRUTURACAO_MANUAL, tenant_id=org.id,
+            finalidade=Finalidade.ESTRUTURACAO_MANUAL, classificacao="interno", tenant_id=org.id,
         )
     assert texto == "ok"
     cliente.assert_called_once_with(api_key="sk-ant-org")
@@ -139,4 +139,4 @@ def test_gerar_texto_usa_a_chave_da_organizacao(org, settings):
 def test_gerar_texto_sem_nenhuma_chave_levanta(org, settings):
     settings.ANTHROPIC_API_KEY = ""
     with pytest.raises(RuntimeError, match="Chave Anthropic"):
-        gerar_texto("anthropic", "m", "s", "p", finalidade=Finalidade.ESTRUTURACAO_MANUAL, tenant_id=org.id)
+        gerar_texto("anthropic", "m", "s", "p", finalidade=Finalidade.ESTRUTURACAO_MANUAL, classificacao="interno", tenant_id=org.id)

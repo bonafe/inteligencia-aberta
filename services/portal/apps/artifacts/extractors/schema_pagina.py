@@ -301,7 +301,7 @@ def resumo_estruturas(spec, html: str) -> str:
 
 def gerar_schema(
     provider: str, model_name: str, html_enxuto: str, estruturas: str, url: str, *,
-    titulo: str = "", subject_id=None, tenant_id=None, maquina_id=None,
+    classificacao: str, titulo: str = "", subject_id=None, tenant_id=None, maquina_id=None,
 ) -> dict:
     """Pede o schema ao LLM. Devolve {schema, avisos, maquina_id}. Levanta em erro de
     chamada ou JSON ilegível — quem chama decide falhou."""
@@ -317,7 +317,7 @@ def gerar_schema(
     texto, maquina_usada = gerar_texto(
         provider, model_name, _SYSTEM, prompt, max_tokens=MAX_TOKENS_RESPOSTA,
         num_ctx=num_ctx_para(_SYSTEM, prompt),
-        finalidade=Finalidade.SCHEMA_PAGINA, subject_id=subject_id, tenant_id=tenant_id, maquina_id=maquina_id,
+        finalidade=Finalidade.SCHEMA_PAGINA, classificacao=classificacao, subject_id=subject_id, tenant_id=tenant_id, maquina_id=maquina_id,
     )
     schema, avisos = normalizar_schema(_extract_json(texto))
     return {"schema": schema, "avisos": avisos, "maquina_id": maquina_usada}

@@ -89,7 +89,7 @@ def test_gerar_texto_usa_a_maquina_fixada_e_nao_o_roteador(mundo):
 
     with mock.patch("apps.artifacts.extractors.ollama_client.gerar", return_value="ok") as gerar, \
          mock.patch("apps.cluster.llm_router.escolher_execucao") as roteador:
-        texto, usada = gerar_texto("ollama", MODELO, "s", "p", finalidade="estruturacao_manual", maquina_id=str(maquina.id))
+        texto, usada = gerar_texto("ollama", MODELO, "s", "p", finalidade="estruturacao_manual", classificacao="interno", maquina_id=str(maquina.id))
     roteador.assert_not_called()
     assert (texto, usada) == ("ok", str(maquina.id))
     assert gerar.call_args.kwargs["host"] == "http://10.9.9.9:11434"

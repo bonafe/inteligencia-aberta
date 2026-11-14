@@ -40,7 +40,7 @@ _ROTULO = {"html": "HTML da página", "texto": "Texto da página"}
 
 def estruturar_manual(
     provider: str, model_name: str, conteudo: str, url: str, page_type_hint: str = "",
-    *, formato: str = "html", titulo: str = "", subject_id=None, tenant_id=None, maquina_id=None,
+    *, classificacao: str, formato: str = "html", titulo: str = "", subject_id=None, tenant_id=None, maquina_id=None,
 ) -> dict:
     """`conteudo` é a página inteira no `formato` dado ("html" enxuto ou "texto").
     Retorna {categoria, page_type, structured_data, maquina_id}. Levanta em
@@ -59,7 +59,7 @@ def estruturar_manual(
     texto, maquina_usada = gerar_texto(
         provider, model_name, system, user_prompt, max_tokens=MAX_TOKENS_RESPOSTA,
         num_ctx=num_ctx_para(system, user_prompt),
-        finalidade=Finalidade.ESTRUTURACAO_MANUAL, subject_id=subject_id, tenant_id=tenant_id, maquina_id=maquina_id,
+        finalidade=Finalidade.ESTRUTURACAO_MANUAL, classificacao=classificacao, subject_id=subject_id, tenant_id=tenant_id, maquina_id=maquina_id,
     )
     data = _extract_json(texto)
 

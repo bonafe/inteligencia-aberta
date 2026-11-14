@@ -252,9 +252,9 @@ def test_estruturar_manual_usa_o_prompt_do_formato():
 
     resposta = ('{"categoria": "c", "structured_data": {"a": 1}}', None)
     with mock.patch.object(estruturacao_manual, "gerar_texto", return_value=resposta) as gerar:
-        estruturacao_manual.estruturar_manual("ollama", "m", "<table></table>", "https://x")
+        estruturacao_manual.estruturar_manual("ollama", "m", "<table></table>", "https://x", classificacao="interno")
         system_html, prompt_html = gerar.call_args.args[2:4]
-        estruturacao_manual.estruturar_manual("ollama", "m", "linha", "https://x", formato="texto")
+        estruturacao_manual.estruturar_manual("ollama", "m", "linha", "https://x", formato="texto", classificacao="interno")
         system_texto, prompt_texto = gerar.call_args.args[2:4]
 
     assert "HTML COMPLETO" in system_html and "HTML da página:" in prompt_html
@@ -270,7 +270,7 @@ def test_estruturar_manual_pede_contexto_que_cabe_a_pagina():
         estruturacao_manual, "gerar_texto",
         return_value=('{"categoria": "c", "structured_data": {"a": 1}}', None),
     ) as gerar:
-        estruturacao_manual.estruturar_manual("ollama", "m", pagina, "https://x")
+        estruturacao_manual.estruturar_manual("ollama", "m", pagina, "https://x", classificacao="interno")
 
     prompt = gerar.call_args.args[3]
     assert pagina in prompt
@@ -284,5 +284,5 @@ def test_estruturar_manual_recusa_pagina_maior_que_o_teto():
 
     with mock.patch.object(estruturacao_manual, "gerar_texto") as gerar:
         with pytest.raises(ValueError, match="grande demais"):
-            estruturacao_manual.estruturar_manual("ollama", "m", "x" * 300_000, "https://x")
+            estruturacao_manual.estruturar_manual("ollama", "m", "x" * 300_000, "https://x", classificacao="interno")
     gerar.assert_not_called()

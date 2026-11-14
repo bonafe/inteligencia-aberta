@@ -853,6 +853,7 @@ def estruturar_llm_manual(self, estruturacao_id: str, maquina_id: str | None = N
         resultado = estruturar_manual(
             execucao.provider, execucao.model_name, conteudo, url,
             page_type_hint=doc_text.page_type, formato=formato, titulo=doc_text.title,
+            classificacao=artifact.classification_level,
             subject_id=artifact.id, tenant_id=execucao.tenant_id, maquina_id=maquina_id,
         )
     except Exception as exc:
@@ -966,7 +967,8 @@ def gerar_schema_pagina(self, schema_id: str, maquina_id: str | None = None):
         resultado = gerar_schema(
             registro.provider, registro.model_name, enxugar(html), estruturas,
             (doc_text.source_url if doc_text else "") or content.get("url", ""),
-            titulo=doc_text.title if doc_text else "", subject_id=artifact.id, tenant_id=registro.tenant_id,
+            titulo=doc_text.title if doc_text else "", classificacao=artifact.classification_level,
+            subject_id=artifact.id, tenant_id=registro.tenant_id,
             maquina_id=maquina_id,
         )
     except Exception as exc:
@@ -1080,6 +1082,7 @@ def comparar_llm(self, comparacao_id: str, maquina_id: str | None = None):
         veredito = julgar_comparacao(
             comparacao.modelo_juiz_provider, comparacao.modelo_juiz_model_name,
             [{"label": s["label"], "dados": s["dados"]} for s in secoes],
+            classificacao=artifact.classification_level,
             subject_id=artifact.id, tenant_id=comparacao.tenant_id, maquina_id=maquina_id,
         )
     except Exception as exc:

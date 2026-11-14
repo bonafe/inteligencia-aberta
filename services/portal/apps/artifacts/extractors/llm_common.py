@@ -128,9 +128,13 @@ def prompt_extracao(formato: str) -> str:
     return _EXTRACT_SYSTEM.replace("{entrada}", _EXTRACT_ENTRADA[formato])
 
 
+class PoliticaLLMNegada(PermissionError):
+    """O nível de classificação do dado não permite enviá-lo a um LLM externo."""
+
+
 def gerar_texto(
     provider: str, model_name: str, system: str, prompt: str, max_tokens: int = 4096,
-    *, finalidade: str, subject_id=None, tenant_id=None, maquina_id: str | None = None,
+    *, finalidade: str, classificacao: str, subject_id=None, tenant_id=None, maquina_id: str | None = None,
     num_ctx: int | None = None,
 ) -> tuple[str, str | None]:
     """Ponto único de chamada a um LLM, Claude ou Ollama, para os usos manuais
@@ -148,6 +152,11 @@ def gerar_texto(
     para quê a chamada é (`apps.events.models.Finalidade`), porque o mesmo
     par provider/modelo serve tarefas de custo muito diferente.
 
+    `classificacao` é o nível do dado que vai no prompt (`publico`, `interno`, `restrito`, `confidencial`) e é **obrigatório**:
+    a política de LLM externo é imposta aqui, no ponto único de chamada, e não só em quem chama —
+    um plugin que use `gerar_texto` não a contorna. Provider externo com nível que não o permite
+    levanta `PoliticaLLMNegada` antes de qualquer chave ou rede. Ollama (local/cluster) não é externo.
+
     `maquina_id` fixa a máquina do cluster (provider ollama): a pessoa a escolheu na tela, como no
     chat do Agora. Sem ele, o roteador pega a mais rápida. A view já validou o acesso.
 
@@ -159,6 +168,11 @@ def gerar_texto(
     """
     if provider == "anthropic":
         from time import perf_counter
+
+        from apps.artifacts.policy import permite_llm_externo
+
+        if not permite_llm_externo(classificacao):
+            raise PoliticaLLMNegada(f"classificação {classificacao!r} não permite LLM externo")
 
         from apps.events.llm_telemetria import ResultadoLLM, registrar_chamada_llm
 
