@@ -126,7 +126,7 @@ Extensão Chrome → POST orchestrator:8001/api/v1/capture/mhtml
 
 **`services/portal/config/celery.py`** — app Celery do projeto. `config/__init__.py` o exporta para que `celery -A config` funcione.
 
-**`services/mcp/tools/cnpj.py`** — única ferramenta funcional (BrasilAPI). `processos.py` e `noticias.py` são stubs.
+**Ferramentas do MCP** (`services/mcp/ferramentas.py`, `tools/`, ADR 023) — registro: cada ferramenta é um dicionário (`id`, `parametros`, `executar`, `classificacao_maxima`, `fonte`, `timeout_s`); `GET /ferramentas` e `POST /ferramentas/<id>` (`X-Mcp-Token`), contrato de `docs/componentes/mcp.md`. O MCP recusa dado mais restrito que a `classificacao_maxima` da ferramenta (sem classificação = `confidencial`); ferramenta que manda parâmetros para fora é `publico`. Plugins por `FERRAMENTAS_MCP` (entry point `inteligencia_aberta.ferramentas` ou módulo com `FERRAMENTAS`), só código confiável. Única funcional do projeto: `consultar_cnpj` (BrasilAPI); `processos.py` e `noticias.py` são stubs. O orchestrator fala com o MCP por `mcp_cliente.py` (`policy_engine.check` antes de sair; nunca levanta) e o coletor executa o plano por ele; `/api/v1/ferramentas*` (JWT). Testes: `scripts/testar_servicos.sh` (mcp e orchestrator).
 
 **Chat com os modelos** (`apps/agora/views_llm.py`, componente `static/agora-ia/pack/ia-llm-chat/`, ADR 020) — lista os modelos das máquinas da organização e conversa com um deles; o histórico fica só no navegador, o prompt é só o que a pessoa digita (nenhum artefato entra, por isso não passa pelo `policy_engine`; **se passar a injetar contexto, tem de passar**) e só fala com o Ollama do cluster. Não confundir com o `ultima-chat` (chat entre pessoas, ADR 016).
 

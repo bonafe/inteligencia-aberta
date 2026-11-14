@@ -2,6 +2,24 @@
 
 Este arquivo documenta as alterações, configurações e implementações feitas por IAs (agentes) neste repositório. O objetivo é manter um histórico unificado e transparente sobre o estado do desenvolvimento, facilitando o onboarding de novas IAs e humanos na base de código.
 
+## [14-11-2026] - Extensibilidade por plugins (ADR 023, fases 0 a 4), dependências atualizadas e ajustes do cluster
+
+**Motivação:** quem implanta o IA precisa estender o sistema (tipos de dado, fontes, etapas, telas, ferramentas) sem editar o núcleo. O levantamento achou que só dava para quem editava o repositório; modelo de confiança escolhido: só código confiável (roda no processo).
+
+**O que foi implementado:**
+- **Fase 0:** `llm_common.gerar_texto` exige `classificacao` e recusa provider externo para restrito/confidencial (`PoliticaLLMNegada`); antes a barreira era só nas views e tasks. `policy_engine` intocado.
+- **Fase 1:** `EXTENSOES` (`config/extensoes_externas.py`) liga extensão de fora do repositório por entry point ou `AppConfig`; manifesto `requer_api`/`dependencias`; `exemplos/ia_exemplo`.
+- **Fase 2 (API 3):** `FonteIngestao` (`manage.py importar_fonte`), `EtapaProcessamento` (despachada para artefato novo por filtro de tipo/categoria/sufixo, fila própria, evento `extensao.etapa.<chave>`, `rodar_etapa`), `Agendamento` no Beat (`beat_init`); dados da extensão em `content["extensoes"][nome]`. Exemplos `ia_email` e `ia_transcricao`.
+- **Fase 3 (API 4):** `PackUI` (componentes `ia-*` da extensão, entregues em `configuracao.packs` e registrados por `pack/extensions.js`), `dominio_urls` (`/agora/api/v1/dominio/<nome>/`), precache dinâmico `/agora/precache.json`. Exemplo `ia_mapa`.
+- **Fase 4:** MCP com registro de ferramentas (`ferramentas.py`, `GET /ferramentas`, `POST /ferramentas/<id>`, política por `classificacao_maxima`, plugins por `FERRAMENTAS_MCP`; as rotas `/tools/*` saíram); orchestrator com `mcp_cliente.py`, coletor que executa o plano e `/api/v1/ferramentas*`. Exemplo `services/mcp/exemplos/ia_cep`.
+- **Dependências:** `kombu 5.7` exigia `redis>=6.1`; subiram redis 8, celery 5.7, Django 5.2 LTS, DRF, channels, daphne, fastapi 0.162, uvicorn, httpx; langchain/langgraph, qdrant-client e fastembed ficaram.
+- **Cluster:** `/cluster/` não lista mais pares revogados; Ollama com `KEEP_ALIVE`/flash attention/KV q8_0; `scripts/dev.sh` inclui o overlay de GPU quando o Docker tem o runtime `nvidia`.
+- Testes: portal 1184 (`-e DJANGO_SETTINGS_MODULE=config.settings.development`), front 46/46, MCP 34 e orchestrator 27 (`scripts/testar_servicos.sh`).
+
+**Documentação atualizada:** ADR 023, `docs/deploy.md`, `docs/componentes/mcp.md`, `docs/seguranca/autenticacao.md`, `CLAUDE.md` e `AGENTS.md`.
+
+**Limites:** não há isolamento (extensão e ferramenta de plugin rodam no processo do portal/MCP); fila própria exige worker próprio; `Artifact.Type`, `Finalidade` e providers de LLM seguem enums fechados; o planejador e o redator são stubs e `/investigar` não executa o grafo; `ia-map` nunca rodou num navegador; o motor de transcrição real não foi exercitado. Mudar `EXTENSOES`, `FERRAMENTAS_MCP` ou as rotas de extensão exige reiniciar o serviço. Não invalida dados.
+
 ## [15-10-2026] - Chat com os modelos do cluster no Ultima Agora (ADR 020) e token do gateway automático
 
 **Motivação:** não havia como testar pelo próprio sistema os modelos instalados nas máquinas (o gateway `/v1/chat/completions` é só Bearer), e o `LLM_GATEWAY_TOKEN`, que tem de ser igual em todos os hosts, era um passo manual no vault.

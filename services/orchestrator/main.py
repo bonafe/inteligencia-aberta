@@ -12,6 +12,7 @@ from io import BytesIO
 from urllib.parse import urljoin
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Depends, Header
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from minio import Minio
 from policy_engine import check, registrar_decisao
@@ -19,6 +20,7 @@ from eventos import emitir, nova_correlacao
 
 from segredos import validar_segredos
 from conteudo_hash import hash_ni
+import mcp_cliente
 
 validar_segredos(["JWT_SIGNING_KEY", "INTERNAL_API_TOKEN", "S3_SECRET_KEY", "POSTGRES_PASSWORD"])
 
@@ -164,6 +166,33 @@ def extrair_favicon_do_mhtml(mhtml_bytes: bytes, page_url: str, favicon_url: str
 class InvestigationRequest(BaseModel):
     query: str
     classification: str = "restrito"
+
+
+class ChamadaFerramenta(BaseModel):
+    parametros: dict = {}
+    # O nível do dado que vai nos parâmetros. O padrão é o mais restrito que o sistema usa por omissão:
+    # ferramenta externa só aceita `publico`, então quem quer consultar fora declara isso explicitamente.
+    classificacao: str = "restrito"
+
+
+@app.get("/api/v1/ferramentas")
+async def listar_ferramentas(claims: dict = Depends(require_jwt)):
+    """As ferramentas que o MCP oferece (inclui as de plugins), com o esquema de cada uma."""
+    try:
+        return {"ferramentas": await mcp_cliente.catalogo()}
+    except httpx.HTTPError as erro:
+        raise HTTPException(status_code=502, detail=f"MCP indisponível: {type(erro).__name__}")
+
+
+@app.post("/api/v1/ferramentas/{ferramenta_id}")
+async def chamar_ferramenta(ferramenta_id: str, chamada: ChamadaFerramenta, claims: dict = Depends(require_jwt)):
+    """Chama uma ferramenta pelo MCP, com a identidade das claims, a política e a mesma correlação do log."""
+    correlacao = nova_correlacao()
+    resposta = await mcp_cliente.chamar(
+        ferramenta_id, chamada.parametros, classificacao=chamada.classificacao, tenant_id=claims["tenant_id"],
+        correlacao=correlacao, user_id=claims.get("user_id"))
+    codigo_http = 200 if resposta.get("status") == "ok" else mcp_cliente.STATUS_HTTP.get(resposta.get("codigo"), 502)
+    return JSONResponse({**resposta, "correlation_id": correlacao}, status_code=codigo_http)
 
 
 @app.post("/investigar")

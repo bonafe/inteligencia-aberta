@@ -48,7 +48,7 @@ O `user_id`/`tenant_id` no corpo dessa chamada agora são **confiáveis**, porqu
 
 ### 4. Token de ferramenta — Swagger do MCP publicado
 
-O MCP (`services/mcp/`) é FastAPI, então ganha Swagger UI automático em `/docs`. Em **desenvolvimento** a porta 8002 é publicada no host **especificamente para deixar essa documentação visível** para fins didáticos (ver seção seguinte) — mas isso não reabre as ferramentas em si. Em **produção** (`docker-compose.prod.yml`) a porta não é publicada: só o orchestrator alcança o MCP, pela rede interna do compose. `/tools/cnpj`, `/tools/processos` e `/tools/noticias` exigem o header `X-Mcp-Token: <MCP_API_TOKEN>`, validado com `hmac.compare_digest` (`main.py::require_mcp_token`); sem o token correto → **401**. `/docs`, `/openapi.json` e `/health` continuam abertos, sem token. O header aparece automaticamente na spec OpenAPI (FastAPI o documenta por vir de um parâmetro `Header()`), então quem abre o Swagger já vê que precisa dele para testar.
+O MCP (`services/mcp/`) é FastAPI, então ganha Swagger UI automático em `/docs`. Em **desenvolvimento** a porta 8002 é publicada no host **especificamente para deixar essa documentação visível** para fins didáticos (ver seção seguinte) — mas isso não reabre as ferramentas em si. Em **produção** (`docker-compose.prod.yml`) a porta não é publicada: só o orchestrator alcança o MCP, pela rede interna do compose. `GET /ferramentas` e `POST /ferramentas/<id>` exigem o header `X-Mcp-Token: <MCP_API_TOKEN>`, validado com `hmac.compare_digest` (`main.py::require_mcp_token`); sem o token correto → **401**. `/docs`, `/openapi.json` e `/health` continuam abertos, sem token. O header aparece automaticamente na spec OpenAPI (FastAPI o documenta por vir de um parâmetro `Header()`), então quem abre o Swagger já vê que precisa dele para testar.
 
 ### 5. Assinatura Ed25519 — entre instâncias
 
@@ -88,7 +88,7 @@ Portal e MCP expõem documentação interativa da API, e as duas ficam **públic
 | `INTERNAL_API_TOKEN` | orchestrator (envia) + portal (valida) | Segredo do canal serviço-a-serviço (criação de artefato). |
 | `AGORA_SYNC_SECRET` | portal (assina) + agora-sync (valida) | **Idêntico** nos dois, ≥ 32 caracteres; só existe com o Agora em tempo real. Em produção o portal recusa subir com ele fraco quando `AGORA_SYNC_URL` está definida. |
 | `AGORA_SYNC_ADMIN_TOKEN` | portal (envia) + agora-sync (valida) | Canal administrativo (mudança de papel valendo nas conexões abertas), ≥ 16 caracteres; serviço-a-serviço, nunca pela internet. |
-| `MCP_API_TOKEN` | quem chama as ferramentas do MCP (validado pelo próprio MCP) | Segredo do canal de chamada das ferramentas (`/tools/*`); distinto do `INTERNAL_API_TOKEN` — fronteira diferente. |
+| `MCP_API_TOKEN` | quem chama as ferramentas do MCP (validado pelo próprio MCP) | Segredo do canal de chamada das ferramentas (`/ferramentas*`); distinto do `INTERNAL_API_TOKEN` — fronteira diferente. |
 
 Todos vêm do `.env` (via `env_file` no `docker-compose.yml`, que todos os serviços já carregam). Ver `.env.example`.
 
@@ -113,4 +113,4 @@ Em produção portal, orchestrator, MCP, worker e beat se recusam a iniciar se `
 - CORS do orchestrator: em produção é restrito por `CORS_ALLOWED_ORIGINS` (vazio no compose de prod = nenhuma origem); sem a variável (desenvolvimento) continua `["*"]`.
 - `DEBUG`/`ALLOWED_HOSTS`: `development.py` mantém `DEBUG=True`/`["*"]`; produção usa `production.py` (ver acima).
 - `SECRET_KEY` mantém fallback inseguro em `base.py` (só dev; produção valida); o cliente S3 (Garage) com `secure=False` (tráfego interno do compose).
-- MCP: `/tools/*` exigem `X-Mcp-Token`, mas sem rate limit. Em produção a porta não é publicada, o que reduz a superfície; rate limit na borda (login e captura no Caddy) segue não implementado.
+- MCP: `/ferramentas*` exigem `X-Mcp-Token`, mas sem rate limit. Em produção a porta não é publicada, o que reduz a superfície; rate limit na borda (login e captura no Caddy) segue não implementado.

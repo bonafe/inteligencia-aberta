@@ -86,12 +86,15 @@ Os testes do portal usam pytest + pytest-django (`services/portal/tests/`): `doc
 - **Não escreva lógica de negócio no portal Django** que deveria estar no orchestrator. O portal é interface e persistência; o orchestrator é processamento.
 - **Não crie artefatos com psycopg2 direto no banco a partir do orchestrator.** O orchestrator deve chamar `POST portal:8000/artifacts/api/v1/artefatos/` para que o signal Django dispare o pipeline. Escrever diretamente no banco bypassa o ORM e o signal nunca é acionado.
 
+- **Não ponha nada específico da rede do dono no repositório** (nomes de hosts, IPs da tailnet, DIDs, domínios, scripts de nó, driver de GPU, `systemd`/`launchd`/`pmset`): isso é provisionamento de host e vive na automação de quem implanta (para o dono, o repositório `../rede_papagaio`). Veja a seção correspondente do `CLAUDE.md`.
+- **Não chame um provider de LLM sem passar por `llm_common.gerar_texto`** com a `classificacao` do dado: é onde a política de LLM externo é imposta.
+
 ### Sempre faça
 
 - Leia a spec em `docs/componentes/agentes/<agente>.md` antes de implementar um agente.
 - Mantenha nomes de domínio em português (campos, agentes, endpoints) e infraestrutura em inglês.
 - Use `async/await` em FastAPI e type hints em todo código novo.
-- Ao adicionar uma ferramenta MCP nova, registre o endpoint em `services/mcp/main.py` e documente em `docs/componentes/mcp.md`.
+- Ao adicionar uma ferramenta MCP nova, registre-a como dicionário em `services/mcp/tools/` (ou num plugin em `FERRAMENTAS_MCP`), declare `classificacao_maxima` (`publico` se os parâmetros saem da máquina) e documente em `docs/componentes/mcp.md`; teste com `scripts/testar_servicos.sh`.
 - Ao alterar o `InvestigationState` em `graph.py`, verifique se todos os agentes que leem/escrevem esse estado ainda estão coerentes.
 - Atualize o arquivo `CHANGELOG_IA.md` na raiz do projeto detalhando o que você fez, para manter o histórico claro para humanos e outras IAs.
 - Ao criar uma nova transformação de artefato (nova Etapa do pipeline), registre `ArtifactLineage` com `transformation`, `processor` e `parameters`. A linhagem é o contrato de rastreabilidade do sistema.

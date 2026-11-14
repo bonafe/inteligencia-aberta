@@ -1,6 +1,6 @@
 # ADR 023 — Extensibilidade por plugins
 
-**Status:** aceita — 2026-11-14. **Fases 0 a 3 implementadas.** Fase 4 desenhada (abaixo).
+**Status:** aceita — 2026-11-14. **Fases 0 a 4 implementadas.** Camada 2 (plugin não confiável, isolado) fora desta rodada.
 
 ## Contexto
 
@@ -66,10 +66,21 @@ federação) fica fora desta rodada; o manifesto não fecha a porta para ele.
    Agora por caminho absoluto (`/static/agora/core/…`). Validado por `exemplos/ia_mapa` (componente `ia-map` + rota `mapa/pontos/`);
    os caminhos de um pack são relativos, sem `..`, e não podem cair em `agora/` ou `agora-ia/`.
 
-## Fases seguintes (cada uma validada por um plugin de exemplo real)
-
-- **4. MCP e agentes:** registro de ferramentas com schema, `MCP_URL` no orchestrator e contrato de
-  chamada com a política. Caso: ferramenta de consulta.
+7. **Ferramentas do MCP e agentes.** O MCP deixou de ter rotas escritas à mão (`/tools/*`): um registro (`services/mcp/ferramentas.py`)
+   monta o catálogo com as ferramentas do projeto (`tools/`) e as de plugins listados em `FERRAMENTAS_MCP` (nome de *entry point* do
+   grupo `inteligencia_aberta.ferramentas` ou módulo importável que expõe `FERRAMENTAS`). Uma ferramenta é um dicionário — o plugin não importa
+   nada do serviço: `id`, `descricao`, `parametros` (tipo e obrigatoriedade), `executar` (async), `classificacao_maxima`, `fonte`, `timeout_s`.
+   API: `GET /ferramentas` (catálogo com esquema) e `POST /ferramentas/<id>` com `{parametros, contexto}`, no contrato de
+   `docs/componentes/mcp.md` (`ok` com `resultado`/`fonte`/`confianca`, ou `erro` com `codigo`: `FERRAMENTA_DESCONHECIDA`, `PARAMETRO_INVALIDO`,
+   `BLOQUEADO_POR_POLITICA`, `TIMEOUT`, `FONTE_INDISPONIVEL`). Contrato inválido ou id repetido falha **na subida**.
+   **Política em duas camadas:** o orchestrator chama `policy_engine.check` antes de sair (decisão no log; o motor não mudou) e o MCP recusa
+   dado mais restrito que a `classificacao_maxima` da ferramenta, qualquer que seja o chamador; sem classificação o dado vale `confidencial`.
+   Ferramenta que envia parâmetros para fora declara `publico`.
+   O orchestrator ganhou `mcp_cliente.py` (`MCP_URL`; nunca levanta, devolve sempre o contrato), o **coletor** passou a executar o plano
+   (uma entrada por etapa, na ordem, com o desfecho; falha de uma fonte não para as outras; concorrência limitada por `COLETOR_CONCORRENCIA`)
+   e `GET /api/v1/ferramentas` / `POST /api/v1/ferramentas/<id>` (JWT, identidade das claims, padrão `restrito`). Ainda não há agente novo
+   plugável: o planejador e o redator seguem stubs, e `/investigar` ainda não executa o grafo. Validado por `services/mcp/exemplos/ia_cep`
+   (uma ferramenta externa e uma local) e pelos testes de `services/mcp/tests` e `services/orchestrator/tests`.
 
 ## Consequências
 

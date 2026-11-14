@@ -1,0 +1,12 @@
+[project]
+name = "ia-cep"
+version = "1"
+description = "Ferramentas de exemplo do MCP do Inteligência Aberta"
+requires-python = ">=3.12"
+dependencies = ["httpx"]
+
+[project.entry-points."inteligencia_aberta.ferramentas"]
+cep = "ia_cep"
+
+[tool.setuptools]
+packages = ["ia_cep"]

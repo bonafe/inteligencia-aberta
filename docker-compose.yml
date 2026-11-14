@@ -57,7 +57,7 @@ services:
       additional_contexts:
         git: ./.git
     # /docs (Swagger) é publicado só em dev, para fins didáticos. As ferramentas
-    # em si (/tools/*) exigem X-Mcp-Token — ver main.py.
+    # em si (/ferramentas*) exigem X-Mcp-Token — ver main.py.
     env_file: .env
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8002/health', timeout=3)"]

@@ -259,6 +259,10 @@ para cada artefato novo (`manage.py rodar_etapa --listar`, e `rodar_etapa <chave
 **agendamentos** do Beat, e **componentes e rotas de leitura** para o Ultima Agora (aparecem na próxima abertura do Agora; o service worker troca o cache sozinho). Uma etapa que declara uma `fila` própria (por exemplo uma que usa GPU) só roda se houver um worker
 escutando essa fila (`celery -A config worker -Q <fila>`): subi-lo, e dar a ele a GPU, é de quem implanta.
 
+## Ferramentas de plugin no MCP
+
+Ferramentas do MCP de fora do projeto se ligam com `FERRAMENTAS_MCP=<nome>[,<nome>…]` no `.env` do serviço `mcp`: o nome de um *entry point* do grupo `inteligencia_aberta.ferramentas` (pacote instalado na imagem do MCP com `pip`) ou um módulo importável (pasta montada no `PYTHONPATH`) que expõe `FERRAMENTAS`. Reinicie o `mcp`. Ela roda **no processo do MCP**: só código confiável. Uma ferramenta que manda os parâmetros para fora declara `classificacao_maxima: publico` (o MCP recusa dado mais restrito). Veja `services/mcp/exemplos/`.
+
 ## Portas, rede e HTTPS
 
 Em produção só o **portal (8000)** e o **orchestrator (8001)** publicam porta, e só em `BIND_ADDR`. MCP, Postgres, Redis, Qdrant e Garage ficam na rede interna do compose. Com `--profile agora`, o **`agora-sync` (8787)** também publica porta em `BIND_ADDR` (necessária só sem Caddy; ver "Ultima Agora").

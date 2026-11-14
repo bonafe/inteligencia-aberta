@@ -12,6 +12,10 @@ class InvestigationState(TypedDict):
     plan: dict
     collected_data: list
     report: str
+    # Contexto da chamada, que o coletor repassa às ferramentas (política e rastreio)
+    user_id: str
+    correlation_id: str
+    investigation_id: str
 
 
 def build_graph():

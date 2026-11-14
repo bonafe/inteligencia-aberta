@@ -95,6 +95,10 @@ Toda ferramenta deve implementar este contrato:
 }
 ```
 
+## Estado atual (ADR 023)
+
+O registro de ferramentas e a API estão implementados em `services/mcp/ferramentas.py` e `main.py`: `GET /ferramentas` (catálogo) e `POST /ferramentas/<id>`, com este contrato de entrada e saída, validação de parâmetros, política por `classificacao_maxima`, `timeout_s` e um evento `ferramenta.chamada` por chamada. Plugins entram por `FERRAMENTAS_MCP` (ver ADR 023, item 7); o **gerenciador de contêineres** e as novas tentativas com backoff descritos acima ainda não existem. As ferramentas rodam no processo do MCP.
+
 ## Ferramentas Iniciais
 
 | Ferramenta | Fonte | Classificação mínima |

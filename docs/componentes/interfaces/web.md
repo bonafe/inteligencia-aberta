@@ -467,7 +467,7 @@ A autenticação usa quatro mecanismos, um por fronteira. Detalhes completos em 
 
 **API interna (orchestrator → portal) — token de serviço:** `ArtefatoCreateAPIView` exige o header `X-Internal-Token` (validado com `constant_time_compare`); sem ele, 403.
 
-**Ferramentas do MCP — token de ferramenta:** `/tools/*` no MCP exigem `X-Mcp-Token`; sem ele, 401.
+**Ferramentas do MCP — token de ferramenta:** `/ferramentas*` no MCP exigem `X-Mcp-Token`; sem ele, 401.
 
 **Documentação da API (Swagger) — pública, sem login:** `/api/docs/`, `/api/redoc/` e `/api/schema/` no portal, e `/docs` no orchestrator e no MCP, ficam acessíveis sem sessão/token — decisão deliberada para fins didáticos e para novos desenvolvedores explorarem a API. Isso descreve o formato dos endpoints, não expõe dado nenhum; cada endpoint documentado continua exigindo sua própria credencial quando de fato chamado.
 
