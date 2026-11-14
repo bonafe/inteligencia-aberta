@@ -79,7 +79,9 @@ def test_o_nucleo_nao_cita_a_extensao_de_exemplo():
                     *PORTAL.joinpath("templates").rglob("*.html")]:
         if arquivo.name == "extensoes_externas.py" or arquivo.name == "base.py" and arquivo.parent.name == "settings":
             continue
-        assert "ia_exemplo" not in arquivo.read_text(encoding="utf-8"), arquivo
+        texto = arquivo.read_text(encoding="utf-8")
+        for pacote in ("ia_exemplo", "ia_email", "ia_transcricao"):
+            assert pacote not in texto, (pacote, arquivo)
 
 
 # ── manifesto v2: compatibilidade e dependências ─────────────────────────────

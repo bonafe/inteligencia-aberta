@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 
 #: Versão do contrato de extensões que este núcleo oferece (ADR 023). Sobe quando o manifesto
 #: ganha algo que uma extensão pode exigir; a extensão declara em `requer_api` o mínimo de que precisa.
-API_EXTENSOES = 2
+API_EXTENSOES = 3
 
 #: Os mesmos valores de `Artifact.ClassificationLevel`, em ordem crescente.
 NIVEIS = ("publico", "interno", "restrito", "confidencial")
@@ -90,6 +90,51 @@ class ItemMenu:
 
 
 @dataclass(frozen=True)
+class FonteIngestao:
+    """Um jeito de trazer dados de fora para o acervo (e-mail, um sistema, um dispositivo).
+
+    `importar` é `"pacote.modulo.funcao"` com a assinatura
+    `funcao(*, organizacao, usuario, caminho, nivel, simular, opcoes) -> dict` (o resumo). Quem
+    chama é `manage.py importar_fonte <chave>`; a função cria artefatos pelos serviços públicos do
+    núcleo (`artifacts.acervo`, `registrar_alegacao`)."""
+
+    chave: str
+    rotulo: str
+    descricao: str
+    importar: str
+
+
+@dataclass(frozen=True)
+class EtapaProcessamento:
+    """Uma etapa que o núcleo executa para cada artefato novo que combina com o filtro.
+
+    `executar` é `"pacote.modulo.funcao"` com a assinatura `funcao(artefato, resultado)`:
+    `resultado` é o acumulador de `apps.events.emit.etapa` (`.ok()`, `.vazio()`, `.ignorado()`);
+    exceção vira evento `falhou`. Tem de ser **idempotente** (pode rodar de novo com `rodar_etapa`).
+
+    Filtro: `tipos` (valores de `Artifact.Type`), `categorias` (`content["categoria"]`, vazio =
+    qualquer) e `sufixos` (fim de `content["nome"]`, vazio = qualquer). `fila` é a fila Celery
+    (vazio = a padrão); uma fila própria precisa de um worker que a escute (`celery -Q <fila>`)."""
+
+    chave: str
+    rotulo: str
+    executar: str
+    tipos: tuple[str, ...] = ("arquivo",)
+    categorias: tuple[str, ...] = ()
+    sufixos: tuple[str, ...] = ()
+    fila: str = ""
+
+
+@dataclass(frozen=True)
+class Agendamento:
+    """Uma tarefa Celery da extensão que o Beat dispara a cada `a_cada_s` segundos."""
+
+    chave: str
+    tarefa: str
+    a_cada_s: float
+
+
+@dataclass(frozen=True)
 class Extensao:
     nome: str
     rotulo: str
@@ -106,6 +151,9 @@ class Extensao:
     requer_api: int = 1
     #: `nome` de outras extensões que têm de estar instaladas (o registro recusa se faltar).
     dependencias: tuple[str, ...] = field(default_factory=tuple)
+    fontes: tuple[FonteIngestao, ...] = field(default_factory=tuple)
+    etapas: tuple[EtapaProcessamento, ...] = field(default_factory=tuple)
+    agendamentos: tuple[Agendamento, ...] = field(default_factory=tuple)
 
     def tipo(self, nome: str) -> TipoDado | None:
         return next((t for t in self.tipos if t.nome == nome), None)

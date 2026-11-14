@@ -1,6 +1,6 @@
 # ADR 023 — Extensibilidade por plugins
 
-**Status:** aceita — 2026-11-14. **Fases 0 e 1 implementadas.** Fases 2 a 4 desenhadas (abaixo).
+**Status:** aceita — 2026-11-14. **Fases 0 a 2 implementadas.** Fases 3 e 4 desenhadas (abaixo).
 
 ## Contexto
 
@@ -35,11 +35,25 @@ federação) fica fora desta rodada; o manifesto não fecha a porta para ele.
    `apps/`: `tests/test_extensoes_externas.py` usa `services/portal/exemplos/ia_exemplo`, a menor extensão
    que cumpre o contrato, e confere que nenhum arquivo do núcleo a menciona.
 
+5. **Fontes, etapas e agendamentos (API 3).** O manifesto declara:
+   - `FonteIngestao(chave, rotulo, descricao, importar)`: `manage.py importar_fonte <chave> <caminho> --organizacao …`
+     chama `importar(*, organizacao, usuario, caminho, nivel, simular, opcoes) -> dict`, que cria artefatos pelos serviços
+     públicos do núcleo (`artifacts.acervo`, `registrar_alegacao`);
+   - `EtapaProcessamento(chave, rotulo, executar, tipos, categorias, sufixos, fila)`: o núcleo enfileira a etapa, depois do
+     commit, para cada artefato **novo** que combina com o filtro, na `fila` declarada (vazia = a padrão), e a executa dentro de
+     `etapa()`: um evento `extensao.etapa.<chave>` por execução (`ok`/`vazio`/`ignorado`/`falhou`), com a correlação do artefato;
+     exceção vira `falhou` e não derruba a captura nem as outras etapas. A etapa tem de ser idempotente:
+     `manage.py rodar_etapa <chave> --organizacao …` a reexecuta para os artefatos existentes;
+   - `Agendamento(chave, tarefa, a_cada_s)`: acrescentado ao Beat no `beat_init` (`config/celery.py`), quando o registro já pode ser lido.
+
+   Toda chave começa pelo `nome` da extensão (`email.pasta`) e é única entre extensões. O que a etapa descobre vai para
+   `content["extensoes"][<nome>]` (`apps.extensoes.dados`), um espaço por extensão; fato vira alegação. Não há tipo de artefato
+   novo: o e-mail e o áudio são `arquivo` com `content["categoria"]`. **Fila própria precisa de worker próprio** (`celery -Q <fila>`):
+   quem implanta o sobe (hoje o compose do projeto só traz as filas do núcleo). Validado por `exemplos/ia_email` (fonte + etapa por
+   sufixo) e `exemplos/ia_transcricao` (etapa em fila `gpu` + varredura agendada).
+
 ## Fases seguintes (cada uma validada por um plugin de exemplo real)
 
-- **2. Ingestão e etapas:** registro de fontes de ingestão e de etapas de processamento por tipo
-  (hoje `_ROUTER`, `classify()` e a sequência de `extract_text_from_mhtml` são código fixo); filas e
-  agendamento declarados no manifesto. Casos: importador de e-mail; transcrição de áudio/vídeo.
 - **3. UI:** descoberta de packs do Agora a partir das extensões (hoje `IA_MANIFESTS` é uma lista fixa em
   `static/agora-ia/pack/pack.js`), rota de domínio por extensão sem o núcleo citá-la, precache que inclui
   os estáticos de extensão. Caso: componente de mapa.

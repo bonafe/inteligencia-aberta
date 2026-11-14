@@ -10,7 +10,8 @@ from django.apps import apps
 from django.urls import include, path
 from django.utils.module_loading import import_string
 
-from .contrato import API_EXTENSOES, Consumidor, Extensao, ItemMenu, TipoDado
+from .contrato import (API_EXTENSOES, Agendamento, Consumidor, EtapaProcessamento, Extensao, FonteIngestao,
+                       ItemMenu, TipoDado)
 
 
 @cache
@@ -32,7 +33,24 @@ def extensoes() -> tuple[Extensao, ...]:
     for e in encontradas:
         _validar_compatibilidade(e, set(nomes))
         _validar_tipos(e)
+        _validar_chaves(e)
+    chaves = [c for e in encontradas for c in _chaves(e)]
+    if len(set(chaves)) != len(chaves):
+        raise ValueError(f"chave repetida entre extensões: {sorted({c for c in chaves if chaves.count(c) > 1})}")
     return tuple(encontradas)
+
+
+def _chaves(extensao: Extensao) -> list[str]:
+    return [x.chave for x in (*extensao.fontes, *extensao.etapas, *extensao.agendamentos)]
+
+
+def _validar_chaves(extensao: Extensao) -> None:
+    """Fontes, etapas e agendamentos levam o nome da extensão (`email.pasta`): ficam rastreáveis nos
+    eventos e nunca colidem com os de outra."""
+    prefixo = extensao.nome + "."
+    for chave in _chaves(extensao):
+        if not chave.startswith(prefixo):
+            raise ValueError(f"{extensao.nome}: a chave {chave!r} deve começar por {prefixo!r}")
 
 
 def _validar_compatibilidade(extensao: Extensao, instaladas: set[str]) -> None:
@@ -107,3 +125,37 @@ def acoes_leitura() -> list[dict]:
 
 def urlpatterns() -> list:
     return [path(e.prefixo_url, include(e.urls)) for e in extensoes() if e.urls]
+
+
+def fontes() -> tuple[FonteIngestao, ...]:
+    return tuple(f for e in extensoes() for f in e.fontes)
+
+
+def fonte(chave: str) -> FonteIngestao | None:
+    return next((f for f in fontes() if f.chave == chave), None)
+
+
+def etapas() -> tuple[EtapaProcessamento, ...]:
+    return tuple(t for e in extensoes() for t in e.etapas)
+
+
+def etapa(chave: str) -> EtapaProcessamento | None:
+    return next((t for t in etapas() if t.chave == chave), None)
+
+
+def casa(etapa_: EtapaProcessamento, artefato) -> bool:
+    """O artefato cai no filtro da etapa (tipo, categoria e sufixo do nome)?"""
+    conteudo = artefato.content or {}
+    if artefato.artifact_type not in etapa_.tipos:
+        return False
+    if etapa_.categorias and conteudo.get("categoria") not in etapa_.categorias:
+        return False
+    return not etapa_.sufixos or str(conteudo.get("nome", "")).lower().endswith(tuple(s.lower() for s in etapa_.sufixos))
+
+
+def etapas_para(artefato) -> list[EtapaProcessamento]:
+    return [t for t in etapas() if casa(t, artefato)]
+
+
+def agendamentos() -> tuple[Agendamento, ...]:
+    return tuple(a for e in extensoes() for a in e.agendamentos)

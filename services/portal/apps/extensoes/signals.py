@@ -7,11 +7,12 @@ nem impedir as outras; o motivo vai para o log e para o evento `extensao.consumi
 
 import logging
 
+from django.db import transaction
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 from django.utils.module_loading import import_string
 
-from apps.artifacts.models import ExtracaoPagina
+from apps.artifacts.models import Artifact, ExtracaoPagina
 
 from . import registro
 
@@ -36,3 +37,22 @@ def entregar_aos_consumidores(sender, instance, created, **kwargs):
                  subject_id=instance.document_text.document_id, tenant_id=instance.tenant_id,
                  message=f"{consumidor.rotulo}: registro automático falhou: {exc}",
                  payload={"extracao_id": str(instance.id), "consumidor": chave})
+
+
+@receiver(post_save, sender=Artifact)
+def despachar_etapas(sender, instance, created, **kwargs):
+    """Enfileira, depois do commit, cada etapa de extensão que combina com o artefato novo."""
+    if not created:
+        return
+    try:
+        etapas = registro.etapas_para(instance)
+    except Exception:
+        logger.exception("não foi possível escolher as etapas do artefato %s", instance.id)
+        return
+    if not etapas:
+        return
+    from .tasks import executar_etapa
+
+    for etapa in etapas:
+        transaction.on_commit(lambda e=etapa: executar_etapa.apply_async(
+            args=[e.chave, str(instance.id)], queue=e.fila or None))

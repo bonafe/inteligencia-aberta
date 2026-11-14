@@ -254,6 +254,11 @@ portal, workers e beat depois de mudar (todos carregam os mesmos apps), e rode a
 tiver modelos (o `bootstrap` já as aplica em todo `up`). A extensão roda no processo do portal com acesso
 total: **instale só código confiável**. O modelo mínimo está em `services/portal/exemplos/`.
 
+Uma extensão também pode trazer **fontes de ingestão** (`manage.py importar_fonte --listar`), **etapas de processamento** que rodam
+para cada artefato novo (`manage.py rodar_etapa --listar`, e `rodar_etapa <chave> --organizacao …` para os que já existem) e
+**agendamentos** do Beat. Uma etapa que declara uma `fila` própria (por exemplo uma que usa GPU) só roda se houver um worker
+escutando essa fila (`celery -A config worker -Q <fila>`): subi-lo, e dar a ele a GPU, é de quem implanta.
+
 ## Portas, rede e HTTPS
 
 Em produção só o **portal (8000)** e o **orchestrator (8001)** publicam porta, e só em `BIND_ADDR`. MCP, Postgres, Redis, Qdrant e Garage ficam na rede interna do compose. Com `--profile agora`, o **`agora-sync` (8787)** também publica porta em `BIND_ADDR` (necessária só sem Caddy; ver "Ultima Agora").
